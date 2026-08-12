@@ -2,14 +2,10 @@
 // shape the app code already uses (window.storage.get/set/delete), so
 // App.jsx did not need to be rewritten line-by-line.
 
-import { initializeApp } from "firebase/app";
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  deleteDoc,
-} from "firebase/firestore";
+// NOTE: Avoid importing firebase SDK at module top-level because
+// those imports can run during SSR/build and cause "window is not defined"
+// or other environment issues. Instead, dynamically import when running
+// in the browser.
 
 // Your actual Firebase project config (Shree Krushn PVC Furniture)
 const firebaseConfig = {
@@ -21,17 +17,25 @@ const firebaseConfig = {
   appId: "1:129070549337:web:2fe7ab7ebcfba2aefc2448",
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-// All data lives in a single Firestore collection called "app_data".
-// Every key the app uses (e.g. "customers", "jobs", "gallery") becomes
-// one document in that collection, matching the key/value shape the
-// original window.storage API used inside the Claude artifact.
 const COLLECTION = "app_data";
+
+// Lazily initialize Firebase in the browser only.
+let initPromise = null;
+async function initFirebase() {
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    const { initializeApp } = await import('firebase/app');
+    const { getFirestore, doc, getDoc, setDoc, deleteDoc } = await import('firebase/firestore');
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    return { db, doc, getDoc, setDoc, deleteDoc };
+  })();
+  return initPromise;
+}
 
 async function get(key) {
   try {
+    const { db, doc, getDoc } = await initFirebase();
     const snap = await getDoc(doc(db, COLLECTION, key));
     if (!snap.exists()) return null;
     return { key, value: snap.data().value };
@@ -43,6 +47,7 @@ async function get(key) {
 
 async function set(key, value) {
   try {
+    const { db, doc, setDoc } = await initFirebase();
     await setDoc(doc(db, COLLECTION, key), { value });
     return { key, value };
   } catch (e) {
@@ -53,6 +58,7 @@ async function set(key, value) {
 
 async function del(key) {
   try {
+    const { db, doc, deleteDoc } = await initFirebase();
     await deleteDoc(doc(db, COLLECTION, key));
     return { key, deleted: true };
   } catch (e) {
@@ -64,6 +70,9 @@ async function del(key) {
 // Installs the adapter as window.storage so the existing App.jsx code
 // (written for the Claude artifact environment) works unmodified.
 export function installWindowStorage() {
+  if (typeof window === 'undefined') return; // server/build: do nothing
+
+  // Provide async methods that will initialize Firebase lazily when first used.
   window.storage = {
     get: (key) => get(key),
     set: (key, value) => set(key, value),
