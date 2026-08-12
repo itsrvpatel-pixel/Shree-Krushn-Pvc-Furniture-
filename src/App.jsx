@@ -3156,4 +3156,4 @@ apptConfirmedBlock: { display: ‘flex’, alignItems: ‘center’, gap: 10, ba
 apptConfirmedDate: { fontWeight: 800, fontSize: 13.5, color: ‘#1F5C38’ },
 
 toast: { position: ‘fixed’, bottom: 90, left: ‘50%’, transform: ‘translateX(-50%)’, color: ‘#FFF’, padding: ‘9px 18px’, borderRadius: 20, fontSize: 12.5, fontWeight: 700, zIndex: 60, maxWidth: ‘85%’, textAlign: ‘center’ },
-};
+}; 
