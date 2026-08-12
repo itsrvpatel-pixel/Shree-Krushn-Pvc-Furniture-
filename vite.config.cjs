@@ -10,6 +10,8 @@ const CURLY_SINGLE_OPEN = String.fromCharCode(8216);
 const CURLY_SINGLE_CLOSE = String.fromCharCode(8217);
 const STRAIGHT_DOUBLE = String.fromCharCode(34);
 const STRAIGHT_SINGLE = String.fromCharCode(39);
+const ELLIPSIS_CHAR = String.fromCharCode(8230);
+const THREE_DOTS = String.fromCharCode(46, 46, 46);
 
 function fixSmartQuotesPlugin() {
   return {
@@ -22,6 +24,7 @@ function fixSmartQuotesPlugin() {
       fixed = fixed.split(CURLY_DOUBLE_CLOSE).join(STRAIGHT_DOUBLE);
       fixed = fixed.split(CURLY_SINGLE_OPEN).join(STRAIGHT_SINGLE);
       fixed = fixed.split(CURLY_SINGLE_CLOSE).join(STRAIGHT_SINGLE);
+      fixed = fixed.split(ELLIPSIS_CHAR).join(THREE_DOTS);
       if (fixed === code) return null;
       return { code: fixed, map: null };
     },
