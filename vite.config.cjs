@@ -12,6 +12,23 @@ const STRAIGHT_DOUBLE = String.fromCharCode(34);
 const STRAIGHT_SINGLE = String.fromCharCode(39);
 const ELLIPSIS_CHAR = String.fromCharCode(8230);
 const THREE_DOTS = String.fromCharCode(46, 46, 46);
+const BACKTICK = String.fromCharCode(96);
+const NEWLINE_CHAR = String.fromCharCode(10);
+const CARRIAGE_RETURN = String.fromCharCode(13);
+const EMPTY_STRING = String.fromCharCode();
+
+function stripStrayCodeFenceLines(code) {
+  const lines = code.split(NEWLINE_CHAR);
+  const kept = [];
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const trimmed = rawLine.split(CARRIAGE_RETURN).join(EMPTY_STRING).trim();
+    const fence = BACKTICK + BACKTICK + BACKTICK;
+    if (trimmed === fence) continue;
+    kept.push(rawLine);
+  }
+  return kept.join(NEWLINE_CHAR);
+}
 
 function fixSmartQuotesPlugin() {
   return {
@@ -25,6 +42,7 @@ function fixSmartQuotesPlugin() {
       fixed = fixed.split(CURLY_SINGLE_OPEN).join(STRAIGHT_SINGLE);
       fixed = fixed.split(CURLY_SINGLE_CLOSE).join(STRAIGHT_SINGLE);
       fixed = fixed.split(ELLIPSIS_CHAR).join(THREE_DOTS);
+      fixed = stripStrayCodeFenceLines(fixed);
       if (fixed === code) return null;
       return { code: fixed, map: null };
     },
