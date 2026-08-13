@@ -82,11 +82,11 @@ if (!iso) return ‘’;
 const diff = Date.now() - new Date(iso).getTime();
 const min = Math.floor(diff / 60000);
 if (min < 1) return ‘abhi’;
-if (min < 60) return `${min}m pehle`;
+if (min < 60) return min + ‘m pehle’;
 const hr = Math.floor(min / 60);
-if (hr < 24) return `${hr}h pehle`;
+if (hr < 24) return hr + ‘h pehle’;
 const day = Math.floor(hr / 24);
-if (day < 7) return `${day}d pehle`;
+if (day < 7) return day + ‘d pehle’;
 return formatDate(iso);
 }
 const BUSINESS = {
@@ -171,21 +171,21 @@ return (Number(it.qty) || 1) * (Number(it.rate) || 0);
 // item list with sq-ft/amount, grand total, and a short terms line.
 function buildEstimateWhatsAppText(job) {
 const lines = [];
-lines.push(`*${BUSINESS.name}*`);
-lines.push(`Estimate for ${job.customerName}`);
+lines.push(’*’ + BUSINESS.name + ’*’);
+lines.push(‘Estimate for ’ + job.customerName);
 lines.push(’’);
 (job.items || []).forEach((it, i) => {
 const sqft = estimateItemSqft(it);
-const dims = sqft !== null ? ` (${it.length}'×${it.height}' = ${sqft.toFixed(2)} sqft)` : ‘’;
-lines.push(`${i + 1}. ${it.desc}${dims} — ${currency(estimateItemAmount(it))}`);
+const dims = sqft !== null ? (’ (’ + it.length + “‘x” + it.height + “’ = “ + sqft.toFixed(2) + ’ sqft)’) : ‘’;
+lines.push((i + 1) + ‘. ’ + it.desc + dims + ’ - ’ + currency(estimateItemAmount(it)));
 });
 lines.push(’’);
-lines.push(`*Grand Total: ${currency(jobTotal(job))}*`);
+lines.push(’*Grand Total: ’ + currency(jobTotal(job)) + ’*’);
 const due = jobDue(job);
-if (due > 0) lines.push(`Due: ${currency(due)}`);
+if (due > 0) lines.push(‘Due: ’ + currency(due));
 lines.push(’’);
 lines.push(‘Payment: 50% advance, 40% midway, 10% on completion.’);
-lines.push(`${BUSINESS.phone} · ${BUSINESS.website}`);
+lines.push(BUSINESS.phone + ’ - ’ + BUSINESS.website);
 return lines.join(NEWLINE);
 }
 function whatsAppShareUrl(phoneDigits10, text) {
@@ -394,7 +394,7 @@ function openOrDownloadPdf(url, filename) {
 try {
 const a = document.createElement(‘a’);
 a.href = url;
-a.download = filename.endsWith(’.pdf’) ? filename : `${filename}.pdf`;
+a.download = filename.endsWith(’.pdf’) ? filename : (filename + ‘.pdf’);
 a.target = ‘_blank’;
 a.rel = ‘noopener noreferrer’;
 document.body.appendChild(a);
@@ -442,7 +442,7 @@ return (
 <div style={styles.itemDesc}>{b.name}</div>
 
 ```
-            <div style={styles.itemSub}>{b.sizeKb ? `${b.sizeKb} KB` : ''}</div>
+            <div style={styles.itemSub}>{b.sizeKb ? (b.sizeKb + ' KB') : ''}</div>
           </div>
           <button style={styles.brochureOpenBtn} onClick={() => openBrochure(b)} disabled={loadingId === b.id}>
             {loadingId === b.id ? '…' : <Download size={13} />}
@@ -720,7 +720,7 @@ persistCustomers(next);
 const job = emptyJob(cust.id, cust.name, cust.phone);
 persistJobs([job, …jobs]);
 setSession({ role: ‘customer’, customerId: cust.id });
-showToast(`Registered! Welcome ${cust.name}`);
+showToast(’Registered! Welcome ’ + cust.name);
 }}
 onAdminLogin={(staffName, role) => setSession({ role: role || ‘admin’, staffName })}
 />
@@ -1160,7 +1160,7 @@ return (
 <StageBadge status={job.status} />
 </div>
 <div style={styles.progressTrack}>
-<div style={{ …styles.progressFill, width: `${pct}%`, background: BRAND.gold }} />
+<div style={{ …styles.progressFill, width: pct + ‘%’, background: BRAND.gold }} />
 </div>
 <div style={styles.progressLabels}>
 {STATUS_ORDER.map((s, i) => (
@@ -2166,8 +2166,8 @@ return (
           <div style={styles.itemDesc}>{it.desc}</div>
           <div style={styles.itemSub}>
             {estimateItemSqft(it) !== null
-              ? `${it.length}' × ${it.height}' = ${estimateItemSqft(it).toFixed(2)} sq ft × ${currency(it.rate)}`
-              : `${it.qty || 1} × ${currency(it.rate)}`}
+              ? (it.length + "' x " + it.height + "' = " + estimateItemSqft(it).toFixed(2) + ' sq ft x ' + currency(it.rate))
+              : ((it.qty || 1) + ' x ' + currency(it.rate))}
           </div>
         </div>
         <div style={styles.itemAmount}>{currency(estimateItemAmount(it))}</div>
@@ -2353,7 +2353,7 @@ const updateStatus = (status) => {
 let next = { …job, status };
 next = logActivity(next, `Status updated: ${STATUS[status].label}`);
 onSave(next);
-showToast(`Status set to ${STATUS[status].label}`);
+showToast(’Status set to ’ + STATUS[status].label);
 };
 
 const addItem = () => {
@@ -2596,7 +2596,7 @@ if (files.length === 0) return;
 const imageFiles = files.filter((f) => f.type.startsWith(‘image/’));
 if (imageFiles.length === 0) { showToast(‘Sirf image files select karein’, true); return; }
 if (imageFiles.length < files.length) {
-showToast(`${files.length - imageFiles.length} file(s) skip ki gayi (image nahi thi)`, true);
+showToast((files.length - imageFiles.length) + ’ file(s) skip ki gayi (image nahi thi)’, true);
 }
 setUploading(true);
 setUploadProgress({ done: 0, total: imageFiles.length });
@@ -2606,12 +2606,12 @@ try {
 const dataUri = await prepareImageForUpload(file);
 const sizeBytes = dataUriByteSize(dataUri);
 if (sizeBytes > MAX_PHOTO_BYTES) {
-showToast(`'${file.name}' bahut badi hai (${(sizeBytes / (1024 * 1024)).toFixed(1)}MB) — skip ki gayi`, true);
+showToast(”’” + file.name + “’ bahut badi hai (” + (sizeBytes / (1024 * 1024)).toFixed(1) + ‘MB) - skip ki gayi’, true);
 } else {
 results.push({ dataUri, sizeMb: (sizeBytes / (1024 * 1024)).toFixed(1), name: file.name });
 }
 } catch (err) {
-showToast(`'${file.name}' process nahi ho payi, skip ki gayi`, true);
+showToast(”’” + file.name + “’ process nahi ho payi, skip ki gayi”, true);
 }
 setUploadProgress((p) => ({ done: (p ? p.done : 0) + 1, total: imageFiles.length }));
 }
@@ -2631,7 +2631,7 @@ if (pendingUploads.length === 0) return;
 for (const p of pendingUploads) {
 onAdd({ url: p.dataUri, origUrl: null, caption: caption.trim() });
 }
-showToast(`${pendingUploads.length} photo${pendingUploads.length !== 1 ? 's' : ''} add ho gayi`);
+showToast(pendingUploads.length + ’ photo’ + (pendingUploads.length !== 1 ? ‘s’ : ‘’) + ’ add ho gayi’);
 setPendingUploads([]);
 setCaption(’’);
 };
@@ -2712,7 +2712,7 @@ return (
 /* –– Admin gallery manager –– */
 function AdminGallery({ gallery, setGallery, categories, setCategories, showToast }) {
 const [activeCat, setActiveCat] = useState(categories[0]);
-const [bulkText, setBulkText] = useState('');
+const [bulkText, setBulkText] = useState(’’);
 const [showBulk, setShowBulk] = useState(false);
 const [query, setQuery] = useState(’’);
 const [editingPhoto, setEditingPhoto] = useState(null);
@@ -2723,7 +2723,7 @@ const photos = allPhotos.filter((p) => !query.trim() || (p.caption || ‘’).to
 const addPhotoFromPanel = (url, origUrl, caption) => {
 const next = { …gallery, [activeCat]: [{ id: uid(), url, origUrl, caption }, …allPhotos] };
 setGallery(next);
-showToast(urls.length + " photos added to " + activeCat);
+showToast(’Photo added to ’ + activeCat);
 };
 
 const addBulk = () => {
@@ -2734,7 +2734,7 @@ const next = { …gallery, [activeCat]: […newPhotos, …allPhotos] };```
 setGallery(next);
 setBulkText('');
 setShowBulk(false);
-showToast(`${urls.length} photos added to ${activeCat}`);
+showToast(urls.length + ' photos added to ' + activeCat);
 ```
 
 };
@@ -2753,7 +2753,7 @@ setGallery({
 [activeCat]: remaining,
 [newCategory]: [{ …photo, caption: newCaption }, …targetPhotos],
 });
-showToast(`Photo ${newCategory} mein move ho gayi`);
+showToast(‘Photo ’ + newCategory + ’ mein move ho gayi’);
 }
 setEditingPhoto(null);
 };
@@ -3356,7 +3356,7 @@ try {
 const dataUri = await fileToDataUri(file);
 const sizeBytes = dataUriByteSize(dataUri);
 if (sizeBytes > MAX_BROCHURE_BYTES) {
-showToast(`PDF bahut badi hai (${(sizeBytes / (1024 * 1024)).toFixed(1)}MB) — ${(MAX_BROCHURE_BYTES / (1024 * 1024)).toFixed(0)}MB se choti file try karein`, true);
+showToast(‘PDF bahut badi hai (’ + (sizeBytes / (1024 * 1024)).toFixed(1) + ‘MB) - ’ + (MAX_BROCHURE_BYTES / (1024 * 1024)).toFixed(0) + ‘MB se choti file try karein’, true);
 return;
 }
 const nameLower = file.name.toLowerCase();
@@ -3634,4 +3634,4 @@ apptConfirmedBlock: { display: ‘flex’, alignItems: ‘center’, gap: 10, ba
 apptConfirmedDate: { fontWeight: 800, fontSize: 13.5, color: ‘#1F5C38’ },
 
 toast: { position: ‘fixed’, bottom: 90, left: ‘50%’, transform: ‘translateX(-50%)’, color: ‘#FFF’, padding: ‘9px 18px’, borderRadius: 20, fontSize: 12.5, fontWeight: 700, zIndex: 60, maxWidth: ‘85%’, textAlign: ‘center’ },
-}; 
+};
