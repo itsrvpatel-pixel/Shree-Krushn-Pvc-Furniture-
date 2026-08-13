@@ -884,7 +884,8 @@ if (!digits10 || digits10.length !== 10) return digits10 || ‘’;
 return `+91 ${digits10.slice(0, 5)} ${digits10.slice(5)}`;
 }
 
-function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {const [mode, setMode] = useState(‘choose’);
+function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
+const [mode, setMode] = useState(‘choose’);
 const [name, setName] = useState(’’);
 const [phone, setPhone] = useState(’’);
 const [pin, setPin] = useState(’’);
@@ -892,8 +893,7 @@ const [error, setError] = useState(’’);
 
 // OTP verification state — shared by both register and login flows.
 const [otpStage, setOtpStage] = useState(false); // false | ‘register’ | ‘login’
-const [sentOtp, setSentOtp] = useState(’’);
-const [otpInput, setOtpInput] = useState(’’);
+const [sentOtp, setSentOtp] = useState(’’);const [otpInput, setOtpInput] = useState(’’);
 const [pendingPhone, setPendingPhone] = useState(’’);
 
 const sendOtp = (forMode) => {
@@ -1796,7 +1796,6 @@ return (
 ```
   {tab === 'home' && (
     <AdminHome
-``````
       customers={customers} jobs={jobs} gallery={gallery} categories={categories}
       pendingEstimates={pendingEstimates} overdue={overdue} pendingAppointments={pendingAppointments}
       onOpenJob={setActiveJobId} setTab={setTab} isPartner={isPartner}
@@ -1815,6 +1814,7 @@ return (
   <BottomNav
     tab={tab} setTab={setTab}
     items={isPartner ? [
+``````
       { key: 'home', label: 'Home', icon: <Home size={18} /> },
       { key: 'customers', label: 'Customers', icon: <User size={18} /> },
       { key: 'gallery', label: 'Gallery', icon: <Grid3x3 size={18} /> },
@@ -2582,35 +2582,57 @@ const [mode, setMode] = useState(‘upload’); // upload | link
 const [linkValue, setLinkValue] = useState(’’);
 const [caption, setCaption] = useState(’’);
 const [uploading, setUploading] = useState(false);
-const [pendingUpload, setPendingUpload] = useState(null); // { dataUri, name }
+const [uploadProgress, setUploadProgress] = useState(null); // { done, total }
+// Holds one or more processed photos awaiting confirmation. Kept as an
+// array even for a single photo so the multi-select flow (picking
+// several files at once) and the single-photo flow share one code path.
+const [pendingUploads, setPendingUploads] = useState([]); // [{ dataUri, sizeMb, name }]
 const fileInputRef = React.useRef(null);
 
-const handleFilePicked = async (e) => {
-const file = e.target.files && e.target.files[0];
-e.target.value = ‘’; // allow picking the same file again later
-if (!file) return;
-if (!file.type.startsWith(‘image/’)) { showToast(‘Sirf image file select karein’, true); return; }
+const handleFilesPicked = async (e) => {
+const files = Array.from(e.target.files || []);
+e.target.value = ‘’; // allow picking the same file(s) again later
+if (files.length === 0) return;
+const imageFiles = files.filter((f) => f.type.startsWith(‘image/’));
+if (imageFiles.length === 0) { showToast(‘Sirf image files select karein’, true); return; }
+if (imageFiles.length < files.length) {
+showToast(`${files.length - imageFiles.length} file(s) skip ki gayi (image nahi thi)`, true);
+}
 setUploading(true);
+setUploadProgress({ done: 0, total: imageFiles.length });
+const results = [];
+for (const file of imageFiles) {
 try {
 const dataUri = await prepareImageForUpload(file);
-const sizeMb = (dataUriByteSize(dataUri) / (1024 * 1024)).toFixed(1);
-if (dataUriByteSize(dataUri) > MAX_PHOTO_BYTES) {
-showToast(`Photo bahut badi hai (${sizeMb}MB) — chhoti photo try karein`, true);
-setUploading(false);
-return;
+const sizeBytes = dataUriByteSize(dataUri);
+if (sizeBytes > MAX_PHOTO_BYTES) {
+showToast(`'${file.name}' bahut badi hai (${(sizeBytes / (1024 * 1024)).toFixed(1)}MB) — skip ki gayi`, true);
+} else {
+results.push({ dataUri, sizeMb: (sizeBytes / (1024 * 1024)).toFixed(1), name: file.name });
 }
-setPendingUpload({ dataUri, sizeMb });
 } catch (err) {
-showToast(‘Photo process nahi ho payi, dobara try karein’, true);
-} finally {
-setUploading(false);
+showToast(`'${file.name}' process nahi ho payi, skip ki gayi`, true);
 }
+setUploadProgress((p) => ({ done: (p ? p.done : 0) + 1, total: imageFiles.length }));
+}
+setPendingUploads((prev) => […prev, …results]);
+setUploading(false);
+setUploadProgress(null);
 };
 
-const confirmUpload = () => {
-if (!pendingUpload) return;
-onAdd({ url: pendingUpload.dataUri, origUrl: null, caption: caption.trim() });
-setPendingUpload(null);
+const removePending = (idx) => setPendingUploads((prev) => prev.filter((_, i) => i !== idx));
+
+const confirmUploads = () => {
+if (pendingUploads.length === 0) return;
+// A single shared caption applies to every photo in this batch —
+// captions can still be edited individually afterward from the
+// gallery’s own photo-edit dialog if a particular photo needs a
+// different one.
+for (const p of pendingUploads) {
+onAdd({ url: p.dataUri, origUrl: null, caption: caption.trim() });
+}
+showToast(`${pendingUploads.length} photo${pendingUploads.length !== 1 ? 's' : ''} add ho gayi`);
+setPendingUploads([]);
 setCaption(’’);
 };
 
@@ -2635,30 +2657,39 @@ return (
 ```
   {mode === 'upload' && (
     <div style={{ marginTop: 12 }}>
-      {!pendingUpload ? (
+      {pendingUploads.length === 0 ? (
         <>
-          <input ref={fileInputRef} type='file' accept='image/*' style={{ display: 'none' }} onChange={handleFilePicked} />
+          <input ref={fileInputRef} type='file' accept='image/*' multiple style={{ display: 'none' }} onChange={handleFilesPicked} />
           <button style={styles.uploadTapArea} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
             {uploading ? (
-              <span style={styles.uploadHint}>Processing…</span>
+              <span style={styles.uploadHint}>{uploadProgress ? `Processing ${uploadProgress.done}/${uploadProgress.total}…` : 'Processing…'}</span>
             ) : (
               <>
                 <Camera size={22} color={BRAND.gold} />
-                <span style={styles.uploadHint}>Camera se click karein ya gallery se select karein</span>
+                <span style={styles.uploadHint}>Camera se click karein ya gallery se ek ya zyada photos select karein</span>
               </>
             )}
           </button>
         </>
       ) : (
         <div>
-          <div style={styles.previewWrap}>
-            <img src={pendingUpload.dataUri} alt='preview' style={styles.previewImg} />
+          <div style={styles.multiPhotoPreviewGrid}>
+            {pendingUploads.map((p, i) => (
+              <div key={i} style={styles.multiPhotoPreviewItem}>
+                <img src={p.dataUri} alt='preview' style={styles.multiPhotoPreviewImg} />
+                <button style={styles.multiPhotoPreviewRemove} onClick={() => removePending(i)}><X size={12} color='#FFF' /></button>
+              </div>
+            ))}
+            <button style={styles.multiPhotoPreviewAddMore} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
+              <Plus size={18} color={BRAND.gold} />
+            </button>
           </div>
-          <div style={styles.hintText}>Size: {pendingUpload.sizeMb}MB — poori quality mein save hogi.</div>
-          <input style={{ ...styles.input, marginTop: 8 }} placeholder='Caption (optional)' value={caption} onChange={(e) => setCaption(e.target.value)} />
+          <input ref={fileInputRef} type='file' accept='image/*' multiple style={{ display: 'none' }} onChange={handleFilesPicked} />
+          <div style={styles.hintText}>{pendingUploads.length} photo{pendingUploads.length !== 1 ? 's' : ''} ready — poori quality mein save hongi.</div>
+          <input style={{ ...styles.input, marginTop: 8 }} placeholder='Caption (optional, sabpar lagega)' value={caption} onChange={(e) => setCaption(e.target.value)} />
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={confirmUpload}><Check size={14} /> {addLabel || 'Add photo'}</button>
-            <button style={styles.cancelBtn} onClick={() => setPendingUpload(null)}>Cancel</button>
+            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={confirmUploads}><Check size={14} /> {addLabel || `Add ${pendingUploads.length} photo${pendingUploads.length !== 1 ? 's' : ''}`}</button>
+            <button style={styles.cancelBtn} onClick={() => setPendingUploads([])}>Cancel</button>
           </div>
         </div>
       )}
@@ -2699,11 +2730,14 @@ const addBulk = () => {
 const urls = bulkText.split(NEWLINE).map((l) => l.trim()).filter(Boolean);
 if (urls.length === 0) return;
 const newPhotos = urls.map((u) => ({ id: uid(), url: toDirectImageUrl(u), origUrl: u, caption: ‘’ }));
-const next = { …gallery, [activeCat]: […newPhotos, …allPhotos] };
+const next = { …gallery, [activeCat]: […newPhotos, …allPhotos] };```
 setGallery(next);
-setBulkText(’’);
+setBulkText('');
 setShowBulk(false);
-showToast(`${urls.length} photos added to ${activeCat}`);};
+showToast(`${urls.length} photos added to ${activeCat}`);
+```
+
+};
 
 const removePhoto = (id) => setGallery({ …gallery, [activeCat]: allPhotos.filter((p) => p.id !== id) });
 
@@ -3429,6 +3463,11 @@ photoDeleteBtn: { position: ‘absolute’, top: 4, right: 4, background: ‘rgb
 photoEditTapArea: { display: ‘block’, width: ‘100%’, padding: 0, border: ‘none’, background: ‘none’, cursor: ‘pointer’ },
 
 previewWrap: { marginTop: 8, borderRadius: 8, overflow: ‘hidden’, border: `1px solid ${BRAND.line}`, maxHeight: 140 },
+multiPhotoPreviewGrid: { display: ‘grid’, gridTemplateColumns: ‘repeat(3, 1fr)’, gap: 6, marginTop: 8 },
+multiPhotoPreviewItem: { position: ‘relative’, borderRadius: 8, overflow: ‘hidden’, border: `1px solid ${BRAND.line}`, aspectRatio: ‘1’, background: ‘#EEF0F5’ },
+multiPhotoPreviewImg: { width: ‘100%’, height: ‘100%’, objectFit: ‘cover’, display: ‘block’ },
+multiPhotoPreviewRemove: { position: ‘absolute’, top: 3, right: 3, width: 20, height: 20, borderRadius: 10, background: ‘rgba(15,27,61,0.75)’, border: ‘none’, cursor: ‘pointer’, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’ },
+multiPhotoPreviewAddMore: { border: `1.5px dashed ${BRAND.line}`, borderRadius: 8, aspectRatio: ‘1’, background: BRAND.paper, cursor: ‘pointer’, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’ },
 modeToggleRow: { display: ‘flex’, gap: 6 },
 modeToggleBtn: { flex: 1, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, gap: 6, border: `1px solid ${BRAND.line}`, background: BRAND.paper, borderRadius: 9, padding: ‘9px’, fontSize: 12, fontWeight: 700, color: BRAND.textMuted, cursor: ‘pointer’, fontFamily: ‘inherit’ },
 modeToggleBtnActive: { background: BRAND.navy, color: ‘#FFF’, borderColor: BRAND.navy },
