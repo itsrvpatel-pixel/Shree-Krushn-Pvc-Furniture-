@@ -2712,7 +2712,7 @@ return (
 /* –– Admin gallery manager –– */
 function AdminGallery({ gallery, setGallery, categories, setCategories, showToast }) {
 const [activeCat, setActiveCat] = useState(categories[0]);
-const [bulkText, setBulkText] = useState(’’);
+  const [bulkText, setBulkText] = useState('');
 const [showBulk, setShowBulk] = useState(false);
 const [query, setQuery] = useState(’’);
 const [editingPhoto, setEditingPhoto] = useState(null);
