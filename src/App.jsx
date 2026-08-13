@@ -5,7 +5,8 @@ ChevronRight, ChevronLeft, Trash2, Edit3, Search, CheckCircle2,
 Image as ImageIcon, Star, MessageSquare, Grid3x3, LogOut, ShieldCheck,
 Camera, Send, ArrowLeft, SlidersHorizontal, Lock,
 Home, Sparkles, AlertTriangle, Link2, Check, Package, FileText,
-UserPlus, Users, Download, Eye, EyeOff, TrendingUp
+UserPlus, Users, Download, Eye, EyeOff, TrendingUp,
+Bell, ThumbsUp, XCircle, AlertCircle
 } from ‘lucide-react’;
 
 /* ===========================================================
@@ -152,6 +153,49 @@ return (job.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
 function jobDue(job) {
 return Math.max(0, jobTotal(job) - jobPaid(job));
 }
+
+// Per-project profit: revenue actually collected for this job, minus any
+// expenses explicitly linked to it (via expense.jobId). Uses collected
+// payments rather than the full estimate total, since profit realized so
+// far is what’s actually in hand - an unpaid estimate isn’t profit yet.
+// Expenses with no jobId (general/shared costs) are deliberately excluded
+// here; they show up in the overall business totals instead.
+function jobProfit(job, allExpenses) {
+const collected = jobPaid(job);
+const linkedExpenses = (allExpenses || []).filter((e) => e.jobId === job.id).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+return { collected, linkedExpenses, profit: collected - linkedExpenses };
+}
+
+// Payment milestones: standard 50/40/10 split tied to work stages -
+// 50% when material is ordered/arrives (status moves to in_progress),
+// 40% during the work itself, 10% on completion (delivered). This gives
+// admin a clear “how much should be collected by now” figure instead of
+// just a single total-due number, matching how the business actually
+// structures payment requests with customers.
+const PAYMENT_MILESTONES = [
+{ key: ‘material’, label: ‘Material Advance (50%)’, percent: 0.5, atStatus: ‘in_progress’ },
+{ key: ‘during_work’, label: ‘During Work (40%)’, percent: 0.4, atStatus: ‘delivered’ },
+{ key: ‘completion’, label: ‘On Completion (10%)’, percent: 0.1, atStatus: ‘paid’ },
+];
+// Returns each milestone’s amount, whether it’s been “reached” (job status
+// has progressed far enough to owe it), and how much of it remains
+// unpaid - allocating actual payments against milestones in order, so a
+// partial payment fills the earliest open milestone first rather than
+// being split evenly across all three.
+function jobMilestoneStatus(job) {
+const total = jobTotal(job);
+const paid = jobPaid(job);
+const statusIdx = STATUS_ORDER.indexOf(job.status);
+let remainingPaid = paid;
+return PAYMENT_MILESTONES.map((m) => {
+const amount = Math.round(total * m.percent);
+const reached = statusIdx >= STATUS_ORDER.indexOf(m.atStatus);
+const appliedToThis = Math.min(remainingPaid, amount);
+remainingPaid -= appliedToThis;
+const due = Math.max(0, amount - appliedToThis);
+return { …m, amount, reached, paidSoFar: appliedToThis, due: reached ? due : 0, upcoming: !reached ? due : 0 };
+});
+}
 // Estimate item: either sq-ft based (length x height x rate) or a flat qty x rate line.
 // sqft = (length * height) / 144 when length/height are in inches, matching the
 // business’s real quotation sheet (e.g. 145 x 112 => 112.78 sq ft @ rate/sqft).
@@ -190,8 +234,8 @@ return lines.join(NEWLINE);
 }
 function whatsAppShareUrl(phoneDigits10, text) {
 const encoded = encodeURIComponent(text);
-if (phoneDigits10) return `https://wa.me/91${phoneDigits10}?text=${encoded}`;
-return `https://wa.me/?text=${encoded}`;
+if (phoneDigits10) return ‘https://wa.me/91’ + phoneDigits10 + ‘?text=’ + encoded;
+return ‘https://wa.me/?text=’ + encoded;
 }
 
 /* — Google Drive / common share-link -> direct image link converter —
@@ -220,7 +264,7 @@ function toDirectImageUrl(input) {
 const url = input.trim();
 if (!url) return url;
 const driveId = extractDriveId(url);
-if (driveId) return `https://lh3.googleusercontent.com/d/${driveId}=w1000`;
+if (driveId) return ‘https://lh3.googleusercontent.com/d/’ + driveId + ‘=w1000’;
 if (url.includes(‘dropbox.com’) && url.includes(‘dl=0’)) return url.replace(‘dl=0’, ‘raw=1’);
 return url;
 }
@@ -230,9 +274,9 @@ const url = input.trim();
 const driveId = extractDriveId(url);
 if (driveId) {
 return [
-`https://lh3.googleusercontent.com/d/${driveId}=w1000`,
-`https://drive.google.com/uc?export=view&id=${driveId}`,
-`https://drive.google.com/thumbnail?id=${driveId}&sz=w1000`,
+‘https://lh3.googleusercontent.com/d/’ + driveId + ‘=w1000’,
+‘https://drive.google.com/uc?export=view&id=’ + driveId,
+‘https://drive.google.com/thumbnail?id=’ + driveId + ‘&sz=w1000’,
 ];
 }
 if (url.includes(‘dropbox.com’) && url.includes(‘dl=0’)) return [url.replace(‘dl=0’, ‘raw=1’)];
@@ -472,6 +516,7 @@ const [staff, setStaff] = useState([]);
 const [expenses, setExpenses] = useState([]);
 const [appointmentItemOptions, setAppointmentItemOptions] = useState(DEFAULT_CATEGORIES);
 const [categories, setCategoriesRaw] = useState(DEFAULT_CATEGORIES);
+const [notifications, setNotificationsRaw] = useState([]);
 const [brochures, setBrochures] = useState([]);
 const [session, setSessionRaw] = useState(() => loadStoredSession());
 // Wraps setSession so every update (login, logout, role switch) is
@@ -486,10 +531,10 @@ const [toast, setToast] = useState(null);
 useEffect(() => {
 (async () => {
 try {
-const [g, c, j, p, st, exp, pp, aio, br, cats] = await Promise.all([
+const [g, c, j, p, st, exp, pp, aio, br, cats, notifs] = await Promise.all([
 safeGet(‘gallery’), safeGet(‘customers’), safeGet(‘jobs’), safeGet(‘admin_pin’), safeGet(‘staff’),
 safeGet(‘expenses’), safeGet(‘partner_pin’), safeGet(‘appointment_item_options’), safeGet(‘brochures’),
-safeGet(‘categories’),
+safeGet(‘categories’), safeGet(‘notifications’),
 ]);
 if (g) setGallery(await hydrateGalleryPhotos(JSON.parse(g)));
 if (c) setCustomers(JSON.parse(c));
@@ -501,6 +546,7 @@ if (pp) setPartnerPin(pp);
 if (aio) setAppointmentItemOptions(JSON.parse(aio));
 if (br) setBrochures(JSON.parse(br));
 if (cats) setCategoriesRaw(JSON.parse(cats));
+if (notifs) setNotificationsRaw(JSON.parse(notifs));
 } finally {
 setLoaded(true);
 }
@@ -534,6 +580,23 @@ if (aio) setAppointmentItemOptions(JSON.parse(aio));
 return () => clearInterval(poll);
 }, [loaded]);
 
+// Notifications get their own, faster poll (8s vs the general 20s) since
+// a bell/alert system feels broken if a new notification takes 20
+// seconds to show up - people expect near-immediate feedback here in a
+// way they don’t for a gallery photo appearing.
+useEffect(() => {
+if (!loaded) return;
+const poll = setInterval(async () => {
+try {
+const notifs = await safeGet(‘notifications’);
+if (notifs) setNotificationsRaw(JSON.parse(notifs));
+} catch (e) {
+// best effort
+}
+}, 8000);
+return () => clearInterval(poll);
+}, [loaded]);
+
 async function safeGet(key) {
 try {
 const res = await window.storage.get(key, true);
@@ -555,7 +618,7 @@ for (const cat of Object.keys(galleryMeta)) {
 for (const p of galleryMeta[cat] || []) allIds.push(p.id);
 }
 if (allIds.length === 0) return galleryMeta;
-const fetched = await Promise.all(allIds.map((id) => safeGet(`gallery_photo_${id}`)));
+const fetched = await Promise.all(allIds.map((id) => safeGet(‘gallery_photo_’ + id)));
 const photoDataById = {};
 allIds.forEach((id, i) => {
 if (fetched[i]) {
@@ -609,7 +672,7 @@ meta[cat] = (next[cat] || []).map((p) => {
 const prev = prevPhotoById[p.id];
 const changed = !prev || prev.url !== p.url || prev.origUrl !== p.origUrl;
 if (changed) {
-writes.push(window.storage.set(`gallery_photo_${p.id}`, JSON.stringify({ url: p.url, origUrl: p.origUrl }), true));
+writes.push(window.storage.set(‘gallery_photo_’ + p.id, JSON.stringify({ url: p.url, origUrl: p.origUrl }), true));
 }
 return { id: p.id, caption: p.caption || ‘’ };
 });
@@ -657,6 +720,40 @@ setCategoriesRaw(next);
 try { await window.storage.set(‘categories’, JSON.stringify(next), true); }
 catch (e) { showToast(‘Save failed’, true); }
 }, []);
+// Notifications are a single shared, capped list (see NOTIFICATION_CAP
+// below) rather than per-user inboxes, since every admin/staff/partner
+// sees the same operational events (new appointment, estimate response,
+// payment update). “Read” state is tracked per-viewer inside each
+// notification’s own readBy array, so one staff member opening the bell
+// doesn’t clear the unread badge for everyone else.
+const persistNotifications = useCallback(async (next) => {
+setNotificationsRaw(next);
+try { await window.storage.set(‘notifications’, JSON.stringify(next), true); }
+catch (e) { /* best effort - a failed notification save shouldn’t block the action that triggered it */ }
+}, []);
+const NOTIFICATION_CAP = 200;
+const pushNotification = useCallback((type, message, jobId) => {
+setNotificationsRaw((current) => {
+const entry = { id: uid(), type, message, jobId: jobId || null, createdAt: new Date().toISOString(), readBy: [] };
+const next = [entry, …current].slice(0, NOTIFICATION_CAP);
+window.storage.set(‘notifications’, JSON.stringify(next), true).catch(() => {});
+return next;
+});
+}, []);
+const markNotificationRead = useCallback((notificationId, viewerKey) => {
+setNotificationsRaw((current) => {
+const next = current.map((n) => (n.id === notificationId && !n.readBy.includes(viewerKey) ? { …n, readBy: […n.readBy, viewerKey] } : n));
+window.storage.set(‘notifications’, JSON.stringify(next), true).catch(() => {});
+return next;
+});
+}, []);
+const markAllNotificationsRead = useCallback((viewerKey) => {
+setNotificationsRaw((current) => {
+const next = current.map((n) => (n.readBy.includes(viewerKey) ? n : { …n, readBy: […n.readBy, viewerKey] }));
+window.storage.set(‘notifications’, JSON.stringify(next), true).catch(() => {});
+return next;
+});
+}, []);
 // Brochure PDFs: metadata list (name/category/url) is small and lives in
 // Firestore under ‘brochures’; the actual PDF file lives in Firebase
 // Storage (see addBrochure/removeBrochure below), since a PDF can be tens
@@ -667,7 +764,7 @@ try {
 // Firestore’s 1MiB-per-document cap), which hands back a real HTTPS
 // download URL. Only that URL - not the PDF’s raw data - gets saved
 // in the small ‘brochures’ metadata list.
-const uploadResult = await window.fileStorage.upload(`brochure_${meta.id}`, dataUri);
+const uploadResult = await window.fileStorage.upload(‘brochure_’ + meta.id, dataUri);
 if (!uploadResult) { showToast(‘Brochure upload fail ho gaya - Firebase Storage abhi tak activate nahi hua ho sakta hai (Blaze plan chahiye)’, true); return false; }
 const next = [{ …meta, url: uploadResult.url }, …brochures];
 setBrochures(next);
@@ -683,7 +780,7 @@ const next = brochures.filter((b) => b.id !== id);
 setBrochures(next);
 try {
 await window.storage.set(‘brochures’, JSON.stringify(next), true);
-await window.fileStorage.delete(`brochure_${id}`);
+await window.fileStorage.delete(‘brochure_’ + id);
 } catch (e) { /* best effort */ }
 }, [brochures]);
 const persistStaff = useCallback(async (next) => {
@@ -745,6 +842,7 @@ expenses={expenses} setExpenses={persistExpenses}
 appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={persistAppointmentItemOptions}
 categories={categories} setCategories={setCategories}
 brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure}
+notifications={notifications} markNotificationRead={markNotificationRead} markAllNotificationsRead={markAllNotificationsRead}
 allData={{ customers, jobs, gallery, staff, expenses }}
 staffName={session.staffName}
 isPartner={isPartner}
@@ -807,9 +905,32 @@ brochures={brochures}
 testimonials={featuredTestimonials}
 onSaveJob={(j) => {
 if (j.customerId !== myCustomerId) return; // guard: never allow writing another customer’s job
-const exists = jobs.some((jj) => jj.id === j.id);
+const prevJob = jobs.find((jj) => jj.id === j.id) || null;
+const exists = !!prevJob;
 const next = exists ? jobs.map((jj) => (jj.id === j.id ? j : jj)) : [j, …jobs];
 persistJobs(next);
+// A brand-new appointment request (customer just submitted the
+// appointment form for the first time, or re-requested after a
+// reschedule) is the one customer-side action admin needs to
+// hear about immediately - so it’s detected here, in the one
+// place that sees both the old and new job state.
+const wasRequested = prevJob?.appointment?.status === ‘requested’;
+const isRequested = j.appointment?.status === ‘requested’;
+if (isRequested && (!prevJob?.appointment || !wasRequested)) {
+pushNotification(‘new_appointment’, j.customerName + ’ ne appointment request ki hai’, j.id);
+}
+// Estimate response (approve / change request / cancel): only
+// fires the moment estimateStatus actually changes, so editing
+// other job fields afterward doesn’t re-trigger a stale alert.
+if (j.estimateStatus && j.estimateStatus !== prevJob?.estimateStatus) {
+if (j.estimateStatus === ‘approved’) {
+pushNotification(‘estimate_approved’, j.customerName + ’ ne estimate approve kiya - kaam shuru karein’, j.id);
+} else if (j.estimateStatus === ‘change_requested’) {
+pushNotification(‘estimate_change_request’, j.customerName + ’ ne estimate mein change maanga hai’, j.id);
+} else if (j.estimateStatus === ‘cancelled’) {
+pushNotification(‘estimate_cancelled’, j.customerName + ’ ne estimate cancel kar diya’, j.id);
+}
+}
 }}
 onLogout={() => setSession(null)}
 showToast={showToast}
@@ -881,7 +1002,7 @@ return digits;
 }
 function formatPhoneDisplay(digits10) {
 if (!digits10 || digits10.length !== 10) return digits10 || ‘’;
-return `+91 ${digits10.slice(0, 5)} ${digits10.slice(5)}`;
+return ’+91 ’ + digits10.slice(0, 5) + ’ ’ + digits10.slice(5);
 }
 
 function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
@@ -889,11 +1010,10 @@ const [mode, setMode] = useState(‘choose’);
 const [name, setName] = useState(’’);
 const [phone, setPhone] = useState(’’);
 const [pin, setPin] = useState(’’);
-const [error, setError] = useState(’’);
-
-// OTP verification state - shared by both register and login flows.
+const [error, setError] = useState(’’);// OTP verification state - shared by both register and login flows.
 const [otpStage, setOtpStage] = useState(false); // false | ‘register’ | ‘login’
-const [sentOtp, setSentOtp] = useState(’’);const [otpInput, setOtpInput] = useState(’’);
+const [sentOtp, setSentOtp] = useState(’’);
+const [otpInput, setOtpInput] = useState(’’);
 const [pendingPhone, setPendingPhone] = useState(’’);
 
 const sendOtp = (forMode) => {
@@ -1044,6 +1164,69 @@ return (
 );
 }
 
+// Icons/labels shown per notification type - keeps the bell dropdown
+// scannable at a glance (a payment alert looks different from a new
+// appointment) without every call site needing to know the styling.
+const NOTIFICATION_META = {
+new_appointment: { icon: ‘Calendar’, label: ‘New Appointment’ },
+appointment_confirmed: { icon: ‘CheckCircle2’, label: ‘Visit Confirmed’ },
+estimate_approved: { icon: ‘ThumbsUp’, label: ‘Estimate Approved’ },
+estimate_change_request: { icon: ‘MessageSquare’, label: ‘Estimate Change Request’ },
+estimate_cancelled: { icon: ‘XCircle’, label: ‘Estimate Cancelled’ },
+payment_received: { icon: ‘IndianRupee’, label: ‘Payment Received’ },
+payment_due: { icon: ‘AlertCircle’, label: ‘Payment Due’ },
+};
+const NOTIFICATION_ICONS = { Calendar, CheckCircle2, ThumbsUp, MessageSquare, XCircle, IndianRupee, AlertCircle };
+
+function NotificationBell({ notifications, viewerKey, onOpenJob, onMarkRead, onMarkAllRead }) {
+const [open, setOpen] = useState(false);
+const unread = notifications.filter((n) => !n.readBy.includes(viewerKey));
+const recent = notifications.slice(0, 30);
+
+const handleTapNotification = (n) => {
+onMarkRead(n.id, viewerKey);
+if (n.jobId && onOpenJob) { onOpenJob(n.jobId); setOpen(false); }
+};
+
+return (
+<div style={{ position: ‘relative’ }}>
+<button style={styles.iconBtn} onClick={() => setOpen((o) => !o)}>
+<Bell size={19} color={BRAND.navy} />
+{unread.length > 0 && <div style={styles.notifBadge}>{unread.length > 9 ? ‘9+’ : unread.length}</div>}
+</button>
+{open && (
+<>
+<div style={styles.notifBackdrop} onClick={() => setOpen(false)} />
+<div style={styles.notifPanel}>
+<div style={styles.notifPanelHeader}>
+<span>Notifications</span>
+{unread.length > 0 && <button style={styles.notifMarkAllBtn} onClick={() => onMarkAllRead(viewerKey)}>Mark all read</button>}
+</div>
+<div style={styles.notifList}>
+{recent.length === 0 && <div style={styles.emptySmall}>Koi notification nahi hai.</div>}
+{recent.map((n) => {
+const meta = NOTIFICATION_META[n.type] || { icon: ‘Bell’, label: n.type };
+const Icon = NOTIFICATION_ICONS[meta.icon] || Bell;
+const isUnread = !n.readBy.includes(viewerKey);
+return (
+<button key={n.id} style={{ …styles.notifRow, …(isUnread ? styles.notifRowUnread : {}) }} onClick={() => handleTapNotification(n)}>
+<div style={styles.notifIconWrap}><Icon size={15} color={BRAND.gold} /></div>
+<div style={{ flex: 1, minWidth: 0, textAlign: ‘left’ }}>
+<div style={styles.notifMessage}>{n.message}</div>
+<div style={styles.notifTime}>{timeAgo(n.createdAt)}</div>
+</div>
+{isUnread && <div style={styles.notifDot} />}
+</button>
+);
+})}
+</div>
+</div>
+</>
+)}
+</div>
+);
+}
+
 function TopBar({ title, subtitle, onLogout, onBack, right }) {
 return (
 <div style={styles.header}>
@@ -1120,9 +1303,9 @@ return (
 ```
   {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} />}
   {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
-  {tab === 'gallery' && <GalleryBrowser gallery={gallery} brochures={brochures} categories={categories} testimonials={testimonials} showToast={showToast} />}
+  {tab === 'gallery' && <GalleryBrowser gallery={gallery} brochures={brochures} categories={categories} testimonials={testimonials} job={job} onSaveJob={onSaveJob} showToast={showToast} />}
   {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} />}
-  {tab === 'progress' && <ProgressView job={job} />}
+  {tab === 'progress' && <ProgressView job={job} onSave={onSaveJob} showToast={showToast} />}
   {tab === 'review' && <ReviewPanel job={job} onSave={onSaveJob} showToast={showToast} />}
 
   <BottomNav
@@ -1216,7 +1399,7 @@ return (
 }
 
 /* –– Gallery browser –– */
-function GalleryBrowser({ gallery, brochures, categories, testimonials, showToast }) {
+function GalleryBrowser({ gallery, brochures, categories, testimonials, job, onSaveJob, showToast }) {
 const [activeCat, setActiveCat] = useState(null);
 const [lightbox, setLightbox] = useState(null);
 const [showBrochures, setShowBrochures] = useState(false);
@@ -1241,7 +1424,7 @@ return (
 </button>
 ))}
 </div>
-{lightbox && <Lightbox data={lightbox} onClose={() => setLightbox(null)} setLightbox={setLightbox} />}
+{lightbox && <Lightbox data={lightbox} onClose={() => setLightbox(null)} setLightbox={setLightbox} job={job} onSaveDesign={onSaveJob} showToast={showToast} />}
 </div>
 );
 }
@@ -1316,10 +1499,21 @@ return (
 );
 }
 
-function Lightbox({ data, onClose, setLightbox }) {
+function Lightbox({ data, onClose, setLightbox, job, onSaveDesign, showToast }) {
 const { photos, index } = data;
 const photo = photos[index];
 const go = (dir) => setLightbox({ photos, index: (index + dir + photos.length) % photos.length });
+const isSaved = job && (job.savedDesigns || []).some((d) => d.photoId === photo.id);
+
+const toggleSave = () => {
+if (!job || !onSaveDesign) return;
+const current = job.savedDesigns || [];
+const next = isSaved
+? current.filter((d) => d.photoId !== photo.id)
+: […current, { photoId: photo.id, url: photo.url, origUrl: photo.origUrl, caption: photo.caption || ‘’, savedAt: new Date().toISOString() }];
+onSaveDesign({ …job, savedDesigns: next });
+if (showToast) showToast(isSaved ? ‘Design saved list se hataya’ : ‘Design save ho gaya’);
+};
 
 // Touch-swipe navigation: tracks the horizontal drag distance between
 // touchstart and touchend on the image itself, and treats anything past
@@ -1338,6 +1532,11 @@ touchStartX.current = null;
 return (
 <div style={styles.lightboxOverlay} onClick={onClose}>
 <button style={styles.lightboxClose} onClick={onClose}><X size={22} color='#FFF' /></button>
+{job && onSaveDesign && (
+<button style={styles.lightboxSaveBtn} onClick={(e) => { e.stopPropagation(); toggleSave(); }}>
+<Star size={18} fill={isSaved ? BRAND.gold : ‘none’} color={isSaved ? BRAND.gold : ‘#FFF’} />
+</button>
+)}
 <div style={styles.lightboxCounter}>{index + 1} / {photos.length}</div>
 {photos.length > 1 && (
 <button style={{ …styles.lightboxNav, left: 8 }} onClick={(e) => { e.stopPropagation(); go(-1); }}><ChevronLeft size={26} color='#FFF' /></button>
@@ -1395,8 +1594,8 @@ confirmedDate: null,
 confirmedTime: null,
 };
 let next = { …job, appointment: nextAppt, address: form.address.trim() };
-const itemsNote = form.items.length ? ` - ${form.items.join(', ')}` : ‘’;
-next = logActivity(next, `Appointment requested: ${formatDate(form.preferredDate)}${form.preferredTime ? ', ' + form.preferredTime : ''}${itemsNote}`);
+const itemsNote = form.items.length ? (’ - ’ + form.items.join(’, ’)) : ‘’;
+next = logActivity(next, ’Appointment requested: ’ + formatDate(form.preferredDate) + (form.preferredTime ? ’, ’ + form.preferredTime : ‘’) + itemsNote);
 onSave(next);
 setEditing(false);
 showToast(‘Appointment request bhej di gayi’);
@@ -1524,16 +1723,28 @@ const [text, setText] = useState(’’);
 const [dimensions, setDimensions] = useState(’’);
 const [priority, setPriority] = useState(‘normal’);
 const [showForm, setShowForm] = useState((job.requirements || []).length === 0);
+const savedDesigns = job.savedDesigns || [];
 
-const add = () => {
-if (!text.trim()) return;
-const req = { id: uid(), category, text: text.trim(), dimensions: dimensions.trim(), priority, createdAt: new Date().toISOString() };
+const add = (photoRef) => {
+if (!photoRef && !text.trim()) return;
+const req = {
+id: uid(),
+category,
+text: photoRef ? (‘Saved design reference’ + (photoRef.caption ? ‘: ’ + photoRef.caption : ‘’)) : text.trim(),
+dimensions: dimensions.trim(),
+priority,
+photoRef: photoRef ? { url: photoRef.url, origUrl: photoRef.origUrl } : null,
+createdAt: new Date().toISOString(),
+};
 let next = { …job, requirements: [req, …(job.requirements || [])] };
-next = logActivity(next, `Requirement added: ${category}`);
+next = logActivity(next, ‘Requirement added: ’ + category + (photoRef ? ’ (saved design)’ : ‘’));
 onSave(next);
 setText(’’); setDimensions(’’); setPriority(‘normal’);
 setShowForm(false);
 showToast(‘Requirement added’);
+};
+const removeSavedDesign = (photoId) => {
+onSave({ …job, savedDesigns: savedDesigns.filter((d) => d.photoId !== photoId) });
 };
 const remove = (id) => onSave({ …job, requirements: (job.requirements || []).filter((r) => r.id !== id) });
 
@@ -1590,10 +1801,28 @@ return (
         ))}
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-        <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={add}><Plus size={14} /> Add</button>
+        <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => add()}><Plus size={14} /> Add</button>
         {(job.requirements || []).length > 0 && (
           <button style={styles.cancelBtn} onClick={() => setShowForm(false)}>Cancel</button>
         )}
+      </div>
+    </div>
+  )}
+
+  {savedDesigns.length > 0 && (
+    <div style={{ marginTop: 16 }}>
+      <div style={styles.fieldLabel}>Aapke saved designs ({savedDesigns.length})</div>
+      <div style={styles.plainTextMuted}>Gallery se save kiye gaye designs - project mein add karein.</div>
+      <div style={styles.savedDesignGrid}>
+        {savedDesigns.map((d) => (
+          <div key={d.photoId} style={styles.savedDesignCard}>
+            <SmartImg src={d.url} origUrl={d.origUrl} alt={d.caption} style={styles.savedDesignImg} />
+            <div style={styles.savedDesignActions}>
+              <button style={styles.savedDesignAddBtn} onClick={() => add(d)}>Add to Project</button>
+              <button style={styles.savedDesignRemoveBtn} onClick={() => removeSavedDesign(d.photoId)}><X size={12} color='#FFF' /></button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )}
@@ -1605,6 +1834,9 @@ return (
       <div style={styles.reqGroupHeader}>{cat} <span style={styles.reqGroupCount}>({reqs.length})</span></div>
       {reqs.map((r) => (
         <div key={r.id} style={styles.reqRow}>
+          {r.photoRef && (
+            <SmartImg src={r.photoRef.url} origUrl={r.photoRef.origUrl} alt={r.text} style={styles.reqThumb} />
+          )}
           <div style={{ flex: 1 }}>
             <div style={styles.reqText}>{r.text}</div>
             <div style={styles.reqMetaRow}>
@@ -1627,13 +1859,34 @@ return (
 }
 
 /* –– Progress view –– */
-function ProgressView({ job }) {
+function ProgressView({ job, onSave, showToast }) {
 const total = jobTotal(job);
 const paid = jobPaid(job);
 const due = jobDue(job);
 const [lightbox, setLightbox] = useState(null);
 const [showQuote, setShowQuote] = useState(false);
+const [changeRequestText, setChangeRequestText] = useState(’’);
+const [showChangeRequestBox, setShowChangeRequestBox] = useState(false);
 const photos = job.progressPhotos || [];
+const estimateStatus = job.estimateStatus || null;
+
+const respondToEstimate = (status, note) => {
+let next = { …job, estimateStatus: status, estimateResponseNote: note || null, estimateRespondedAt: new Date().toISOString() };
+const activityText = status === ‘approved’
+? ‘Customer ne estimate approve kiya - kaam shuru karein’
+: status === ‘change_requested’
+? ‘Customer ne estimate mein change maanga: ’ + (note || ‘’)
+: ‘Customer ne estimate cancel kiya’;
+next = logActivity(next, activityText);
+onSave(next);
+setShowChangeRequestBox(false);
+setChangeRequestText(’’);
+showToast(
+status === ‘approved’ ? ‘Estimate approve ho gaya’ :
+status === ‘change_requested’ ? ‘Change request bhej di gayi’ :
+‘Estimate cancel ho gaya’
+);
+};
 
 return (
 <div style={{ padding: ‘12px 16px’ }}>
@@ -1706,6 +1959,53 @@ return (
       <button style={{ ...styles.viewQuoteBtn, marginTop: 12 }} onClick={() => setShowQuote(true)}>
         <FileText size={14} /> View Full Quotation (Terms &amp; Conditions)
       </button>
+
+      {estimateStatus === 'approved' && (
+        <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32' }}>
+          <ThumbsUp size={15} /> Aapne ye estimate approve kar diya hai - kaam shuru ho jayega.
+        </div>
+      )}
+      {estimateStatus === 'change_requested' && (
+        <div style={{ ...styles.estimateStatusBanner, background: '#FFF3E0', color: '#E65100' }}>
+          <MessageSquare size={15} /> Aapka change request bheja gaya hai - hum jald contact karenge.
+          {job.estimateResponseNote && <div style={{ marginTop: 4, fontWeight: 600 }}>"{job.estimateResponseNote}"</div>}
+        </div>
+      )}
+      {estimateStatus === 'cancelled' && (
+        <div style={{ ...styles.estimateStatusBanner, background: '#FFEBEE', color: '#C62828' }}>
+          <XCircle size={15} /> Aapne ye estimate cancel kar diya hai.
+        </div>
+      )}
+
+      {(!estimateStatus || estimateStatus === 'change_requested') && !showChangeRequestBox && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+          <button style={{ ...styles.primaryBtn2, flex: 1, minWidth: 140, marginTop: 0 }} onClick={() => respondToEstimate('approved')}>
+            <ThumbsUp size={14} /> Approve - Kaam Shuru Karein
+          </button>
+          <button style={{ ...styles.cancelBtn, flex: 1, minWidth: 140 }} onClick={() => setShowChangeRequestBox(true)}>
+            <MessageSquare size={14} /> Change Chahiye
+          </button>
+          <button style={{ ...styles.cancelBtn, background: '#FFEBEE', color: '#C62828', flex: 1, minWidth: 140 }} onClick={() => respondToEstimate('cancelled')}>
+            <XCircle size={14} /> Cancel Karein
+          </button>
+        </div>
+      )}
+      {showChangeRequestBox && (
+        <div style={{ marginTop: 12 }}>
+          <textarea
+            style={{ ...styles.input, minHeight: 70 }}
+            placeholder='Kya change chahiye, likhein...'
+            value={changeRequestText}
+            onChange={(e) => setChangeRequestText(e.target.value)}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => respondToEstimate('change_requested', changeRequestText)}>
+              Bhejein
+            </button>
+            <button style={styles.cancelBtn} onClick={() => setShowChangeRequestBox(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   )}
   {showQuote && <QuotationPreview job={job} onClose={() => setShowQuote(false)} />}
@@ -1735,26 +2035,25 @@ const [text, setText] = useState(job.review?.text || ‘’);
 const submit = () => {
 if (!rating) { showToast(‘Rating select karein’, true); return; }
 let next = { …job, review: { rating, text: text.trim(), date: new Date().toISOString() } };
-next = logActivity(next, `Review submitted (${rating}*)`);
+next = logActivity(next, ‘Review submitted (’ + rating + ‘*)’);
 onSave(next);
 showToast(‘Review submit ho gayi. Dhanyavaad!’);
 };
 
 return (
 <div style={{ padding: ‘12px 16px’ }}>
-<div style={styles.sectionTitle}>Review dein</div>
-<div style={styles.plainTextMuted}>Aapka anubhav kaisa raha? Hamein bataiye.</div>
-<div style={styles.starRow}>
-{[1, 2, 3, 4, 5].map((n) => (
-<button key={n} style={styles.starBtn} onMouseEnter={() => setHoverRating(n)} onMouseLeave={() => setHoverRating(0)} onClick={() => setRating(n)}>
-<Star size={32} fill={n <= (hoverRating || rating) ? BRAND.gold : ‘none’} color={n <= (hoverRating || rating) ? BRAND.gold : ‘#D7DAE5’} />
-</button>
-))}
-</div>
-<textarea style={{ …styles.input, minHeight: 90, resize: ‘vertical’, marginTop: 10 }} value={text} onChange={(e) => setText(e.target.value)} placeholder=‘Kaam, quality, service ke baare mein likhein…’ />
-<button style={styles.primaryBtn2} onClick={submit}><Send size={14} /> Submit Review</button>
+<div style={styles.sectionTitle}>Review dein</div>```
+  <div style={styles.plainTextMuted}>Aapka anubhav kaisa raha? Hamein bataiye.</div>
+  <div style={styles.starRow}>
+    {[1, 2, 3, 4, 5].map((n) => (
+      <button key={n} style={styles.starBtn} onMouseEnter={() => setHoverRating(n)} onMouseLeave={() => setHoverRating(0)} onClick={() => setRating(n)}>
+        <Star size={32} fill={n <= (hoverRating || rating) ? BRAND.gold : 'none'} color={n <= (hoverRating || rating) ? BRAND.gold : '#D7DAE5'} />
+      </button>
+    ))}
+  </div>
+  <textarea style={{ ...styles.input, minHeight: 90, resize: 'vertical', marginTop: 10 }} value={text} onChange={(e) => setText(e.target.value)} placeholder='Kaam, quality, service ke baare mein likhein...' />
+  <button style={styles.primaryBtn2} onClick={submit}><Send size={14} /> Submit Review</button>
 
-```
   {job.review && (
     <div style={styles.reviewPreview}>
       <div style={styles.fieldLabel}>Aapki last submitted review</div>
@@ -1771,10 +2070,14 @@ return (
 }
 
 /* ===================== ADMIN APP ===================== */
-function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, allData, staffName, isPartner, onLogout, showToast }) {
+function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, allData, staffName, isPartner, onLogout, showToast }) {
 const [tab, setTab] = useState(‘home’);
 const [activeJobId, setActiveJobId] = useState(null);
 const activeJob = jobs.find((j) => j.id === activeJobId);
+// Notifications don’t have individual user accounts to key reads by, so
+// admin/staff/partner share one “viewer” bucket per role - simple, and
+// matches how they already share visibility into the same jobs list.
+const viewerKey = isPartner ? ‘partner’ : ‘admin’;
 
 if (activeJob) {
 return (
@@ -1791,7 +2094,20 @@ const pendingAppointments = jobs.filter((j) => j.appointment && j.appointment.st
 
 return (
 <div style={{ paddingBottom: 70 }}>
-<TopBar title={isPartner ? ‘Partner Panel’ : ‘Admin Panel’} subtitle={staffName ? `Logged in as ${staffName}` : ‘Shree Krushn PVC Furniture’} onLogout={onLogout} />
+<TopBar
+title={isPartner ? ‘Partner Panel’ : ‘Admin Panel’}
+subtitle={staffName ? (’Logged in as ’ + staffName) : ‘Shree Krushn PVC Furniture’}
+onLogout={onLogout}
+right={
+<NotificationBell
+notifications={notifications}
+viewerKey={viewerKey}
+onOpenJob={setActiveJobId}
+onMarkRead={markNotificationRead}
+onMarkAllRead={markAllNotificationsRead}
+/>
+}
+/>
 
 ```
   {tab === 'home' && (
@@ -1814,7 +2130,6 @@ return (
   <BottomNav
     tab={tab} setTab={setTab}
     items={isPartner ? [
-``````
       { key: 'home', label: 'Home', icon: <Home size={18} /> },
       { key: 'customers', label: 'Customers', icon: <User size={18} /> },
       { key: 'gallery', label: 'Gallery', icon: <Grid3x3 size={18} /> },
@@ -1839,15 +2154,53 @@ const dueTotal = jobs.reduce((s, j) => s + jobDue(j), 0);
 const totalPhotos = categories.reduce((s, c) => s + (gallery[c] || []).length, 0);
 const recentJobs = […jobs].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
 
+// “Today’s Summary” - a same-day operational snapshot: visits scheduled
+// for today (confirmed appointments), new leads today (customers
+// registered today), plus the same pending-work counts already computed
+// by the caller (estimates/payments), so admin sees “what’s on today”
+// at a glance without hunting across tabs.
+const isSameLocalDay = (isoA, isoB) => {
+if (!isoA || !isoB) return false;
+const a = new Date(isoA), b = new Date(isoB);
+return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+};
+const todayIso = new Date().toISOString();
+const todaysVisits = jobs.filter((j) => j.appointment && (j.appointment.status === ‘confirmed’ || j.appointment.status === ‘rescheduled’) && isSameLocalDay(j.appointment.confirmedDate, todayIso));
+const newLeadsToday = customers.filter((c) => isSameLocalDay(c.createdAt, todayIso)).length;
+
 return (
 <div style={{ padding: ‘12px 16px’ }}>
+<div style={styles.sectionTitle}>Aaj ka Summary</div>
 <div style={styles.statRow2}>
-<StatCard icon={<User size={16} />} label=‘Customers’ value={customers.length} onClick={() => setTab(‘customers’)} />
-<StatCard icon={<Hammer size={16} />} label=‘In Progress’ value={jobs.filter((j) => j.status === ‘in_progress’).length} />
-<StatCard icon={<IndianRupee size={16} />} label=‘Total Due’ value={currency(dueTotal)} accent />
+<StatCard icon={<Calendar size={16} />} label=“Aaj ki Visits” value={todaysVisits.length} onClick={() => setTab(‘customers’)} />
+<StatCard icon={<UserPlus size={16} />} label=‘Naye Leads’ value={newLeadsToday} onClick={() => setTab(‘customers’)} />
+<StatCard icon={<Edit3 size={16} />} label=‘Estimate Pending’ value={pendingEstimates} />
 </div>
 
 ```
+  {todaysVisits.length > 0 && (
+    <div style={{ marginTop: 4 }}>
+      <div style={styles.fieldLabel}>Aaj ki visits</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {todaysVisits.map((j) => (
+          <button key={j.id} style={styles.miniRowClickArea} onClick={() => onOpenJob(j.id)}>
+            <div style={{ flex: 1, textAlign: 'left' }}>
+              <div style={styles.itemDesc}>{j.customerName}</div>
+              <div style={styles.itemSub}>{j.appointment.confirmedTime || 'Time set nahi hai'} {j.appointment.address && ('- ' + j.appointment.address)}</div>
+            </div>
+            <Calendar size={15} color={BRAND.gold} />
+          </button>
+        ))}
+      </div>
+    </div>
+  )}
+
+  <div style={{ ...styles.statRow2, marginTop: 12 }}>
+    <StatCard icon={<User size={16} />} label='Customers' value={customers.length} onClick={() => setTab('customers')} />
+    <StatCard icon={<Hammer size={16} />} label='In Progress' value={jobs.filter((j) => j.status === 'in_progress').length} />
+    <StatCard icon={<IndianRupee size={16} />} label='Total Due' value={currency(dueTotal)} accent />
+  </div>
+
   {(pendingEstimates > 0 || overdue > 0 || pendingAppointments > 0) && (
     <div style={styles.alertBox}>
       <AlertTriangle size={16} color='#B5562E' />
@@ -1860,7 +2213,7 @@ return (
   )}
 
   <div style={styles.quickGrid}>
-    <QuickTile icon={<Grid3x3 size={20} color={BRAND.navy} />} label={`Gallery (${totalPhotos})`} onClick={() => setTab('gallery')} />
+    <QuickTile icon={<Grid3x3 size={20} color={BRAND.navy} />} label={'Gallery (' + totalPhotos + ')'} onClick={() => setTab('gallery')} />
     <QuickTile icon={<User size={20} color={BRAND.navy} />} label='All Customers' onClick={() => setTab('customers')} />
     <QuickTile icon={<Star size={20} color={BRAND.navy} />} label='Reviews' onClick={() => setTab('reviews')} />
     {!isPartner && <QuickTile icon={<IndianRupee size={20} color={BRAND.navy} />} label='Expenses' onClick={() => setTab('expenses')} />}
@@ -1879,7 +2232,7 @@ return (
           <StageBadge status={j.status} size='sm' />
         </button>
         {j.phone && (
-          <a href={`tel:+91${j.phone}`} style={styles.miniCallBtn} onClick={(e) => e.stopPropagation()}>
+          <a href={'tel:+91' + j.phone} style={styles.miniCallBtn} onClick={(e) => e.stopPropagation()}>
             <Phone size={13} color='#2F7D4F' />
           </a>
         )}
@@ -1989,7 +2342,7 @@ return (
           )}
         </button>
         <div style={styles.cardActionsRow}>
-          <a href={`tel:+91${customer.phone}`} style={{ ...styles.cardActionBtn, color: '#2F7D4F' }} onClick={(e) => e.stopPropagation()}><Phone size={12} /> Call</a>
+          <a href={'tel:+91' + customer.phone} style={{ ...styles.cardActionBtn, color: '#2F7D4F' }} onClick={(e) => e.stopPropagation()}><Phone size={12} /> Call</a>
           <button style={styles.cardActionBtn} onClick={() => setEditingCustomer(customer)}><Edit3 size={12} /> Edit</button>
           <button style={{ ...styles.cardActionBtn, color: '#B5562E' }} onClick={() => setDeletingCustomer(customer)}><Trash2 size={12} /> Delete</button>
           <ChevronRight size={16} color='#C7CCDC' style={{ marginLeft: 'auto' }} />
@@ -2068,7 +2421,7 @@ const confirm = (asReschedule) => {
 if (!confirmDate) { showToast(‘Date select karein’, true); return; }
 const nextAppt = { …appt, status: asReschedule ? ‘rescheduled’ : ‘confirmed’, confirmedDate: confirmDate, confirmedTime: confirmTime };
 let next = { …job, appointment: nextAppt };
-next = logActivity(next, `Appointment ${asReschedule ? 'rescheduled' : 'confirmed'}: ${formatDate(confirmDate)}${confirmTime ? ', ' + confirmTime : ''}`);
+next = logActivity(next, ’Appointment ’ + (asReschedule ? ‘rescheduled’ : ‘confirmed’) + ’: ’ + formatDate(confirmDate) + (confirmTime ? ’, ’ + confirmTime : ‘’));
 onSave(next);
 showToast(asReschedule ? ‘Appointment reschedule ki gayi’ : ‘Appointment confirm ho gayi’);
 };
@@ -2089,7 +2442,7 @@ return (
 
 ```
   {job.phone && (
-    <a href={`tel:+91${job.phone}`} style={styles.callBtn}>
+    <a href={'tel:+91' + job.phone} style={styles.callBtn}>
       <Phone size={15} /> Call {job.customerName} - {formatPhoneDisplay(job.phone)}
     </a>
   )}
@@ -2351,7 +2704,7 @@ const due = jobDue(job);
 
 const updateStatus = (status) => {
 let next = { …job, status };
-next = logActivity(next, `Status updated: ${STATUS[status].label}`);
+next = logActivity(next, ’Status updated: ’ + STATUS[status].label);
 onSave(next);
 showToast(’Status set to ’ + STATUS[status].label);
 };
@@ -2367,7 +2720,7 @@ qty: newItem.qty || ‘1’,
 rate: newItem.rate || ‘0’,
 };
 let next = { …job, items: […(job.items || []), item] };
-next = logActivity(next, `Estimate item added: ${newItem.desc.trim()}`);
+next = logActivity(next, ’Estimate item added: ’ + newItem.desc.trim());
 onSave(next);
 setNewItem({ desc: ‘’, length: ‘’, height: ‘’, qty: ‘1’, rate: ‘’ });
 };
@@ -2379,7 +2732,7 @@ const removeItem = (id) => onSave({ …job, items: job.items.filter((it) => it.i
 const addPayment = () => {
 if (!newPayment.amount) return;
 let nextJob = { …job, payments: […(job.payments || []), { id: uid(), amount: newPayment.amount, note: newPayment.note.trim(), date: new Date().toISOString() }] };
-nextJob = logActivity(nextJob, `Payment received: ${currency(newPayment.amount)}`);
+nextJob = logActivity(nextJob, ’Payment received: ’ + currency(newPayment.amount));
 if (jobDue(nextJob) <= 0 && nextJob.status !== ‘paid’) nextJob.status = ‘paid’;
 onSave(nextJob);
 setNewPayment({ amount: ‘’, note: ‘’ });
@@ -2442,6 +2795,27 @@ return (
           <MoneyBit label='Paid' value={currency(paid)} muted />
           <MoneyBit label='Due' value={currency(due)} highlight={due > 0} />
         </div>
+
+        {total > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <div style={styles.fieldLabel}>Payment Milestones (50 / 40 / 10)</div>
+            {jobMilestoneStatus(job).map((m) => (
+              <div key={m.key} style={styles.milestoneRow}>
+                <div style={{ flex: 1 }}>
+                  <div style={styles.itemDesc}>{m.label}</div>
+                  <div style={styles.itemSub}>
+                    {!m.reached ? ('Upcoming - ' + currency(m.amount)) :
+                     m.due > 0 ? ('Due now - ' + currency(m.due) + ' (of ' + currency(m.amount) + ')') :
+                     ('Collected - ' + currency(m.amount))}
+                  </div>
+                </div>
+                {m.reached && m.due === 0 && <CheckCircle2 size={16} color='#2F7D4F' />}
+                {m.reached && m.due > 0 && <AlertCircle size={16} color='#B5562E' />}
+              </div>
+            ))}
+          </div>
+        )}
+
         <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Payment history</div>
         {(job.payments || []).length === 0 && <div style={styles.emptySmall}>No payments recorded yet.</div>}
         {(job.payments || []).map((p) => (
@@ -2662,7 +3036,7 @@ return (
           <input ref={fileInputRef} type='file' accept='image/*' multiple style={{ display: 'none' }} onChange={handleFilesPicked} />
           <button style={styles.uploadTapArea} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
             {uploading ? (
-              <span style={styles.uploadHint}>{uploadProgress ? `Processing ${uploadProgress.done}/${uploadProgress.total}...` : 'Processing...'}</span>
+              <span style={styles.uploadHint}>{uploadProgress ? ('Processing ' + uploadProgress.done + '/' + uploadProgress.total + '...') : 'Processing...'}</span>
             ) : (
               <>
                 <Camera size={22} color={BRAND.gold} />
@@ -2688,7 +3062,7 @@ return (
           <div style={styles.hintText}>{pendingUploads.length} photo{pendingUploads.length !== 1 ? 's' : ''} ready - poori quality mein save hongi.</div>
           <input style={{ ...styles.input, marginTop: 8 }} placeholder='Caption (optional, sabpar lagega)' value={caption} onChange={(e) => setCaption(e.target.value)} />
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={confirmUploads}><Check size={14} /> {addLabel || `Add ${pendingUploads.length} photo${pendingUploads.length !== 1 ? 's' : ''}`}</button>
+            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={confirmUploads}><Check size={14} /> {addLabel || ('Add ' + pendingUploads.length + ' photo' + (pendingUploads.length !== 1 ? 's' : ''))}</button>
             <button style={styles.cancelBtn} onClick={() => setPendingUploads([])}>Cancel</button>
           </div>
         </div>
@@ -2703,6 +3077,7 @@ return (
       <button style={styles.addBtn} onClick={addFromLink}><Plus size={14} /> {addLabel || 'Add photo'}</button>
     </div>
   )}
+``````
 </div>
 ```
 
@@ -2730,13 +3105,11 @@ const addBulk = () => {
 const urls = bulkText.split(NEWLINE).map((l) => l.trim()).filter(Boolean);
 if (urls.length === 0) return;
 const newPhotos = urls.map((u) => ({ id: uid(), url: toDirectImageUrl(u), origUrl: u, caption: ‘’ }));
-const next = { …gallery, [activeCat]: […newPhotos, …allPhotos] };```
+const next = { …gallery, [activeCat]: […newPhotos, …allPhotos] };
 setGallery(next);
-setBulkText('');
+setBulkText(’’);
 setShowBulk(false);
-showToast(urls.length + ' photos added to ' + activeCat);
-```
-
+showToast(urls.length + ’ photos added to ’ + activeCat);
 };
 
 const removePhoto = (id) => setGallery({ …gallery, [activeCat]: allPhotos.filter((p) => p.id !== id) });
@@ -2932,8 +3305,21 @@ const [type, setType] = useState(EXPENSE_TYPES[0]);
 const [payee, setPayee] = useState(’’);
 const [amount, setAmount] = useState(’’);
 const [note, setNote] = useState(’’);
+const [linkedJobId, setLinkedJobId] = useState(’’);
 const [filterType, setFilterType] = useState(‘all’);
 const [activePayee, setActivePayee] = useState(null);
+const [showProfitReport, setShowProfitReport] = useState(false);
+
+if (showProfitReport) {
+return (
+<div>
+<div style={{ padding: ‘12px 16px 0’ }}>
+<button style={styles.backLink} onClick={() => setShowProfitReport(false)}><ArrowLeft size={13} /> Expenses</button>
+</div>
+<AdminProfitReport jobs={jobs} expenses={expenses} />
+</div>
+);
+}
 
 const totalRevenue = jobs.reduce((s, j) => s + jobTotal(j), 0);
 const totalCollected = jobs.reduce((s, j) => s + jobPaid(j), 0);
@@ -2960,9 +3346,9 @@ return Object.values(groups).sort((a, b) => b.total - a.total);
 
 const addExpense = () => {
 if (!payee.trim() || !amount) { showToast(‘Naam aur amount daalein’, true); return; }
-const entry = { id: uid(), type, payee: payee.trim(), amount, note: note.trim(), date: new Date().toISOString() };
+const entry = { id: uid(), type, payee: payee.trim(), amount, note: note.trim(), jobId: linkedJobId || null, date: new Date().toISOString() };
 setExpenses([entry, …expenses]);
-setPayee(’’); setAmount(’’); setNote(’’);
+setPayee(’’); setAmount(’’); setNote(’’); setLinkedJobId(’’);
 showToast(‘Expense add ho gaya’);
 };
 const removeExpense = (id) => setExpenses(expenses.filter((e) => e.id !== id));
@@ -3000,7 +3386,10 @@ return (
 
 return (
 <div style={{ padding: ‘12px 16px’ }}>
+<div style={{ display: ‘flex’, justifyContent: ‘space-between’, alignItems: ‘center’ }}>
 <div style={styles.sectionTitle}>Karigar & Company Expenses</div>
+<button style={styles.linkBtn2} onClick={() => setShowProfitReport(true)}>Project Profit Report</button>
+</div>
 <div style={styles.plainTextMuted}>Customer se aayi payment alag, karigar/company kharch alag track hota hai.</div>
 
 ```
@@ -3036,6 +3425,10 @@ return (
     <input style={{ ...styles.input, marginTop: 10 }} placeholder={type === 'Karigar Payment' ? 'Karigar ka naam' : 'Kisko / kya'} value={payee} onChange={(e) => setPayee(e.target.value)} />
     <input style={{ ...styles.input, marginTop: 8 }} placeholder='Amount ₹' inputMode='decimal' value={amount} onChange={(e) => setAmount(e.target.value)} />
     <input style={{ ...styles.input, marginTop: 8 }} placeholder='Note (optional)' value={note} onChange={(e) => setNote(e.target.value)} />
+    <select style={{ ...styles.input, marginTop: 8 }} value={linkedJobId} onChange={(e) => setLinkedJobId(e.target.value)}>
+      <option value=''>Kisi project se link nahi (general expense)</option>
+      {jobs.map((j) => <option key={j.id} value={j.id}>{j.customerName}</option>)}
+    </select>
     <button style={styles.addBtn} onClick={addExpense}><Plus size={14} /> Add expense</button>
   </div>
 
@@ -3054,6 +3447,57 @@ return (
       </div>
       <div style={styles.itemAmount}>{currency(e.amount)}</div>
       <button style={styles.iconBtnSmall} onClick={() => removeExpense(e.id)}><Trash2 size={14} color='#C7CCDC' /></button>
+    </div>
+  ))}
+</div>
+```
+
+);
+}
+
+/* –– Per-project profit report –– */
+function AdminProfitReport({ jobs, expenses }) {
+const rows = useMemo(() => {
+return jobs
+.map((j) => ({ job: j, …jobProfit(j, expenses) }))
+.filter((r) => r.collected > 0 || r.linkedExpenses > 0)
+.sort((a, b) => b.profit - a.profit);
+}, [jobs, expenses]);
+
+const totalCollected = rows.reduce((s, r) => s + r.collected, 0);
+const totalLinkedExpense = rows.reduce((s, r) => s + r.linkedExpenses, 0);
+const totalProfit = totalCollected - totalLinkedExpense;
+const unlinkedExpenseTotal = expenses.filter((e) => !e.jobId).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+return (
+<div style={{ padding: ‘12px 16px’ }}>
+<div style={styles.sectionTitle}>Project-wise Profit Report</div>
+<div style={styles.plainTextMuted}>Har project mein kitna collect hua, kitna expense laga, aur profit kitna hai.</div>
+
+```
+  <div style={styles.statRow2}>
+    <StatCard icon={<IndianRupee size={16} />} label='Collected' value={currency(totalCollected)} />
+    <StatCard icon={<TrendingUp size={16} />} label='Linked Expense' value={currency(totalLinkedExpense)} />
+    <StatCard icon={<CheckCircle2 size={16} />} label='Profit' value={currency(totalProfit)} accent />
+  </div>
+
+  {unlinkedExpenseTotal > 0 && (
+    <div style={styles.plainTextMuted}>
+      + {currency(unlinkedExpenseTotal)} general expenses (kisi project se link nahi) is report mein shamil nahi hain.
+    </div>
+  )}
+
+  <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Project-wise breakdown</div>
+  {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi payment ya linked expense record nahi hai.</div>}
+  {rows.map((r) => (
+    <div key={r.job.id} style={styles.reviewCard}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={styles.cardName}>{r.job.customerName}</div>
+        <span style={{ ...styles.badge, background: r.profit >= 0 ? '#DFF0E4' : '#FFEBEE', color: r.profit >= 0 ? '#2F7D4F' : '#C62828' }}>
+          {currency(r.profit)}
+        </span>
+      </div>
+      <div style={styles.itemSub}>Collected: {currency(r.collected)} - Expense: {currency(r.linkedExpenses)}</div>
     </div>
   ))}
 </div>
@@ -3160,7 +3604,7 @@ const url = URL.createObjectURL(blob);
 const a = document.createElement(‘a’);
 const dateStr = new Date().toISOString().slice(0, 10);
 a.href = url;
-a.download = `shree-krushn-backup-${dateStr}.json`;
+a.download = ‘shree-krushn-backup-’ + dateStr + ‘.json’;
 document.body.appendChild(a);
 a.click();
 document.body.removeChild(a);
@@ -3381,7 +3825,7 @@ return (
 </div>
 <input ref={fileInputRef} type=‘file’ accept=‘application/pdf’ style={{ display: ‘none’ }} onChange={handleFilePicked} />
 <button style={{ …styles.addBtn, marginTop: 10 }} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
-<FileText size={14} /> {uploading ? ‘Uploading…’ : `Upload PDF to ${category}`}
+<FileText size={14} /> {uploading ? ‘Uploading…’ : (’Upload PDF to ’ + category)}
 </button>
 </div>
 );
@@ -3411,7 +3855,19 @@ brandRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, minWidth: 0 
 brandNameSm: { fontWeight: 800, fontSize: 14.5, letterSpacing: -0.2, whiteSpace: ‘nowrap’, overflow: ‘hidden’, textOverflow: ‘ellipsis’ },
 brandSubSm: { fontSize: 11, color: BRAND.gold, fontWeight: 700, marginTop: 1 },
 logoutBtn: { background: BRAND.paper, border: `1px solid ${BRAND.line}`, borderRadius: 20, padding: ‘8px 10px’, cursor: ‘pointer’, color: BRAND.navy, flexShrink: 0 },
-iconBtn: { background: ‘none’, border: ‘none’, cursor: ‘pointer’, padding: 4 },
+iconBtn: { background: ‘none’, border: ‘none’, cursor: ‘pointer’, padding: 4, position: ‘relative’ },
+notifBadge: { position: ‘absolute’, top: 0, right: 0, minWidth: 15, height: 15, padding: ‘0 3px’, borderRadius: 8, background: ‘#D14343’, color: ‘#FFF’, fontSize: 9.5, fontWeight: 800, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, lineHeight: 1 },
+notifBackdrop: { position: ‘fixed’, inset: 0, zIndex: 90, background: ‘transparent’ },
+notifPanel: { position: ‘absolute’, top: 34, right: 0, width: 300, maxWidth: ‘85vw’, background: ‘#FFF’, borderRadius: 12, boxShadow: ‘0 8px 28px rgba(15,27,61,0.18)’, border: `1px solid ${BRAND.line}`, zIndex: 91, overflow: ‘hidden’ },
+notifPanelHeader: { display: ‘flex’, justifyContent: ‘space-between’, alignItems: ‘center’, padding: ‘10px 12px’, borderBottom: `1px solid ${BRAND.line}`, fontWeight: 800, fontSize: 13 },
+notifMarkAllBtn: { background: ‘none’, border: ‘none’, color: BRAND.gold, fontSize: 11, fontWeight: 700, cursor: ‘pointer’, padding: 0 },
+notifList: { maxHeight: 320, overflowY: ‘auto’ },
+notifRow: { display: ‘flex’, alignItems: ‘flex-start’, gap: 8, width: ‘100%’, padding: ‘10px 12px’, background: ‘none’, border: ‘none’, borderBottom: `1px solid ${BRAND.line}`, cursor: ‘pointer’, textAlign: ‘left’ },
+notifRowUnread: { background: ‘#FBF6EC’ },
+notifIconWrap: { width: 26, height: 26, borderRadius: 13, background: BRAND.paper, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, flexShrink: 0, marginTop: 1 },
+notifMessage: { fontSize: 12.5, fontWeight: 600, color: BRAND.navy, lineHeight: 1.35 },
+notifTime: { fontSize: 10.5, color: BRAND.textMuted, marginTop: 2 },
+notifDot: { width: 7, height: 7, borderRadius: 4, background: BRAND.gold, flexShrink: 0, marginTop: 5 },
 iconBtnSmall: { background: ‘none’, border: ‘none’, cursor: ‘pointer’, padding: 4, flexShrink: 0 },
 
 bottomNav: { position: ‘fixed’, bottom: 0, left: ‘50%’, transform: ‘translateX(-50%)’, width: ‘100%’, maxWidth: 480, background: BRAND.paper, borderTop: `1px solid ${BRAND.line}`, display: ‘flex’, padding: ‘8px 4px’, zIndex: 30 },
@@ -3480,6 +3936,7 @@ lightboxImg: { maxWidth: ‘92%’, maxHeight: ‘78vh’, borderRadius: 6, obje
 lightboxImgWrap: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, width: ‘100%’, touchAction: ‘pan-y’ },
 lightboxSwipeHint: { color: ‘#6A7290’, fontSize: 10.5, marginTop: 6, textAlign: ‘center’ },
 lightboxClose: { position: ‘absolute’, top: 16, right: 16, background: ‘none’, border: ‘none’, cursor: ‘pointer’ },
+lightboxSaveBtn: { position: ‘absolute’, top: 16, right: 56, background: ‘none’, border: ‘none’, cursor: ‘pointer’ },
 lightboxCounter: { position: ‘absolute’, top: 18, left: 16, color: ‘#9AA3C2’, fontSize: 12, fontWeight: 700 },
 lightboxNav: { position: ‘absolute’, top: ‘50%’, transform: ‘translateY(-50%)’, background: ‘rgba(255,255,255,0.12)’, border: ‘none’, borderRadius: 20, padding: 6, cursor: ‘pointer’ },
 lightboxCaption: { color: ‘#FDFCF8’, fontSize: 12.5, marginTop: 14, textAlign: ‘center’, padding: ‘0 24px’ },
@@ -3568,6 +4025,7 @@ progressDot: { width: 24, height: 24, borderRadius: 12, display: ‘flex’, ali
 currentTag: { marginLeft: ‘auto’, fontSize: 9.5, fontWeight: 800, color: ‘#B5562E’, background: ‘#F7E3D8’, padding: ‘2px 7px’, borderRadius: 8 },
 
 itemRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, padding: ‘9px 0’, borderBottom: ‘1px solid #EEF0F5’ },
+milestoneRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, padding: ‘9px 10px’, background: BRAND.paper, borderRadius: 10, marginTop: 6 },
 itemDesc: { fontSize: 13.5, fontWeight: 700 },
 itemSub: { fontSize: 11.5, color: BRAND.textMuted, marginTop: 1 },
 itemAmount: { fontSize: 13, fontWeight: 800, fontFamily: “‘DM Mono’, monospace” },
@@ -3580,6 +4038,13 @@ moneyLabel: { fontSize: 9.5, color: ‘#A8AEC2’, fontWeight: 700, letterSpacin
 moneyValue: { fontSize: 13, fontWeight: 800, fontFamily: “‘DM Mono’, monospace”, marginTop: 1 },
 
 reqRow: { display: ‘flex’, gap: 10, alignItems: ‘flex-start’, padding: ‘9px 0’, borderBottom: ‘1px solid #EEF0F5’ },
+reqThumb: { width: 44, height: 44, borderRadius: 8, objectFit: ‘cover’, flexShrink: 0, background: ‘#EEF0F5’ },
+savedDesignGrid: { display: ‘grid’, gridTemplateColumns: ‘repeat(2, 1fr)’, gap: 10, marginTop: 10 },
+savedDesignCard: { position: ‘relative’, borderRadius: 10, overflow: ‘hidden’, border: `1px solid ${BRAND.line}`, aspectRatio: ‘1’, background: ‘#EEF0F5’ },
+savedDesignImg: { width: ‘100%’, height: ‘100%’, objectFit: ‘cover’, display: ‘block’ },
+savedDesignActions: { position: ‘absolute’, bottom: 0, left: 0, right: 0, display: ‘flex’, alignItems: ‘center’, background: ‘rgba(15,27,61,0.75)’, padding: ‘5px 6px’ },
+savedDesignAddBtn: { flex: 1, background: ‘none’, border: ‘none’, color: ‘#FFF’, fontSize: 10.5, fontWeight: 700, cursor: ‘pointer’, padding: ‘3px 0’ },
+savedDesignRemoveBtn: { background: ‘none’, border: ‘none’, cursor: ‘pointer’, padding: 2, display: ‘flex’ },
 reqCatBadge: { fontSize: 9.5, fontWeight: 800, background: ‘#F3EFE3’, color: BRAND.gold, borderRadius: 6, padding: ‘3px 7px’, flexShrink: 0, marginTop: 1 },
 reqText: { fontSize: 13, color: ‘#333B57’, lineHeight: 1.4 },
 reqGroupHeader: { fontSize: 12.5, fontWeight: 800, color: BRAND.navy, marginBottom: 2, marginTop: 6 },
@@ -3597,6 +4062,7 @@ convertedTag: { display: ‘flex’, alignItems: ‘center’, gap: 4, fontSize:
 
 previewLinkBtn: { display: ‘flex’, alignItems: ‘center’, gap: 4, background: BRAND.navy, color: ‘#FFF’, border: ‘none’, borderRadius: 20, padding: ‘6px 11px’, fontSize: 11, fontWeight: 700, cursor: ‘pointer’ },
 viewQuoteBtn: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, gap: 6, width: ‘100%’, background: BRAND.navy, color: ‘#FFF’, border: ‘none’, borderRadius: 10, padding: ‘11px’, fontSize: 12.5, fontWeight: 700, cursor: ‘pointer’, marginTop: 10 },
+estimateStatusBanner: { display: ‘flex’, alignItems: ‘center’, gap: 8, marginTop: 12, padding: ‘10px 12px’, borderRadius: 10, fontSize: 12.5, fontWeight: 700 },
 estItemRow: { display: ‘flex’, alignItems: ‘center’, gap: 8, padding: ‘9px 0’, borderBottom: ‘1px solid #EEF0F5’ },
 estItemNo: { width: 18, fontSize: 11, fontWeight: 700, color: BRAND.textMuted, flexShrink: 0 },
 
