@@ -23,7 +23,7 @@ gold: ‘#A8975F’,
 textMuted: ‘#7C8399’,
 };
 
-const CATEGORIES = [‘Kitchen’, ‘Wardrobe’, ‘Dressing Table’, ‘Bathroom Cabinet’, ‘TV Unit’, ‘Bed’, ‘Color/POP Work’, ‘Electrical Work’, ‘Other’];
+const DEFAULT_CATEGORIES = [‘Kitchen’, ‘Wardrobe’, ‘Dressing Table’, ‘Bathroom Cabinet’, ‘TV Unit’, ‘Bed’, ‘Color/POP Work’, ‘Electrical Work’, ‘Other’];
 const BHK_OPTIONS = [‘1 BHK’, ‘2 BHK’, ‘3 BHK’, ‘4 BHK’, ‘4+ BHK’, ‘Individual Room’, ‘Shop/Office’];
 const EXPENSE_TYPES = [‘Karigar Payment’, ‘Material’, ‘Transport’, ‘Other’];
 
@@ -243,10 +243,24 @@ return input.includes(‘drive.google.com’);
 }
 
 /* — Device photo upload: reads a File, downsizes only if needed to stay
-under the 5MB storage cap, and resolves a data-URI. Quality is kept as
+under the storage cap, and resolves a data-URI. Quality is kept as
 high as possible — we only shrink dimensions/quality when the original
-genuinely exceeds the limit, never as a blanket compression. — */
-const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+genuinely exceeds the limit, never as a blanket compression.
+
+The cap is deliberately much smaller than a “5MB photo” might suggest:
+each photo is stored as its own Firestore document (see
+hydrateGalleryPhotos/persistGallery in the App component), and Firestore
+hard-caps every document at 1MiB. Once the photo is base64-encoded (~4/3
+size inflation) and wrapped in a small JSON envelope, a binary image
+needs to stay well under 1MB to leave headroom — 650KB keeps real-world
+photos comfortably under that limit even with encoding overhead. — */
+const MAX_PHOTO_BYTES = 650 * 1024;
+// Brochure PDFs are stored in Firebase Storage (not Firestore — see
+// firebaseStorage.js’s fileStorage.upload), which has no meaningful
+// per-file size ceiling for this app’s purposes, unlike gallery photos.
+// This cap is just a sanity limit so an accidental huge upload doesn’t
+// silently eat the free tier’s 1GB total storage quota in one file.
+const MAX_BROCHURE_BYTES = 100 * 1024 * 1024;
 
 function fileToDataUri(file) {
 return new Promise((resolve, reject) => {
@@ -370,16 +384,19 @@ else { setFailed(true); if (onErrorProp) onErrorProp(); }
 }
 
 /* –– Brochure PDFs: category-wise catalog documents. Metadata
-({id, name, category, sizeKb}) lives in the small ‘brochures’ list;
-actual PDF bytes are fetched from storage on demand (key
-‘brochure_data_<id>’) only when the user opens/downloads one, since
-loading every PDF up front would be wasteful. –– */
-function openOrDownloadPdf(dataUri, filename) {
+({id, name, category, sizeKb, url}) lives in the small ‘brochures’ list;
+the actual PDF file lives in Firebase Storage (not Firestore — a single
+PDF can be tens of MB, far past Firestore’s 1MiB document cap), and
+‘url’ is the direct HTTPS download link Firebase Storage hands back
+after upload. Opening a brochure is just following that link — no
+separate fetch step needed. –– */
+function openOrDownloadPdf(url, filename) {
 try {
 const a = document.createElement(‘a’);
-a.href = dataUri;
+a.href = url;
 a.download = filename.endsWith(’.pdf’) ? filename : `${filename}.pdf`;
 a.target = ‘_blank’;
+a.rel = ‘noopener noreferrer’;
 document.body.appendChild(a);
 a.click();
 document.body.removeChild(a);
@@ -401,18 +418,12 @@ g[cat].push(b);
 return g;
 }, [brochures]);
 
-const openBrochure = async (b) => {
+const openBrochure = (b) => {
+if (!b.url) { showToast(‘Brochure link nahi mila’, true); return; }
 setLoadingId(b.id);
-try {
-const res = await window.storage.get(`brochure_data_${b.id}`, true);
-if (!res || !res.value) { showToast(‘Brochure load nahi hui’, true); return; }
-const ok = openOrDownloadPdf(res.value, b.name);
+const ok = openOrDownloadPdf(b.url, b.name);
 if (!ok) showToast(‘Brochure open nahi ho payi’, true);
-} catch (e) {
-showToast(‘Brochure load nahi hui’, true);
-} finally {
 setLoadingId(null);
-}
 };
 
 if (!brochures || brochures.length === 0) {
@@ -429,19 +440,23 @@ return (
 <div style={styles.brochureIcon}><FileText size={16} color={BRAND.gold} /></div>
 <div style={{ flex: 1, minWidth: 0 }}>
 <div style={styles.itemDesc}>{b.name}</div>
-<div style={styles.itemSub}>{b.sizeKb ? `${b.sizeKb} KB` : ‘’}</div>
+
+```
+            <div style={styles.itemSub}>{b.sizeKb ? `${b.sizeKb} KB` : ''}</div>
+          </div>
+          <button style={styles.brochureOpenBtn} onClick={() => openBrochure(b)} disabled={loadingId === b.id}>
+            {loadingId === b.id ? '…' : <Download size={13} />}
+          </button>
+          {canManage && (
+            <button style={styles.iconBtnSmall} onClick={() => onDelete(b.id)}><Trash2 size={14} color='#C7CCDC' /></button>
+          )}
+        </div>
+      ))}
+    </div>
+  ))}
 </div>
-<button style={styles.brochureOpenBtn} onClick={() => openBrochure(b)} disabled={loadingId === b.id}>
-{loadingId === b.id ? ‘…’ : <Download size={13} />}
-</button>
-{canManage && (
-<button style={styles.iconBtnSmall} onClick={() => onDelete(b.id)}><Trash2 size={14} color='#C7CCDC' /></button>
-)}
-</div>
-))}
-</div>
-))}
-</div>
+```
+
 );
 }
 
@@ -455,7 +470,8 @@ const [adminPin, setAdminPin] = useState(DEFAULT_PIN);
 const [partnerPin, setPartnerPin] = useState(’’);
 const [staff, setStaff] = useState([]);
 const [expenses, setExpenses] = useState([]);
-const [appointmentItemOptions, setAppointmentItemOptions] = useState(CATEGORIES);
+const [appointmentItemOptions, setAppointmentItemOptions] = useState(DEFAULT_CATEGORIES);
+const [categories, setCategoriesRaw] = useState(DEFAULT_CATEGORIES);
 const [brochures, setBrochures] = useState([]);
 const [session, setSessionRaw] = useState(() => loadStoredSession());
 // Wraps setSession so every update (login, logout, role switch) is
@@ -470,11 +486,12 @@ const [toast, setToast] = useState(null);
 useEffect(() => {
 (async () => {
 try {
-const [g, c, j, p, st, exp, pp, aio, br] = await Promise.all([
+const [g, c, j, p, st, exp, pp, aio, br, cats] = await Promise.all([
 safeGet(‘gallery’), safeGet(‘customers’), safeGet(‘jobs’), safeGet(‘admin_pin’), safeGet(‘staff’),
 safeGet(‘expenses’), safeGet(‘partner_pin’), safeGet(‘appointment_item_options’), safeGet(‘brochures’),
+safeGet(‘categories’),
 ]);
-if (g) setGallery(JSON.parse(g));
+if (g) setGallery(await hydrateGalleryPhotos(JSON.parse(g)));
 if (c) setCustomers(JSON.parse(c));
 if (j) setJobs(JSON.parse(j));
 if (p) setAdminPin(p);
@@ -483,6 +500,7 @@ if (exp) setExpenses(JSON.parse(exp));
 if (pp) setPartnerPin(pp);
 if (aio) setAppointmentItemOptions(JSON.parse(aio));
 if (br) setBrochures(JSON.parse(br));
+if (cats) setCategoriesRaw(JSON.parse(cats));
 } finally {
 setLoaded(true);
 }
@@ -501,12 +519,14 @@ useEffect(() => {
 if (!loaded) return;
 const poll = setInterval(async () => {
 try {
-const [g, j, br] = await Promise.all([
-safeGet(‘gallery’), safeGet(‘jobs’), safeGet(‘brochures’),
+const [g, j, br, cats, aio] = await Promise.all([
+safeGet(‘gallery’), safeGet(‘jobs’), safeGet(‘brochures’), safeGet(‘categories’), safeGet(‘appointment_item_options’),
 ]);
-if (g) setGallery(JSON.parse(g));
+if (g) setGallery(await hydrateGalleryPhotos(JSON.parse(g)));
 if (j) setJobs(JSON.parse(j));
 if (br) setBrochures(JSON.parse(br));
+if (cats) setCategoriesRaw(JSON.parse(cats));
+if (aio) setAppointmentItemOptions(JSON.parse(aio));
 } catch (e) {
 // best effort — a missed poll just tries again next interval
 }
@@ -521,16 +541,85 @@ return res ? res.value : null;
 } catch (e) { return null; }
 }
 
+// Gallery photos are stored split across two tiers to stay under
+// Firestore’s 1MB-per-document limit: the ‘gallery’ document itself only
+// holds small metadata ({id, caption} per photo, grouped by category),
+// while each photo’s actual image data ({url, origUrl}) lives in its own
+// ‘gallery_photo_<id>’ document. This function re-merges the two after
+// loading the metadata, so every other part of the app can keep treating
+// gallery[category] as a flat array of {id, url, origUrl, caption} — the
+// shape it always was — without knowing about the split underneath.
+async function hydrateGalleryPhotos(galleryMeta) {
+const allIds = [];
+for (const cat of Object.keys(galleryMeta)) {
+for (const p of galleryMeta[cat] || []) allIds.push(p.id);
+}
+if (allIds.length === 0) return galleryMeta;
+const fetched = await Promise.all(allIds.map((id) => safeGet(`gallery_photo_${id}`)));
+const photoDataById = {};
+allIds.forEach((id, i) => {
+if (fetched[i]) {
+try { photoDataById[id] = JSON.parse(fetched[i]); } catch (e) { /* skip corrupt entry */ }
+}
+});
+const hydrated = {};
+for (const cat of Object.keys(galleryMeta)) {
+hydrated[cat] = (galleryMeta[cat] || []).map((p) => ({
+…p,
+url: photoDataById[p.id]?.url || ‘’,
+origUrl: photoDataById[p.id]?.origUrl || ‘’,
+}));
+}
+return hydrated;
+}
+
 const showToast = (msg, isError) => {
 setToast({ msg, isError, id: uid() });
 setTimeout(() => setToast((t) => (t && t.msg === msg ? null : t)), 2400);
 };
 
+// Gallery photos are split across two storage tiers (see hydrateGalleryPhotos
+// above for the read side): full photo data (url/origUrl, capped at
+// MAX_PHOTO_BYTES so the base64 data-URI stays under Firestore’s 1MB
+// document limit) goes into its own small ‘gallery_photo_<id>’
+// document per photo, while ‘gallery’ itself only ever holds lightweight
+// metadata. Without this split, a handful of uploaded photos pushes the
+// single ‘gallery’ document past Firestore’s 1MB-per-document hard limit —
+// writes then fail silently from the UI’s point of view (state still
+// updates locally, so the photo appears to save, but reloads/refreshes
+// show it missing because the real document was never written).
+//
+// Only photos whose url/origUrl actually differ from the currently-loaded
+// gallery state get their per-photo document rewritten — callers always
+// pass the full gallery object (matching the shape the rest of the app
+// expects), so without this check every single photo add/edit would
+// needlessly rewrite every other photo’s document too, burning through
+// Firestore’s daily write quota fast on a gallery with many photos.
 const persistGallery = useCallback(async (next) => {
+const prevPhotoById = {};
+for (const cat of Object.keys(gallery)) {
+for (const p of gallery[cat] || []) prevPhotoById[p.id] = p;
+}
 setGallery(next);
-try { await window.storage.set(‘gallery’, JSON.stringify(next), true); }
-catch (e) { showToast(‘Save failed — connection check karein’, true); }
-}, []);
+try {
+const writes = [];
+const meta = {};
+for (const cat of Object.keys(next)) {
+meta[cat] = (next[cat] || []).map((p) => {
+const prev = prevPhotoById[p.id];
+const changed = !prev || prev.url !== p.url || prev.origUrl !== p.origUrl;
+if (changed) {
+writes.push(window.storage.set(`gallery_photo_${p.id}`, JSON.stringify({ url: p.url, origUrl: p.origUrl }), true));
+}
+return { id: p.id, caption: p.caption || ‘’ };
+});
+}
+await Promise.all(writes);
+await window.storage.set(‘gallery’, JSON.stringify(meta), true);
+} catch (e) {
+showToast(‘Save failed — connection check karein’, true);
+}
+}, [gallery]);
 const persistCustomers = useCallback(async (next) => {
 setCustomers(next);
 try { await window.storage.set(‘customers’, JSON.stringify(next), true); }
@@ -561,23 +650,31 @@ setAppointmentItemOptions(next);
 try { await window.storage.set(‘appointment_item_options’, JSON.stringify(next), true); }
 catch (e) { showToast(‘Save failed’, true); }
 }, []);
-// Brochure PDFs: metadata list is small and stored under ‘brochures’; each
-// PDF’s actual base64 data is stored under its own key (‘brochure_data_<id>’)
-// since a single PDF can approach the 5MB per-key cap on its own.
-const persistBrochureList = useCallback(async (next) => {
-setBrochures(next);
-try { await window.storage.set(‘brochures’, JSON.stringify(next), true); }
+// Gallery categories are admin-editable (not a fixed list), so they’re
+// persisted the same way as everything else the admin can add/remove.
+const setCategories = useCallback(async (next) => {
+setCategoriesRaw(next);
+try { await window.storage.set(‘categories’, JSON.stringify(next), true); }
 catch (e) { showToast(‘Save failed’, true); }
 }, []);
+// Brochure PDFs: metadata list (name/category/url) is small and lives in
+// Firestore under ‘brochures’; the actual PDF file lives in Firebase
+// Storage (see addBrochure/removeBrochure below), since a PDF can be tens
+// of MB — far past what a single Firestore document can hold.
 const addBrochure = useCallback(async (meta, dataUri) => {
 try {
-await window.storage.set(`brochure_data_${meta.id}`, dataUri, true);
-const next = [meta, …brochures];
+// Large PDFs go to Firebase Storage (no practical size limit, unlike
+// Firestore’s 1MiB-per-document cap), which hands back a real HTTPS
+// download URL. Only that URL — not the PDF’s raw data — gets saved
+// in the small ‘brochures’ metadata list.
+const uploadResult = await window.fileStorage.upload(`brochure_${meta.id}`, dataUri);
+if (!uploadResult) { showToast(‘Brochure upload fail ho gaya — Firebase Storage abhi tak activate nahi hua ho sakta hai (Blaze plan chahiye)’, true); return false; }
+const next = [{ …meta, url: uploadResult.url }, …brochures];
 setBrochures(next);
 await window.storage.set(‘brochures’, JSON.stringify(next), true);
 return true;
 } catch (e) {
-showToast(‘Brochure save failed — file bahut badi ho sakti hai’, true);
+showToast(‘Brochure save failed’, true);
 return false;
 }
 }, [brochures]);
@@ -586,7 +683,7 @@ const next = brochures.filter((b) => b.id !== id);
 setBrochures(next);
 try {
 await window.storage.set(‘brochures’, JSON.stringify(next), true);
-await window.storage.delete(`brochure_data_${id}`, true);
+await window.fileStorage.delete(`brochure_${id}`);
 } catch (e) { /* best effort */ }
 }, [brochures]);
 const persistStaff = useCallback(async (next) => {
@@ -646,6 +743,7 @@ partnerPin={partnerPin} setPartnerPin={persistPartnerPin}
 staff={staff} setStaff={persistStaff}
 expenses={expenses} setExpenses={persistExpenses}
 appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={persistAppointmentItemOptions}
+categories={categories} setCategories={setCategories}
 brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure}
 allData={{ customers, jobs, gallery, staff, expenses }}
 staffName={session.staffName}
@@ -684,6 +782,18 @@ return (
 );
 }
 
+// Public testimonials shown to customers: only the reviews an admin has
+// explicitly marked “featured”, and only the fields safe to show a
+// stranger (name, rating, text) — never the full job record, which
+// would leak another customer’s address, payments, and requirements.
+// Computed here (in the privileged App-level scope that already has
+// full jobs access) rather than inside CustomerApp, which by design
+// never receives any job data beyond the logged-in customer’s own.
+const featuredTestimonials = jobs
+.filter((j) => j.review && j.review.featured)
+.map((j) => ({ customerName: j.customerName, rating: j.review.rating, text: j.review.text, date: j.review.date }))
+.sort((a, b) => new Date(b.date) - new Date(a.date));
+
 return (
 <div style={styles.app}>
 <style>{fontImport}</style>
@@ -692,7 +802,9 @@ customer={customer}
 gallery={gallery}
 job={myJob}
 appointmentItemOptions={appointmentItemOptions}
+categories={categories}
 brochures={brochures}
+testimonials={featuredTestimonials}
 onSaveJob={(j) => {
 if (j.customerId !== myCustomerId) return; // guard: never allow writing another customer’s job
 const exists = jobs.some((jj) => jj.id === j.id);
@@ -772,8 +884,7 @@ if (!digits10 || digits10.length !== 10) return digits10 || ‘’;
 return `+91 ${digits10.slice(0, 5)} ${digits10.slice(5)}`;
 }
 
-function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
-const [mode, setMode] = useState(‘choose’);
+function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {const [mode, setMode] = useState(‘choose’);
 const [name, setName] = useState(’’);
 const [phone, setPhone] = useState(’’);
 const [pin, setPin] = useState(’’);
@@ -820,7 +931,9 @@ const code = String(Math.floor(1000 + Math.random() * 9000));
 setSentOtp(code);
 setOtpInput(’’);
 setError(’’);
-};const backFromOtp = () => {
+};
+
+const backFromOtp = () => {
 setOtpStage(false);
 setSentOtp(’’);
 setOtpInput(’’);
@@ -997,7 +1110,7 @@ return (
 
 /* ===================== CUSTOMER APP ===================== */
 /* Everything below receives ONLY this one customer’s data — never a list of others. */
-function CustomerApp({ customer, gallery, job, appointmentItemOptions, brochures, onSaveJob, onLogout, showToast }) {
+function CustomerApp({ customer, gallery, job, appointmentItemOptions, categories, brochures, testimonials, onSaveJob, onLogout, showToast }) {
 const [tab, setTab] = useState(‘home’);
 
 return (
@@ -1007,8 +1120,8 @@ return (
 ```
   {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} />}
   {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
-  {tab === 'gallery' && <GalleryBrowser gallery={gallery} brochures={brochures} showToast={showToast} />}
-  {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} />}
+  {tab === 'gallery' && <GalleryBrowser gallery={gallery} brochures={brochures} categories={categories} testimonials={testimonials} showToast={showToast} />}
+  {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} />}
   {tab === 'progress' && <ProgressView job={job} />}
   {tab === 'review' && <ReviewPanel job={job} onSave={onSaveJob} showToast={showToast} />}
 
@@ -1103,10 +1216,11 @@ return (
 }
 
 /* –– Gallery browser –– */
-function GalleryBrowser({ gallery, brochures, showToast }) {
+function GalleryBrowser({ gallery, brochures, categories, testimonials, showToast }) {
 const [activeCat, setActiveCat] = useState(null);
 const [lightbox, setLightbox] = useState(null);
 const [showBrochures, setShowBrochures] = useState(false);
+const [showTestimonials, setShowTestimonials] = useState(false);
 
 if (activeCat) {
 const photos = gallery[activeCat] || [];
@@ -1132,12 +1246,12 @@ return (
 );
 }
 
-const totalPhotos = CATEGORIES.reduce((s, c) => s + (gallery[c] || []).length, 0);
+const totalPhotos = categories.reduce((s, c) => s + (gallery[c] || []).length, 0);
 
 return (
 <div style={{ padding: ‘12px 16px’ }}>
 <div style={styles.sectionTitle}>Design Gallery</div>
-<div style={styles.plainTextMuted}>{totalPhotos} designs across {CATEGORIES.length} categories</div>
+<div style={styles.plainTextMuted}>{totalPhotos} designs across {categories.length} categories</div>
 
 ```
   {brochures && brochures.length > 0 && (
@@ -1155,8 +1269,33 @@ return (
     </div>
   )}
 
+  {testimonials && testimonials.length > 0 && (
+    <div style={styles.brochureSection}>
+      <button style={styles.brochureSectionToggle} onClick={() => setShowTestimonials((s) => !s)}>
+        <Star size={15} color={BRAND.gold} />
+        <span style={{ flex: 1, textAlign: 'left' }}>Customer Reviews ({testimonials.length})</span>
+        <ChevronRight size={15} style={{ transform: showTestimonials ? 'rotate(90deg)' : 'none' }} />
+      </button>
+      {showTestimonials && (
+        <div style={{ marginTop: 8 }}>
+          {testimonials.map((t, i) => (
+            <div key={i} style={styles.reviewCard}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={styles.cardName}>{t.customerName}</div>
+                <div style={{ display: 'flex', gap: 1 }}>
+                  {[1,2,3,4,5].map((n) => <Star key={n} size={12} fill={n <= t.rating ? BRAND.gold : 'none'} color={n <= t.rating ? BRAND.gold : '#D7DAE5'} />)}
+                </div>
+              </div>
+              {t.text && <div style={{ ...styles.plainText, marginTop: 6 }}>{t.text}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )}
+
   <div style={styles.catGrid}>
-    {CATEGORIES.map((cat) => {
+    {categories.map((cat) => {
       const count = (gallery[cat] || []).length;
       const cover = (gallery[cat] || [])[0];
       return (
@@ -1335,7 +1474,7 @@ return (
 
     <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Kya kya kaam karvana hai? (select karein)</div>
     <div style={styles.checklistGrid}>
-      {(itemOptions || CATEGORIES).map((cat) => {
+      {(itemOptions || DEFAULT_CATEGORIES).map((cat) => {
         const checked = form.items.includes(cat);
         return (
           <button key={cat} onClick={() => toggleItem(cat)} style={{ ...styles.checklistItem, ...(checked ? styles.checklistItemActive : {}) }}>
@@ -1379,8 +1518,8 @@ return (
 /* –– Requirements: simplified single-step flow –– */
 const REQ_PRIORITY = { high: { label: ‘Urgent’, color: ‘#B5562E’, bg: ‘#F7E3D8’ }, normal: { label: ‘Normal’, color: ‘#A8975F’, bg: ‘#F3EFE3’ }, low: { label: ‘Flexible’, color: ‘#3D6B66’, bg: ‘#E1EDEA’ } };
 
-function RequirementsPanel({ job, onSave, showToast }) {
-const [category, setCategory] = useState(CATEGORIES[0]);
+function RequirementsPanel({ job, onSave, showToast, categories }) {
+const [category, setCategory] = useState(categories[0]);
 const [text, setText] = useState(’’);
 const [dimensions, setDimensions] = useState(’’);
 const [priority, setPriority] = useState(‘normal’);
@@ -1425,7 +1564,7 @@ return (
     <div style={styles.formCard}>
       <div style={styles.fieldLabel}>Category select karein</div>
       <div style={styles.chipRow}>
-        {CATEGORIES.map((c) => (
+        {categories.map((c) => (
           <button key={c} onClick={() => setCategory(c)} style={{ ...styles.chip, ...(category === c ? styles.chipActive : {}) }}>{c}</button>
         ))}
       </div>
@@ -1632,7 +1771,7 @@ return (
 }
 
 /* ===================== ADMIN APP ===================== */
-function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, brochures, addBrochure, removeBrochure, allData, staffName, isPartner, onLogout, showToast }) {
+function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, allData, staffName, isPartner, onLogout, showToast }) {
 const [tab, setTab] = useState(‘home’);
 const [activeJobId, setActiveJobId] = useState(null);
 const activeJob = jobs.find((j) => j.id === activeJobId);
@@ -1657,21 +1796,22 @@ return (
 ```
   {tab === 'home' && (
     <AdminHome
-      customers={customers} jobs={jobs} gallery={gallery}
+``````
+      customers={customers} jobs={jobs} gallery={gallery} categories={categories}
       pendingEstimates={pendingEstimates} overdue={overdue} pendingAppointments={pendingAppointments}
       onOpenJob={setActiveJobId} setTab={setTab} isPartner={isPartner}
     />
   )}
   {tab === 'customers' && <AdminCustomers customers={customers} setCustomers={setCustomers} jobs={jobs} setJobs={setJobs} onOpenJob={setActiveJobId} showToast={showToast} isPartner={isPartner} />}
-  {tab === 'gallery' && <AdminGallery gallery={gallery} setGallery={setGallery} showToast={showToast} />}
-  {tab === 'reviews' && <AdminReviews jobs={jobs} />}
+  {tab === 'gallery' && <AdminGallery gallery={gallery} setGallery={setGallery} categories={categories} setCategories={setCategories} showToast={showToast} />}
+  {tab === 'reviews' && <AdminReviews jobs={jobs} setJobs={setJobs} showToast={showToast} />}
   {tab === 'expenses' && !isPartner && <AdminExpenses expenses={expenses} setExpenses={setExpenses} jobs={jobs} showToast={showToast} />}
   {tab === 'settings' && (
     isPartner
       ? <PartnerSettings staffName={staffName} />
-      : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} showToast={showToast} />
+      : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} showToast={showToast} />
   )}
-``````
+
   <BottomNav
     tab={tab} setTab={setTab}
     items={isPartner ? [
@@ -1694,9 +1834,9 @@ return (
 );
 }
 
-function AdminHome({ customers, jobs, gallery, pendingEstimates, overdue, pendingAppointments, onOpenJob, setTab, isPartner }) {
+function AdminHome({ customers, jobs, gallery, categories, pendingEstimates, overdue, pendingAppointments, onOpenJob, setTab, isPartner }) {
 const dueTotal = jobs.reduce((s, j) => s + jobDue(j), 0);
-const totalPhotos = CATEGORIES.reduce((s, c) => s + (gallery[c] || []).length, 0);
+const totalPhotos = categories.reduce((s, c) => s + (gallery[c] || []).length, 0);
 const recentJobs = […jobs].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
 
 return (
@@ -2517,7 +2657,6 @@ return (
           <div style={styles.hintText}>Size: {pendingUpload.sizeMb}MB — poori quality mein save hogi.</div>
           <input style={{ ...styles.input, marginTop: 8 }} placeholder='Caption (optional)' value={caption} onChange={(e) => setCaption(e.target.value)} />
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-``````
             <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={confirmUpload}><Check size={14} /> {addLabel || 'Add photo'}</button>
             <button style={styles.cancelBtn} onClick={() => setPendingUpload(null)}>Cancel</button>
           </div>
@@ -2540,8 +2679,8 @@ return (
 }
 
 /* –– Admin gallery manager –– */
-function AdminGallery({ gallery, setGallery, showToast }) {
-const [activeCat, setActiveCat] = useState(CATEGORIES[0]);
+function AdminGallery({ gallery, setGallery, categories, setCategories, showToast }) {
+const [activeCat, setActiveCat] = useState(categories[0]);
 const [bulkText, setBulkText] = useState(’’);
 const [showBulk, setShowBulk] = useState(false);
 const [query, setQuery] = useState(’’);
@@ -2564,8 +2703,7 @@ const next = { …gallery, [activeCat]: […newPhotos, …allPhotos] };
 setGallery(next);
 setBulkText(’’);
 setShowBulk(false);
-showToast(`${urls.length} photos added to ${activeCat}`);
-};
+showToast(`${urls.length} photos added to ${activeCat}`);};
 
 const removePhoto = (id) => setGallery({ …gallery, [activeCat]: allPhotos.filter((p) => p.id !== id) });
 
@@ -2589,14 +2727,16 @@ setEditingPhoto(null);
 return (
 <div style={{ padding: ‘12px 16px’ }}>
 <div style={styles.sectionTitle}>Design Gallery Manager</div>
-<div style={styles.chipRow}>
-{CATEGORIES.map((c) => {
-const count = (gallery[c] || []).length;
-return <button key={c} onClick={() => setActiveCat(c)} style={{ …styles.chip, …(activeCat === c ? styles.chipActive : {}) }}>{c} ({count})</button>;
-})}
-</div>
+<div style={styles.plainTextMuted}>Categories add/remove karne ke liye Settings mein jaayein.</div>
 
 ```
+  <div style={styles.chipRow}>
+    {categories.map((c) => {
+      const count = (gallery[c] || []).length;
+      return <button key={c} onClick={() => setActiveCat(c)} style={{ ...styles.chip, ...(activeCat === c ? styles.chipActive : {}) }}>{c} ({count})</button>;
+    })}
+  </div>
+
   <div style={{ marginTop: 12 }}>
     <div style={styles.fieldLabel}>Add photo to '{activeCat}'</div>
     <PhotoAddPanel addLabel='Add photo' showToast={showToast} onAdd={({ url, origUrl, caption }) => addPhotoFromPanel(url, origUrl, caption)} />
@@ -2633,6 +2773,7 @@ return <button key={c} onClick={() => setActiveCat(c)} style={{ …styles.chip, 
     <GalleryPhotoEditDialog
       photo={editingPhoto}
       currentCategory={activeCat}
+      categories={categories}
       onCancel={() => setEditingPhoto(null)}
       onSave={saveEditedPhoto}
     />
@@ -2643,7 +2784,7 @@ return <button key={c} onClick={() => setActiveCat(c)} style={{ …styles.chip, 
 );
 }
 
-function GalleryPhotoEditDialog({ photo, currentCategory, onCancel, onSave }) {
+function GalleryPhotoEditDialog({ photo, currentCategory, categories, onCancel, onSave }) {
 const [caption, setCaption] = useState(photo.caption || ‘’);
 const [category, setCategory] = useState(currentCategory);
 return (
@@ -2658,7 +2799,7 @@ return (
 <input style={styles.input} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder=‘Caption (optional)’ />
 <div style={{ …styles.fieldLabel, marginTop: 12 }}>Category</div>
 <div style={styles.chipRow}>
-{CATEGORIES.map((c) => (
+{categories.map((c) => (
 <button key={c} onClick={() => setCategory(c)} style={{ …styles.chip, …(category === c ? styles.chipActive : {}) }}>{c}</button>
 ))}
 </div>
@@ -2672,9 +2813,24 @@ return (
 }
 
 /* –– Admin reviews –– */
-function AdminReviews({ jobs }) {
+function AdminReviews({ jobs, setJobs, showToast }) {
+const [editingJobId, setEditingJobId] = useState(null);
 const reviewed = jobs.filter((j) => j.review).sort((a, b) => new Date(b.review.date) - new Date(a.review.date));
 const avg = reviewed.length ? (reviewed.reduce((s, j) => s + j.review.rating, 0) / reviewed.length).toFixed(1) : ‘-’;
+const featuredCount = reviewed.filter((j) => j.review.featured).length;
+
+const toggleFeatured = (job) => {
+const next = jobs.map((j) => (j.id === job.id ? { …j, review: { …j.review, featured: !j.review.featured } } : j));
+setJobs(next);
+showToast(job.review.featured ? ‘Review featured list se hataya gaya’ : ‘Review featured list mein add ho gaya’);
+};
+
+const saveEdit = (job, newRating, newText) => {
+const next = jobs.map((j) => (j.id === job.id ? { …j, review: { …j.review, rating: newRating, text: newText.trim() } } : j));
+setJobs(next);
+setEditingJobId(null);
+showToast(‘Review update ho gaya’);
+};
 
 return (
 <div style={{ padding: ‘12px 16px’ }}>
@@ -2683,6 +2839,7 @@ return (
 <StatCard icon={<Star size={16} />} label=‘Avg Rating’ value={avg} accent />
 <StatCard icon={<MessageSquare size={16} />} label=‘Total Reviews’ value={reviewed.length} />
 </div>
+<div style={styles.plainTextMuted}>{featuredCount} review{featuredCount !== 1 ? ‘s’ : ‘’} customers ko dikh rahe hain (featured)</div>
 {reviewed.length === 0 && <div style={styles.empty}>Abhi tak koi review nahi mila.</div>}
 {reviewed.map((j) => (
 <div key={j.id} style={styles.reviewCard}>
@@ -2692,10 +2849,43 @@ return (
 {[1,2,3,4,5].map((n) => <Star key={n} size={13} fill={n <= j.review.rating ? BRAND.gold : ‘none’} color={n <= j.review.rating ? BRAND.gold : ‘#D7DAE5’} />)}
 </div>
 </div>
+{editingJobId === j.id ? (
+<ReviewEditForm job={j} onSave={saveEdit} onCancel={() => setEditingJobId(null)} />
+) : (
+<>
 {j.review.text && <div style={{ …styles.plainText, marginTop: 6 }}>{j.review.text}</div>}
 <div style={styles.itemSub}>{formatDate(j.review.date)}</div>
+<div style={{ display: ‘flex’, gap: 8, marginTop: 8 }}>
+<button style={styles.cardActionBtn} onClick={() => setEditingJobId(j.id)}><Edit3 size={12} /> Edit</button>
+<button style={{ …styles.cardActionBtn, …(j.review.featured ? styles.cardActionBtnActive : {}) }} onClick={() => toggleFeatured(j)}>
+<Star size={12} fill={j.review.featured ? ‘#FFF’ : ‘none’} /> {j.review.featured ? ‘Featured’ : ‘Feature karein’}
+</button>
+</div>
+</>
+)}
 </div>
 ))}
+</div>
+);
+}
+
+function ReviewEditForm({ job, onSave, onCancel }) {
+const [rating, setRating] = useState(job.review.rating);
+const [text, setText] = useState(job.review.text || ‘’);
+return (
+<div style={{ marginTop: 8 }}>
+<div style={styles.starRow}>
+{[1,2,3,4,5].map((n) => (
+<button key={n} style={styles.starBtn} onClick={() => setRating(n)}>
+<Star size={22} fill={n <= rating ? BRAND.gold : ‘none’} color={n <= rating ? BRAND.gold : ‘#D7DAE5’} />
+</button>
+))}
+</div>
+<textarea style={{ …styles.input, minHeight: 70, marginTop: 8 }} value={text} onChange={(e) => setText(e.target.value)} placeholder=‘Review text’ />
+<div style={{ display: ‘flex’, gap: 8, marginTop: 8 }}>
+<button style={styles.primaryBtn} onClick={() => onSave(job, rating, text)}>Save</button>
+<button style={styles.cardActionBtn} onClick={onCancel}>Cancel</button>
+</div>
 </div>
 );
 }
@@ -2839,7 +3029,7 @@ return (
 }
 
 /* –– Admin settings –– */
-function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, brochures, addBrochure, removeBrochure, allData, showToast }) {
+function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, brochures, addBrochure, removeBrochure, allData, showToast }) {
 const [current, setCurrent] = useState(’’);
 const [next1, setNext1] = useState(’’);
 const [next2, setNext2] = useState(’’);
@@ -2891,6 +3081,42 @@ const next = appointmentItemOptions.includes(cat)
 ? appointmentItemOptions.filter((c) => c !== cat)
 : […appointmentItemOptions, cat];
 setAppointmentItemOptions(next);
+};
+const [newApptItem, setNewApptItem] = useState(’’);
+const addApptItem = () => {
+const name = newApptItem.trim();
+if (!name) return;
+if (appointmentItemOptions.some((c) => c.toLowerCase() === name.toLowerCase())) {
+showToast(‘Ye item pehle se list mein hai’, true);
+return;
+}
+setAppointmentItemOptions([…appointmentItemOptions, name]);
+setNewApptItem(’’);
+showToast(‘Item add ho gaya’);
+};
+const removeApptItem = (cat) => {
+setAppointmentItemOptions(appointmentItemOptions.filter((c) => c !== cat));
+};
+
+const [newGalleryCategory, setNewGalleryCategory] = useState(’’);
+const addGalleryCategory = () => {
+const name = newGalleryCategory.trim();
+if (!name) return;
+if (categories.some((c) => c.toLowerCase() === name.toLowerCase())) {
+showToast(‘Ye category pehle se list mein hai’, true);
+return;
+}
+setCategories([…categories, name]);
+setNewGalleryCategory(’’);
+showToast(‘Category add ho gayi’);
+};
+const removeGalleryCategory = (cat) => {
+if ((gallery[cat] || []).length > 0) {
+showToast(‘Is category mein photos hain — pehle unhe hataein ya move karein’, true);
+return;
+}
+setCategories(categories.filter((c) => c !== cat));
+setAppointmentItemOptions(appointmentItemOptions.filter((c) => c !== cat));
 };
 
 const downloadBackup = () => {
@@ -2987,18 +3213,33 @@ return (
       <div style={{ fontWeight: 800, fontSize: 14 }}>Appointment Checklist</div>
     </div>
     <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Customer appointment book karte waqt kaunse work-items dikhne chahiye, select karein.</div>
-    <div style={styles.checklistGrid}>
-      {CATEGORIES.map((cat) => {
-        const checked = appointmentItemOptions.includes(cat);
-        return (
-          <button key={cat} onClick={() => toggleAppointmentItem(cat)} style={{ ...styles.checklistItem, ...(checked ? styles.checklistItemActive : {}) }}>
-            <div style={{ ...styles.checkbox, ...(checked ? styles.checkboxActive : {}) }}>
-              {checked && <Check size={11} color='#FFF' />}
-            </div>
-            <span>{cat}</span>
-          </button>
-        );
-      })}
+    <div style={{ marginTop: 4 }}>
+      {appointmentItemOptions.map((cat) => (
+        <div key={cat} style={styles.staffRow}>
+          <div style={{ flex: 1 }}>{cat}</div>
+          <button style={styles.iconBtnSmall} onClick={() => removeApptItem(cat)}><Trash2 size={14} color='#C7CCDC' /></button>
+        </div>
+      ))}
+      <input style={{ ...styles.input, marginTop: 10 }} placeholder='Naya item add karein (jaise "Painting")' value={newApptItem} onChange={(e) => setNewApptItem(e.target.value)} />
+      <button style={styles.addBtn} onClick={addApptItem}><Plus size={14} /> Item add karein</button>
+    </div>
+  </div>
+
+  <div style={{ ...styles.card, marginTop: 12 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+      <Grid3x3 size={16} color={BRAND.gold} />
+      <div style={{ fontWeight: 800, fontSize: 14 }}>Gallery Categories</div>
+    </div>
+    <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Design gallery mein kaunse categories dikhein, add/remove karein.</div>
+    <div style={{ marginTop: 4 }}>
+      {categories.map((cat) => (
+        <div key={cat} style={styles.staffRow}>
+          <div style={{ flex: 1 }}>{cat} <span style={styles.itemSub}>({(gallery[cat] || []).length} photos)</span></div>
+          <button style={styles.iconBtnSmall} onClick={() => removeGalleryCategory(cat)}><Trash2 size={14} color='#C7CCDC' /></button>
+        </div>
+      ))}
+      <input style={{ ...styles.input, marginTop: 10 }} placeholder='Nayi category ka naam' value={newGalleryCategory} onChange={(e) => setNewGalleryCategory(e.target.value)} />
+      <button style={styles.addBtn} onClick={addGalleryCategory}><Plus size={14} /> Category add karein</button>
     </div>
   </div>
 
@@ -3008,7 +3249,7 @@ return (
       <div style={{ fontWeight: 800, fontSize: 14 }}>Product Brochures (PDF)</div>
     </div>
     <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Category-wise brochure PDFs upload karein — customer inhe Gallery se dekh sakega.</div>
-    <BrochureUploadPanel addBrochure={addBrochure} showToast={showToast} />
+    <BrochureUploadPanel addBrochure={addBrochure} categories={categories} showToast={showToast} />
     <div style={{ marginTop: 12 }}>
       <BrochureList brochures={brochures} showToast={showToast} canManage={true} onDelete={removeBrochure} />
     </div>
@@ -3061,10 +3302,13 @@ expenses, aur data backup nahi dikhte — sirf customers, gallery, aur reviews m
 
 /* –– Brochure upload: reads a PDF file from device, converts to a
 data URI, and saves it under the chosen category. No compression is
-applied (PDFs don’t shrink like images) — if a file exceeds the 5MB
-storage cap, the save is rejected with a clear message. –– */
-function BrochureUploadPanel({ addBrochure, showToast }) {
-const [category, setCategory] = useState(CATEGORIES[0]);
+applied (PDFs don’t shrink like images) — if a file exceeds the storage
+cap, the save is rejected with a clear message. Real PDF brochures
+(several pages of product photos) often run 1-5MB, well past what a
+single Firestore document can hold — a scanned/compressed PDF, or one
+split into fewer pages, is needed to fit under this limit. –– */
+function BrochureUploadPanel({ addBrochure, categories, showToast }) {
+const [category, setCategory] = useState(categories[0]);
 const [uploading, setUploading] = useState(false);
 const fileInputRef = React.useRef(null);
 
@@ -3077,8 +3321,8 @@ setUploading(true);
 try {
 const dataUri = await fileToDataUri(file);
 const sizeBytes = dataUriByteSize(dataUri);
-if (sizeBytes > MAX_PHOTO_BYTES) {
-showToast(`PDF bahut badi hai (${(sizeBytes / (1024 * 1024)).toFixed(1)}MB) — 5MB se choti file try karein`, true);
+if (sizeBytes > MAX_BROCHURE_BYTES) {
+showToast(`PDF bahut badi hai (${(sizeBytes / (1024 * 1024)).toFixed(1)}MB) — ${(MAX_BROCHURE_BYTES / (1024 * 1024)).toFixed(0)}MB se choti file try karein`, true);
 return;
 }
 const nameLower = file.name.toLowerCase();
@@ -3097,7 +3341,7 @@ return (
 <div>
 <div style={styles.fieldLabel}>Category</div>
 <div style={styles.chipRow}>
-{CATEGORIES.map((c) => (
+{categories.map((c) => (
 <button key={c} onClick={() => setCategory(c)} style={{ …styles.chip, …(category === c ? styles.chipActive : {}) }}>{c}</button>
 ))}
 </div>
@@ -3177,8 +3421,8 @@ catTitle: { fontWeight: 800, fontSize: 17, letterSpacing: -0.3, margin: ‘10px 
 catCount: { color: BRAND.textMuted, fontWeight: 600, fontSize: 13 },
 
 photoGrid: { display: ‘grid’, gridTemplateColumns: ‘1fr 1fr 1fr’, gap: 6, marginTop: 8 },
-photoThumb: { border: ‘none’, padding: 0, borderRadius: 8, overflow: ‘hidden’, cursor: ‘pointer’, background: ‘#EEF0F5’, aspectRatio: ‘1’, display: ‘block’ },
-photoImg: { width: ‘100%’, height: ‘100%’, objectFit: ‘cover’, display: ‘block’, aspectRatio: ‘1’ },
+photoThumb: { border: ‘none’, padding: 0, borderRadius: 8, overflow: ‘hidden’, cursor: ‘pointer’, background: ‘#EEF0F5’, aspectRatio: ‘1’, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’ },
+photoImg: { width: ‘100%’, height: ‘100%’, objectFit: ‘contain’, display: ‘block’ },
 progressPhotoCard: { position: ‘relative’, background: BRAND.paper, border: `1px solid ${BRAND.line}`, borderRadius: 8, overflow: ‘hidden’ },
 progressCaption: { fontSize: 10.5, padding: ‘4px 6px’, color: ‘#333B57’, fontWeight: 600 },
 photoDeleteBtn: { position: ‘absolute’, top: 4, right: 4, background: ‘rgba(15,27,61,0.75)’, border: ‘none’, borderRadius: 6, padding: 4, cursor: ‘pointer’ },
@@ -3243,6 +3487,7 @@ card: { position: ‘relative’, background: BRAND.paper, border: `1px solid ${
 cardClickArea: { display: ‘block’, width: ‘100%’, background: ‘none’, border: ‘none’, padding: 0, margin: 0, textAlign: ‘left’, cursor: ‘pointer’, fontFamily: ‘inherit’ },
 cardActionsRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, marginTop: 10, paddingTop: 10, borderTop: ‘1px dashed #EEF0F5’ },
 cardActionBtn: { display: ‘flex’, alignItems: ‘center’, gap: 4, background: ‘none’, border: ‘none’, color: BRAND.textMuted, fontSize: 11.5, fontWeight: 700, cursor: ‘pointer’, padding: 0 },
+cardActionBtnActive: { background: BRAND.gold, color: ‘#FFF’, padding: ‘4px 8px’, borderRadius: 12 },
 confirmDialog: { background: ‘#FFF’, borderRadius: 16, padding: 22, width: ‘100%’, maxWidth: 320, display: ‘flex’, flexDirection: ‘column’, alignItems: ‘center’, textAlign: ‘center’ },
 confirmDialogTitle: { fontWeight: 800, fontSize: 14.5, color: BRAND.navy, marginTop: 10 },
 confirmDialogText: { fontSize: 12, color: BRAND.textMuted, marginTop: 6, lineHeight: 1.5 },
