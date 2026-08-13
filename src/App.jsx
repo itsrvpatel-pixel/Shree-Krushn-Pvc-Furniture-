@@ -2723,7 +2723,7 @@ const photos = allPhotos.filter((p) => !query.trim() || (p.caption || ‘’).to
 const addPhotoFromPanel = (url, origUrl, caption) => {
 const next = { …gallery, [activeCat]: [{ id: uid(), url, origUrl, caption }, …allPhotos] };
 setGallery(next);
-    showToast(urls.length + ' photos added to ' + activeCat);
+showToast(urls.length + " photos added to " + activeCat);
 };
 
 const addBulk = () => {
