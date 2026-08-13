@@ -23,8 +23,8 @@ function stripStrayCodeFenceLines(code) {
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
     const trimmed = rawLine.split(CARRIAGE_RETURN).join(EMPTY_STRING).trim();
-    const fence = BACKTICK + BACKTICK + BACKTICK;
-    if (trimmed === fence) continue;
+    const isAllBackticks = trimmed.length >= 2 && trimmed.split(BACKTICK).join(EMPTY_STRING) === EMPTY_STRING;
+    if (isAllBackticks) continue;
     kept.push(rawLine);
   }
   return kept.join(NEWLINE_CHAR);
