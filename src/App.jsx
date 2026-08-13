@@ -9,7 +9,7 @@ UserPlus, Users, Download, Eye, EyeOff, TrendingUp
 } from ‘lucide-react’;
 
 /* ===========================================================
-Shree Krushn PVC Furniture — Full App v3
+Shree Krushn PVC Furniture - Full App v3
 Brand: navy (#0F1B3D) + cream (#F8FAFB) + warm grey accent
 =========================================================== */
 
@@ -62,7 +62,7 @@ try {
 if (session) window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
 else window.localStorage.removeItem(SESSION_STORAGE_KEY);
 } catch (e) {
-// best effort — session just won’t survive a refresh in this case
+// best effort - session just won’t survive a refresh in this case
 }
 }
 const DEFAULT_PIN = ‘2580’;
@@ -93,7 +93,7 @@ const BUSINESS = {
 name: ‘Shree Krushn PVC Furniture’,
 tagline: ‘Premium PVC Interior Solutions’,
 owner: ‘Ravi Vasoya’,
-addressLine: ‘Nikol, Ahmedabad — Head Office’,
+addressLine: ‘Nikol, Ahmedabad - Head Office’,
 branches: [
 { city: ‘Ahmedabad’, contact: ‘Ravi Vasoya’, phone: ‘+91 79902 83116’ },
 { city: ‘Vadodara’, contact: ‘Sagar Patel’, phone: ‘+91 97268 63451’ },
@@ -115,7 +115,7 @@ points: [
 },
 {
 title: ‘Work Duration’,
-points: [‘Estimated completion: 8–10 days (depending on work & site condition)’],
+points: [‘Estimated completion: 8-10 days (depending on work & site condition)’],
 },
 {
 title: ‘Material’,
@@ -123,7 +123,7 @@ points: [
 ‘100% PVC Board (Waterproof & Termite-proof)’,
 ‘Kaka PVC 7kg core sheet’,
 ‘Standard company hardware fittings (Rajvanshi, Bansi, etc.)’,
-‘PVC Laminate brands: Crystal, Orian, Hexa, Flexibond, Rama, Lionia (1mm–1.25mm)’,
+‘PVC Laminate brands: Crystal, Orian, Hexa, Flexibond, Rama, Lionia (1mm-1.25mm)’,
 ‘Hardware: Heavy channels, SS hinges, soft-closing tandem units for kitchen’,
 ‘Sliding wardrobe: Soft-close sliding channel’,
 ‘Other: Standard heavy locks, glue Airfast/Fevikwik 502/Evobond adhesives’,
@@ -135,7 +135,7 @@ title: ‘Quotation Includes’,
 points: [‘Design providing’, ‘Manufacturing & fixing of units’, ‘Material + labour + transportation charges included’],
 },
 { title: ‘Extra Work’, points: [‘Any extra work or changes after confirmation will be charged separately’] },
-{ title: ‘Warranty’, points: [‘5 years warranty on material (manufacturing defects only — varies by item & company)’] },
+{ title: ‘Warranty’, points: [‘5 years warranty on material (manufacturing defects only - varies by item & company)’] },
 { title: ‘GST’, points: [‘Prices are exclusive of GST’, ‘No GST added’] },
 {
 title: ‘Price Variation’,
@@ -167,7 +167,7 @@ if (sqft !== null) return sqft * (Number(it.rate) || 0);
 return (Number(it.qty) || 1) * (Number(it.rate) || 0);
 }
 
-// Builds a plain-text WhatsApp-friendly summary of a job’s estimate —
+// Builds a plain-text WhatsApp-friendly summary of a job’s estimate -
 // item list with sq-ft/amount, grand total, and a short terms line.
 function buildEstimateWhatsAppText(job) {
 const lines = [];
@@ -244,7 +244,7 @@ return input.includes(‘drive.google.com’);
 
 /* — Device photo upload: reads a File, downsizes only if needed to stay
 under the storage cap, and resolves a data-URI. Quality is kept as
-high as possible — we only shrink dimensions/quality when the original
+high as possible - we only shrink dimensions/quality when the original
 genuinely exceeds the limit, never as a blanket compression.
 
 The cap is deliberately much smaller than a “5MB photo” might suggest:
@@ -252,10 +252,10 @@ each photo is stored as its own Firestore document (see
 hydrateGalleryPhotos/persistGallery in the App component), and Firestore
 hard-caps every document at 1MiB. Once the photo is base64-encoded (~4/3
 size inflation) and wrapped in a small JSON envelope, a binary image
-needs to stay well under 1MB to leave headroom — 650KB keeps real-world
+needs to stay well under 1MB to leave headroom - 650KB keeps real-world
 photos comfortably under that limit even with encoding overhead. — */
 const MAX_PHOTO_BYTES = 650 * 1024;
-// Brochure PDFs are stored in Firebase Storage (not Firestore — see
+// Brochure PDFs are stored in Firebase Storage (not Firestore - see
 // firebaseStorage.js’s fileStorage.upload), which has no meaningful
 // per-file size ceiling for this app’s purposes, unlike gallery photos.
 // This cap is just a sanity limit so an accidental huge upload doesn’t
@@ -307,7 +307,7 @@ if (dataUriByteSize(out) <= MAX_PHOTO_BYTES) return out;
 if (attempt < 3) quality = Math.max(0.6, quality - 0.12);
 else { width *= 0.85; height *= 0.85; }
 }
-// Last resort — return the smallest attempt even if still large.
+// Last resort - return the smallest attempt even if still large.
 const canvas = document.createElement(‘canvas’);
 canvas.width = Math.round(width);
 canvas.height = Math.round(height);
@@ -385,10 +385,10 @@ else { setFailed(true); if (onErrorProp) onErrorProp(); }
 
 /* –– Brochure PDFs: category-wise catalog documents. Metadata
 ({id, name, category, sizeKb, url}) lives in the small ‘brochures’ list;
-the actual PDF file lives in Firebase Storage (not Firestore — a single
+the actual PDF file lives in Firebase Storage (not Firestore - a single
 PDF can be tens of MB, far past Firestore’s 1MiB document cap), and
 ‘url’ is the direct HTTPS download link Firebase Storage hands back
-after upload. Opening a brochure is just following that link — no
+after upload. Opening a brochure is just following that link - no
 separate fetch step needed. –– */
 function openOrDownloadPdf(url, filename) {
 try {
@@ -445,7 +445,7 @@ return (
             <div style={styles.itemSub}>{b.sizeKb ? (b.sizeKb + ' KB') : ''}</div>
           </div>
           <button style={styles.brochureOpenBtn} onClick={() => openBrochure(b)} disabled={loadingId === b.id}>
-            {loadingId === b.id ? '…' : <Download size={13} />}
+            {loadingId === b.id ? '...' : <Download size={13} />}
           </button>
           {canManage && (
             <button style={styles.iconBtnSmall} onClick={() => onDelete(b.id)}><Trash2 size={14} color='#C7CCDC' /></button>
@@ -528,7 +528,7 @@ if (br) setBrochures(JSON.parse(br));
 if (cats) setCategoriesRaw(JSON.parse(cats));
 if (aio) setAppointmentItemOptions(JSON.parse(aio));
 } catch (e) {
-// best effort — a missed poll just tries again next interval
+// best effort - a missed poll just tries again next interval
 }
 }, 20000);
 return () => clearInterval(poll);
@@ -547,8 +547,8 @@ return res ? res.value : null;
 // while each photo’s actual image data ({url, origUrl}) lives in its own
 // ‘gallery_photo_<id>’ document. This function re-merges the two after
 // loading the metadata, so every other part of the app can keep treating
-// gallery[category] as a flat array of {id, url, origUrl, caption} — the
-// shape it always was — without knowing about the split underneath.
+// gallery[category] as a flat array of {id, url, origUrl, caption} - the
+// shape it always was - without knowing about the split underneath.
 async function hydrateGalleryPhotos(galleryMeta) {
 const allIds = [];
 for (const cat of Object.keys(galleryMeta)) {
@@ -584,13 +584,13 @@ setTimeout(() => setToast((t) => (t && t.msg === msg ? null : t)), 2400);
 // document limit) goes into its own small ‘gallery_photo_<id>’
 // document per photo, while ‘gallery’ itself only ever holds lightweight
 // metadata. Without this split, a handful of uploaded photos pushes the
-// single ‘gallery’ document past Firestore’s 1MB-per-document hard limit —
+// single ‘gallery’ document past Firestore’s 1MB-per-document hard limit -
 // writes then fail silently from the UI’s point of view (state still
 // updates locally, so the photo appears to save, but reloads/refreshes
 // show it missing because the real document was never written).
 //
 // Only photos whose url/origUrl actually differ from the currently-loaded
-// gallery state get their per-photo document rewritten — callers always
+// gallery state get their per-photo document rewritten - callers always
 // pass the full gallery object (matching the shape the rest of the app
 // expects), so without this check every single photo add/edit would
 // needlessly rewrite every other photo’s document too, burning through
@@ -617,7 +617,7 @@ return { id: p.id, caption: p.caption || ‘’ };
 await Promise.all(writes);
 await window.storage.set(‘gallery’, JSON.stringify(meta), true);
 } catch (e) {
-showToast(‘Save failed — connection check karein’, true);
+showToast(‘Save failed - connection check karein’, true);
 }
 }, [gallery]);
 const persistCustomers = useCallback(async (next) => {
@@ -660,15 +660,15 @@ catch (e) { showToast(‘Save failed’, true); }
 // Brochure PDFs: metadata list (name/category/url) is small and lives in
 // Firestore under ‘brochures’; the actual PDF file lives in Firebase
 // Storage (see addBrochure/removeBrochure below), since a PDF can be tens
-// of MB — far past what a single Firestore document can hold.
+// of MB - far past what a single Firestore document can hold.
 const addBrochure = useCallback(async (meta, dataUri) => {
 try {
 // Large PDFs go to Firebase Storage (no practical size limit, unlike
 // Firestore’s 1MiB-per-document cap), which hands back a real HTTPS
-// download URL. Only that URL — not the PDF’s raw data — gets saved
+// download URL. Only that URL - not the PDF’s raw data - gets saved
 // in the small ‘brochures’ metadata list.
 const uploadResult = await window.fileStorage.upload(`brochure_${meta.id}`, dataUri);
-if (!uploadResult) { showToast(‘Brochure upload fail ho gaya — Firebase Storage abhi tak activate nahi hua ho sakta hai (Blaze plan chahiye)’, true); return false; }
+if (!uploadResult) { showToast(‘Brochure upload fail ho gaya - Firebase Storage abhi tak activate nahi hua ho sakta hai (Blaze plan chahiye)’, true); return false; }
 const next = [{ …meta, url: uploadResult.url }, …brochures];
 setBrochures(next);
 await window.storage.set(‘brochures’, JSON.stringify(next), true);
@@ -766,7 +766,7 @@ const myJob = jobs.find((j) => j.customerId === myCustomerId) || emptyJob(myCust
 
 // A stored session pointing at a customer that no longer exists (deleted
 // account, or corrupted localStorage) falls back to the login screen.
-// Calling setSession here — conditionally, during render — is React’s
+// Calling setSession here - conditionally, during render - is React’s
 // documented “adjusting state during rendering” pattern: it’s guarded by
 // the !customer check, so it can’t loop (once session is null, this
 // branch’s parent condition is no longer even reached on the next render).
@@ -784,7 +784,7 @@ return (
 
 // Public testimonials shown to customers: only the reviews an admin has
 // explicitly marked “featured”, and only the fields safe to show a
-// stranger (name, rating, text) — never the full job record, which
+// stranger (name, rating, text) - never the full job record, which
 // would leak another customer’s address, payments, and requirements.
 // Computed here (in the privileged App-level scope that already has
 // full jobs access) rather than inside CustomerApp, which by design
@@ -891,7 +891,7 @@ const [phone, setPhone] = useState(’’);
 const [pin, setPin] = useState(’’);
 const [error, setError] = useState(’’);
 
-// OTP verification state — shared by both register and login flows.
+// OTP verification state - shared by both register and login flows.
 const [otpStage, setOtpStage] = useState(false); // false | ‘register’ | ‘login’
 const [sentOtp, setSentOtp] = useState(’’);const [otpInput, setOtpInput] = useState(’’);
 const [pendingPhone, setPendingPhone] = useState(’’);
@@ -917,7 +917,7 @@ setOtpStage(forMode);
 };
 
 const verifyOtp = () => {
-if (otpInput.trim() !== sentOtp) { setError(‘Galat OTP — dobara check karein’); return; }
+if (otpInput.trim() !== sentOtp) { setError(‘Galat OTP - dobara check karein’); return; }
 if (otpStage === ‘register’) {
 onRegister({ id: uid(), name: name.trim(), phone: pendingPhone, phoneVerified: true, createdAt: new Date().toISOString() });
 } else {
@@ -955,7 +955,7 @@ return (
 <Logo size={64} />
 <div style={styles.brandName}>SHREE KRUSHN</div>
 <div style={styles.brandNameSub}>PVC FURNITURE</div>
-<div style={styles.brandSub}>Design gallery · Requirements · Live work tracking</div>
+<div style={styles.brandSub}>Design gallery - Requirements - Live work tracking</div>
 </div>
 
 ```
@@ -965,7 +965,7 @@ return (
       <div style={styles.plainTextMuted}>{formatPhoneDisplay(pendingPhone)} par bheja gaya code daalein</div>
       <div style={styles.otpDemoBox}>
         <ShieldCheck size={13} color={BRAND.gold} />
-        <span>Demo mode — real SMS nahi jaata. Aapka OTP: <b>{sentOtp}</b></span>
+        <span>Demo mode - real SMS nahi jaata. Aapka OTP: <b>{sentOtp}</b></span>
       </div>
       <input
         style={{ ...styles.input, marginTop: 10, textAlign: 'center', fontSize: 20, letterSpacing: 6, fontWeight: 800 }}
@@ -986,7 +986,7 @@ return (
   {!otpStage && mode === 'choose' && (
     <div style={styles.loginCard}>
       <button style={styles.primaryBtn} onClick={() => setMode('register')}>
-        <Sparkles size={15} /> Naye Customer — Register karein
+        <Sparkles size={15} /> Naye Customer - Register karein
       </button>
       <button style={{ ...styles.primaryBtn, background: BRAND.navyLight, marginTop: 10 }} onClick={() => setMode('login')}>
         Pehle se registered? Login karein
@@ -1022,7 +1022,7 @@ return (
   {!otpStage && mode === 'admin' && (
     <div style={styles.loginCard}>
       <div style={styles.fieldLabel}>Admin PIN</div>
-      <input style={styles.input} value={pin} onChange={(e) => { setPin(e.target.value); setError(''); }} placeholder='••••' inputMode='numeric' type='password' autoFocus />
+      <input style={styles.input} value={pin} onChange={(e) => { setPin(e.target.value); setError(''); }} placeholder='****' inputMode='numeric' type='password' autoFocus />
       {error && <div style={styles.errorText}>{error}</div>}
       <button style={{ ...styles.primaryBtn, marginTop: 16 }} onClick={doAdmin}>Enter Admin Panel</button>
       <button style={styles.backLink} onClick={() => setMode('choose')}><ArrowLeft size={13} /> Back</button>
@@ -1109,7 +1109,7 @@ return (
 }
 
 /* ===================== CUSTOMER APP ===================== */
-/* Everything below receives ONLY this one customer’s data — never a list of others. */
+/* Everything below receives ONLY this one customer’s data - never a list of others. */
 function CustomerApp({ customer, gallery, job, appointmentItemOptions, categories, brochures, testimonials, onSaveJob, onLogout, showToast }) {
 const [tab, setTab] = useState(‘home’);
 
@@ -1395,7 +1395,7 @@ confirmedDate: null,
 confirmedTime: null,
 };
 let next = { …job, appointment: nextAppt, address: form.address.trim() };
-const itemsNote = form.items.length ? ` — ${form.items.join(', ')}` : ‘’;
+const itemsNote = form.items.length ? ` - ${form.items.join(', ')}` : ‘’;
 next = logActivity(next, `Appointment requested: ${formatDate(form.preferredDate)}${form.preferredTime ? ', ' + form.preferredTime : ''}${itemsNote}`);
 onSave(next);
 setEditing(false);
@@ -1419,14 +1419,14 @@ return (
         <div style={styles.apptConfirmedBlock}>
           <Calendar size={16} color={BRAND.navy} />
           <div>
-            <div style={styles.apptConfirmedDate}>{formatDate(appt.confirmedDate)} {appt.confirmedTime && `· ${appt.confirmedTime}`}</div>
+            <div style={styles.apptConfirmedDate}>{formatDate(appt.confirmedDate)} {appt.confirmedTime && ('- ' + appt.confirmedTime)}</div>
             <div style={styles.itemSub}>Admin ne confirm ki hai</div>
           </div>
         </div>
       ) : (
         <div style={styles.apptRow}>
           <span style={styles.apptRowLabel}>Preferred</span>
-          <span style={styles.apptRowValue}>{formatDate(appt.preferredDate)} {appt.preferredTime && `· ${appt.preferredTime}`}</span>
+          <span style={styles.apptRowValue}>{formatDate(appt.preferredDate)} {appt.preferredTime && ('- ' + appt.preferredTime)}</span>
         </div>
       )}
 
@@ -1499,7 +1499,7 @@ return (
     </div>
 
     <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Address *</div>
-    <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder='Poora address — house/flat no, area, landmark, city' />
+    <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder='Poora address - house/flat no, area, landmark, city' />
 
     <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Extra notes</div>
     <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder='Koi special instructions...' />
@@ -1688,8 +1688,8 @@ return (
                 <tr key={it.id}>
                   <td style={styles.qtd}>{i + 1}</td>
                   <td style={{ ...styles.qtd, textAlign: 'left' }}>{it.desc}</td>
-                  <td style={styles.qtd}>{sqft !== null ? it.length : '—'}</td>
-                  <td style={styles.qtd}>{sqft !== null ? it.height : '—'}</td>
+                  <td style={styles.qtd}>{sqft !== null ? it.length : '-'}</td>
+                  <td style={styles.qtd}>{sqft !== null ? it.height : '-'}</td>
                   <td style={styles.qtd}>{sqft !== null ? sqft.toFixed(2) : (it.qty || 1)}</td>
                   <td style={styles.qtd}>{currency(it.rate)}</td>
                   <td style={{ ...styles.qtd, fontWeight: 800 }}>{currency(estimateItemAmount(it))}</td>
@@ -1735,7 +1735,7 @@ const [text, setText] = useState(job.review?.text || ‘’);
 const submit = () => {
 if (!rating) { showToast(‘Rating select karein’, true); return; }
 let next = { …job, review: { rating, text: text.trim(), date: new Date().toISOString() } };
-next = logActivity(next, `Review submitted (${rating}★)`);
+next = logActivity(next, `Review submitted (${rating}*)`);
 onSave(next);
 showToast(‘Review submit ho gayi. Dhanyavaad!’);
 };
@@ -1779,7 +1779,7 @@ const activeJob = jobs.find((j) => j.id === activeJobId);
 if (activeJob) {
 return (
 <div style={{ paddingBottom: 20 }}>
-<TopBar title={activeJob.customerName} subtitle={isPartner ? ‘Partner · Job detail’ : ‘Admin · Job detail’} onLogout={onLogout} onBack={() => setActiveJobId(null)} />
+<TopBar title={activeJob.customerName} subtitle={isPartner ? ‘Partner - Job detail’ : ‘Admin - Job detail’} onLogout={onLogout} onBack={() => setActiveJobId(null)} />
 <AdminJobDetail job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} />
 </div>
 );
@@ -1985,7 +1985,7 @@ return (
             {job && <StageBadge status={job.status} />}
           </div>
           {job && (job.requirements || []).length > 0 && (
-            <div style={styles.reqPreview}>{job.requirements.length} requirement{job.requirements.length !== 1 ? 's' : ''} · {job.progressPhotos?.length || 0} progress photos</div>
+            <div style={styles.reqPreview}>{job.requirements.length} requirement{job.requirements.length !== 1 ? 's' : ''} - {job.progressPhotos?.length || 0} progress photos</div>
           )}
         </button>
         <div style={styles.cardActionsRow}>
@@ -2006,7 +2006,7 @@ return (
       <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
         <AlertTriangle size={24} color='#B5562E' />
         <div style={styles.confirmDialogTitle}>{deletingCustomer.name} ko delete karein?</div>
-        <div style={styles.confirmDialogText}>Isse unka poora record — requirements, estimate, payments, sab hamesha ke liye mit jaayega.</div>
+        <div style={styles.confirmDialogText}>Isse unka poora record - requirements, estimate, payments, sab hamesha ke liye mit jaayega.</div>
         <div style={{ display: 'flex', gap: 8, marginTop: 14, width: '100%' }}>
           <button style={{ ...styles.cancelBtn, flex: 1 }} onClick={() => setDeletingCustomer(null)}>Cancel</button>
           <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0, background: '#B5562E' }} onClick={confirmDeleteCustomer}>Delete</button>
@@ -2090,7 +2090,7 @@ return (
 ```
   {job.phone && (
     <a href={`tel:+91${job.phone}`} style={styles.callBtn}>
-      <Phone size={15} /> Call {job.customerName} — {formatPhoneDisplay(job.phone)}
+      <Phone size={15} /> Call {job.customerName} - {formatPhoneDisplay(job.phone)}
     </a>
   )}
 
@@ -2103,7 +2103,7 @@ return (
         <span style={styles.apptRowValue}>{appt.items.join(', ')}</span>
       </div>
     )}
-    <div style={styles.apptRow}><span style={styles.apptRowLabel}>Preferred</span><span style={styles.apptRowValue}>{formatDate(appt.preferredDate)} {appt.preferredTime && `· ${appt.preferredTime}`}</span></div>
+    <div style={styles.apptRow}><span style={styles.apptRowLabel}>Preferred</span><span style={styles.apptRowValue}>{formatDate(appt.preferredDate)} {appt.preferredTime && ('- ' + appt.preferredTime)}</span></div>
     <div style={styles.apptRow}><span style={styles.apptRowLabel}>Address</span><span style={styles.apptRowValue}>{appt.address}</span></div>
     {appt.notes && <div style={styles.apptRow}><span style={styles.apptRowLabel}>Notes</span><span style={styles.apptRowValue}>{appt.notes}</span></div>}
     <div style={styles.apptRow}><span style={styles.apptRowLabel}>Requested</span><span style={styles.apptRowValue}>{timeAgo(appt.requestedAt)}</span></div>
@@ -2132,7 +2132,7 @@ return (
 }
 
 /* –– Admin job detail –– */
-/* –– Admin: Estimate builder — matches the real quotation sheet:
+/* –– Admin: Estimate builder - matches the real quotation sheet:
 item, length, height (inches), auto sq-ft, rate/sqft, amount. Editable
 inline. ‘Preview Quotation’ opens the formal customer-facing document. –– */
 function AdminEstimateTab({ job, newItem, setNewItem, addItem, updateItem, removeItem, total }) {
@@ -2184,15 +2184,15 @@ return (
       <input style={styles.input} placeholder='Length (inch)' inputMode='decimal' value={newItem.length} onChange={(e) => setNewItem((n) => ({ ...n, length: e.target.value }))} />
       <input style={styles.input} placeholder='Height (inch)' inputMode='decimal' value={newItem.height} onChange={(e) => setNewItem((n) => ({ ...n, height: e.target.value }))} />
     </div>
-    <div style={styles.hintText}>Length × Height se sq ft auto-calculate hoga (inch → sq ft: L×H÷144). Bina naap ke item (jaise tandem basket) ho to yeh khaali chhod ke neeche Qty use karein.</div>
+    <div style={styles.hintText}>Length x Height se sq ft auto-calculate hoga (inch to sq ft: LxH/144). Bina naap ke item (jaise tandem basket) ho to yeh khaali chhod ke neeche Qty use karein.</div>
     <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
       <input style={styles.input} placeholder='Qty (agar naap nahi)' inputMode='numeric' value={newItem.qty} onChange={(e) => setNewItem((n) => ({ ...n, qty: e.target.value }))} />
       <input style={styles.input} placeholder='Rate ₹' inputMode='decimal' value={newItem.rate} onChange={(e) => setNewItem((n) => ({ ...n, rate: e.target.value }))} />
     </div>
     {estimateItemSqft(newItem) !== null && (
       <div style={styles.liveCalcBox}>
-        <span>{newItem.length}' × {newItem.height}' = <b>{estimateItemSqft(newItem).toFixed(2)} sq ft</b></span>
-        {newItem.rate && <span>× {currency(newItem.rate)} = <b>{currency(estimateItemAmount(newItem))}</b></span>}
+        <span>{newItem.length}' x {newItem.height}' = <b>{estimateItemSqft(newItem).toFixed(2)} sq ft</b></span>
+        {newItem.rate && <span>x {currency(newItem.rate)} = <b>{currency(estimateItemAmount(newItem))}</b></span>}
       </div>
     )}
     <button style={styles.addBtn} onClick={addItem}><Plus size={14} /> Add item</button>
@@ -2229,7 +2229,7 @@ return (
 );
 }
 
-/* –– Formal quotation document — matches the business’s real estimate
+/* –– Formal quotation document - matches the business’s real estimate
 sheet: header, customer info, item table with sq-ft calc, grand total,
 and the standard terms & conditions block. Visible to both admin
 (preview) and customer (their own job’s estimate). –– */
@@ -2303,8 +2303,8 @@ return (
                   <tr key={it.id}>
                     <td style={styles.qtd}>{i + 1}</td>
                     <td style={{ ...styles.qtd, textAlign: 'left' }}>{it.desc}</td>
-                    <td style={styles.qtd}>{sqft !== null ? it.length : '—'}</td>
-                    <td style={styles.qtd}>{sqft !== null ? it.height : '—'}</td>
+                    <td style={styles.qtd}>{sqft !== null ? it.length : '-'}</td>
+                    <td style={styles.qtd}>{sqft !== null ? it.height : '-'}</td>
                     <td style={styles.qtd}>{sqft !== null ? sqft.toFixed(2) : (it.qty || 1)}</td>
                     <td style={styles.qtd}>{currency(it.rate)}</td>
                     <td style={{ ...styles.qtd, fontWeight: 800 }}>{currency(estimateItemAmount(it))}</td>
@@ -2325,7 +2325,7 @@ return (
           <div key={i} style={styles.quoteTermSection}>
             <div style={styles.quoteTermHeading}>{i + 1}. {section.title}</div>
             {section.points.map((p, j) => (
-              <div key={j} style={styles.quoteTermPoint}>• {p}</div>
+              <div key={j} style={styles.quoteTermPoint}>* {p}</div>
             ))}
           </div>
         ))}
@@ -2448,7 +2448,7 @@ return (
           <div key={p.id} style={styles.itemRow}>
             <div style={{ flex: 1 }}>
               <div style={styles.itemDesc}>{currency(p.amount)}</div>
-              <div style={styles.itemSub}>{formatDate(p.date)} {p.note && `· ${p.note}`}</div>
+              <div style={styles.itemSub}>{formatDate(p.date)} {p.note && ('- ' + p.note)}</div>
             </div>
             <button style={styles.iconBtnSmall} onClick={() => removePayment(p.id)}><Trash2 size={14} color='#C7CCDC' /></button>
           </div>
@@ -2534,7 +2534,7 @@ return <button onClick={onClick} style={{ …styles.tabBtn, …(active ? styles.
 }
 
 /* –– Photo URL input: user types/pastes the ORIGINAL link as-is (we never
-silently rewrite what they see in the box — that hid what was actually
+silently rewrite what they see in the box - that hid what was actually
 pasted and made mistakes hard to spot). We show a live preview using the
 full candidate-URL fallback chain, so what you see here is what will
 actually render after saving. –– */
@@ -2552,7 +2552,7 @@ onChange={(e) => onChange(e.target.value)}
 <Link2 size={14} color=’#C7CCDC’ style={{ position: ‘absolute’, right: 10, top: 12 }} />
 </div>
 {isDrive && (
-<div style={styles.convertedTag}><Check size={11} /> Google Drive link — preview neeche check karein</div>
+<div style={styles.convertedTag}><Check size={11} /> Google Drive link - preview neeche check karein</div>
 )}
 {value.trim() && (
 <div style={styles.previewWrap}>
@@ -2624,7 +2624,7 @@ const removePending = (idx) => setPendingUploads((prev) => prev.filter((_, i) =>
 
 const confirmUploads = () => {
 if (pendingUploads.length === 0) return;
-// A single shared caption applies to every photo in this batch —
+// A single shared caption applies to every photo in this batch -
 // captions can still be edited individually afterward from the
 // gallery’s own photo-edit dialog if a particular photo needs a
 // different one.
@@ -2662,7 +2662,7 @@ return (
           <input ref={fileInputRef} type='file' accept='image/*' multiple style={{ display: 'none' }} onChange={handleFilesPicked} />
           <button style={styles.uploadTapArea} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
             {uploading ? (
-              <span style={styles.uploadHint}>{uploadProgress ? `Processing ${uploadProgress.done}/${uploadProgress.total}…` : 'Processing…'}</span>
+              <span style={styles.uploadHint}>{uploadProgress ? `Processing ${uploadProgress.done}/${uploadProgress.total}...` : 'Processing...'}</span>
             ) : (
               <>
                 <Camera size={22} color={BRAND.gold} />
@@ -2685,7 +2685,7 @@ return (
             </button>
           </div>
           <input ref={fileInputRef} type='file' accept='image/*' multiple style={{ display: 'none' }} onChange={handleFilesPicked} />
-          <div style={styles.hintText}>{pendingUploads.length} photo{pendingUploads.length !== 1 ? 's' : ''} ready — poori quality mein save hongi.</div>
+          <div style={styles.hintText}>{pendingUploads.length} photo{pendingUploads.length !== 1 ? 's' : ''} ready - poori quality mein save hongi.</div>
           <input style={{ ...styles.input, marginTop: 8 }} placeholder='Caption (optional, sabpar lagega)' value={caption} onChange={(e) => setCaption(e.target.value)} />
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={confirmUploads}><Check size={14} /> {addLabel || `Add ${pendingUploads.length} photo${pendingUploads.length !== 1 ? 's' : ''}`}</button>
@@ -2774,7 +2774,7 @@ return (
   <div style={{ marginTop: 12 }}>
     <div style={styles.fieldLabel}>Add photo to '{activeCat}'</div>
     <PhotoAddPanel addLabel='Add photo' showToast={showToast} onAdd={({ url, origUrl, caption }) => addPhotoFromPanel(url, origUrl, caption)} />
-    <button style={styles.linkBtn2} onClick={() => setShowBulk((s) => !s)}>{showBulk ? 'Hide bulk add' : 'Bulk add (many URLs at once) →'}</button>
+    <button style={styles.linkBtn2} onClick={() => setShowBulk((s) => !s)}>{showBulk ? 'Hide bulk add' : 'Bulk add (many URLs at once) ->'}</button>
     {showBulk && (
       <div style={{ marginTop: 8 }}>
         <textarea style={{ ...styles.input, minHeight: 100, resize: 'vertical' }} placeholder={['Ek line mein ek URL daalein (Google Drive links bhi chalenge):', 'https://example.com/1.jpg', 'https://drive.google.com/file/d/.../view'].join(NEWLINE)} value={bulkText} onChange={(e) => setBulkText(e.target.value)} />
@@ -2790,7 +2790,7 @@ return (
     </div>
   )}
 
-  <div style={{ ...styles.fieldLabel, marginTop: 16 }}>{activeCat} photos ({photos.length}) — edit ke liye tap karein</div>
+  <div style={{ ...styles.fieldLabel, marginTop: 16 }}>{activeCat} photos ({photos.length}) - edit ke liye tap karein</div>
   <div style={styles.photoGrid}>
     {photos.map((p) => (
       <div key={p.id} style={styles.progressPhotoCard}>
@@ -2924,7 +2924,7 @@ return (
 );
 }
 
-/* –– Admin: Karigar (worker) payments & company expenses — kept
+/* –– Admin: Karigar (worker) payments & company expenses - kept
 separate from customer job revenue. Company earning (from jobs) minus
 these expenses gives real net profit. –– */
 function AdminExpenses({ expenses, setExpenses, jobs, showToast }) {
@@ -2988,7 +2988,7 @@ return (
 <div key={e.id} style={styles.itemRow}>
 <div style={{ flex: 1 }}>
 <div style={styles.itemDesc}><span style={styles.reqCatBadge}>{e.type}</span></div>
-<div style={styles.itemSub}>{formatDate(e.date)} {e.note && `· ${e.note}`}</div>
+<div style={styles.itemSub}>{formatDate(e.date)} {e.note && (’- ’ + e.note)}</div>
 </div>
 <div style={styles.itemAmount}>{currency(e.amount)}</div>
 <button style={styles.iconBtnSmall} onClick={() => removeExpense(e.id)}><Trash2 size={14} color='#C7CCDC' /></button>
@@ -3050,7 +3050,7 @@ return (
     <div key={e.id} style={styles.itemRow}>
       <div style={{ flex: 1 }}>
         <div style={styles.itemDesc}>{e.payee} <span style={styles.reqCatBadge}>{e.type}</span></div>
-        <div style={styles.itemSub}>{formatDate(e.date)} {e.note && `· ${e.note}`}</div>
+        <div style={styles.itemSub}>{formatDate(e.date)} {e.note && ('- ' + e.note)}</div>
       </div>
       <div style={styles.itemAmount}>{currency(e.amount)}</div>
       <button style={styles.iconBtnSmall} onClick={() => removeExpense(e.id)}><Trash2 size={14} color='#C7CCDC' /></button>
@@ -3087,7 +3087,7 @@ const addStaff = () => {
 if (!newStaffName.trim()) { setStaffError(‘Staff ka naam daalein’); return; }
 if (newStaffPin.length < 4) { setStaffError(‘PIN kam se kam 4 digit ka ho’); return; }
 const allPins = [adminPin, partnerPin, …staff.map((s) => s.pin)].filter(Boolean);
-if (allPins.includes(newStaffPin)) { setStaffError(‘Ye PIN pehle se use ho raha hai — alag PIN chunein’); return; }
+if (allPins.includes(newStaffPin)) { setStaffError(‘Ye PIN pehle se use ho raha hai - alag PIN chunein’); return; }
 setStaff([…staff, { id: uid(), name: newStaffName.trim(), pin: newStaffPin, createdAt: new Date().toISOString() }]);
 setNewStaffName(’’); setNewStaffPin(’’); setStaffError(’’);
 showToast(‘Staff member add ho gaya’);
@@ -3100,7 +3100,7 @@ showToast(‘Staff member hataya gaya’);
 const savePartnerPin = () => {
 if (newPartnerPin.length < 4) { setPartnerPinError(‘PIN kam se kam 4 digit ka ho’); return; }
 const allPins = [adminPin, …staff.map((s) => s.pin)];
-if (allPins.includes(newPartnerPin)) { setPartnerPinError(‘Ye PIN pehle se use ho raha hai — alag PIN chunein’); return; }
+if (allPins.includes(newPartnerPin)) { setPartnerPinError(‘Ye PIN pehle se use ho raha hai - alag PIN chunein’); return; }
 setPartnerPin(newPartnerPin);
 setNewPartnerPin(’’); setPartnerPinError(’’);
 showToast(‘Partner PIN set ho gaya’);
@@ -3146,7 +3146,7 @@ showToast(‘Category add ho gayi’);
 };
 const removeGalleryCategory = (cat) => {
 if ((gallery[cat] || []).length > 0) {
-showToast(‘Is category mein photos hain — pehle unhe hataein ya move karein’, true);
+showToast(‘Is category mein photos hain - pehle unhe hataein ya move karein’, true);
 return;
 }
 setCategories(categories.filter((c) => c !== cat));
@@ -3196,7 +3196,7 @@ return (
       <div style={{ fontWeight: 800, fontSize: 14 }}>Partner Access</div>
     </div>
     <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>
-      Partner ko apni PIN dein — wo customers, gallery, reviews dekh/manage kar sakta hai, lekin Settings, staff PINs, ya expenses nahi dekh sakta.
+      Partner ko apni PIN dein - wo customers, gallery, reviews dekh/manage kar sakta hai, lekin Settings, staff PINs, ya expenses nahi dekh sakta.
     </div>
     {partnerPin ? (
       <div style={styles.staffRow}>
@@ -3282,7 +3282,7 @@ return (
       <FileText size={16} color={BRAND.gold} />
       <div style={{ fontWeight: 800, fontSize: 14 }}>Product Brochures (PDF)</div>
     </div>
-    <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Category-wise brochure PDFs upload karein — customer inhe Gallery se dekh sakega.</div>
+    <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Category-wise brochure PDFs upload karein - customer inhe Gallery se dekh sakega.</div>
     <BrochureUploadPanel addBrochure={addBrochure} categories={categories} showToast={showToast} />
     <div style={{ marginTop: 12 }}>
       <BrochureList brochures={brochures} showToast={showToast} canManage={true} onDelete={removeBrochure} />
@@ -3305,7 +3305,7 @@ return (
     </div>
     <div style={styles.plainText}>
       Har customer login sirf apna hi naam, requirements, progress photos aur payment dekh sakta hai.
-      Dusre kisi bhi customer ka data unhe kabhi nahi dikhta — sirf aap (Admin) sabka data ek saath dekh sakte hain.
+      Dusre kisi bhi customer ka data unhe kabhi nahi dikhta - sirf aap (Admin) sabka data ek saath dekh sakte hain.
     </div>
   </div>
 </div>
@@ -3315,7 +3315,7 @@ return (
 }
 
 /* –– Partner: same admin interface but Settings is a stub with no
-access to PINs, staff, or backups — only their own login info. –– */
+access to PINs, staff, or backups - only their own login info. –– */
 function PartnerSettings({ staffName }) {
 return (
 <div style={{ padding: ‘12px 16px’ }}>
@@ -3327,7 +3327,7 @@ return (
 </div>
 <div style={styles.plainText}>
 Aap ‘{staffName || ‘Partner’}’ ke roop mein logged in hain. Partner access mein Admin PIN, staff logins,
-expenses, aur data backup nahi dikhte — sirf customers, gallery, aur reviews manage kar sakte hain.
+expenses, aur data backup nahi dikhte - sirf customers, gallery, aur reviews manage kar sakte hain.
 </div>
 </div>
 </div>
@@ -3336,10 +3336,10 @@ expenses, aur data backup nahi dikhte — sirf customers, gallery, aur reviews m
 
 /* –– Brochure upload: reads a PDF file from device, converts to a
 data URI, and saves it under the chosen category. No compression is
-applied (PDFs don’t shrink like images) — if a file exceeds the storage
+applied (PDFs don’t shrink like images) - if a file exceeds the storage
 cap, the save is rejected with a clear message. Real PDF brochures
 (several pages of product photos) often run 1-5MB, well past what a
-single Firestore document can hold — a scanned/compressed PDF, or one
+single Firestore document can hold - a scanned/compressed PDF, or one
 split into fewer pages, is needed to fit under this limit. –– */
 function BrochureUploadPanel({ addBrochure, categories, showToast }) {
 const [category, setCategory] = useState(categories[0]);
