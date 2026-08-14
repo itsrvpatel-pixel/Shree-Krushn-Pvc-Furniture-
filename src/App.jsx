@@ -597,6 +597,37 @@ if (notifs) setNotificationsRaw(JSON.parse(notifs));
 return () => clearInterval(poll);
 }, [loaded]);
 
+// Payment-due alerts: unlike the other notification triggers (which fire
+// on a specific customer action), an overdue payment is a standing
+// condition, not a one-time event - so this checks once per app load
+// rather than on every jobs update, and marks each job with the date it
+// was last alerted on (lastPaymentDueAlertDate) so the same overdue job
+// doesn’t re-notify every few seconds while the poll above refreshes
+// jobs - at most once per calendar day per job.
+useEffect(() => {
+if (!loaded) return;
+const todayKey = new Date().toDateString();
+const overdueJobs = jobs.filter((j) =>
+jobDue(j) > 0 &&
+(j.status === ‘in_progress’ || j.status === ‘delivered’) &&
+j.lastPaymentDueAlertDate !== todayKey
+);
+if (overdueJobs.length === 0) return;
+const next = jobs.map((j) =>
+overdueJobs.some((oj) => oj.id === j.id) ? { …j, lastPaymentDueAlertDate: todayKey } : j
+);
+persistJobs(next);
+for (const j of overdueJobs) {
+pushNotification(‘payment_due’, j.customerName + ’ - ’ + currency(jobDue(j)) + ’ payment due hai’, j.id);
+}
+// Only depends on `loaded` (fires once per app open) - jobs is read
+// fresh via the closure each time this effect actually runs, but
+// isn’t in the dependency array on purpose, since re-running this
+// check on every jobs change (e.g. from the 20s poll above) would
+// undo the point of the once-per-day marker.
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [loaded]);
+
 async function safeGet(key) {
 try {
 const res = await window.storage.get(key, true);
@@ -987,9 +1018,7 @@ const c = s[i];
 if ((c >= ‘0’ && c <= ‘9’) || c === ‘+’ || c === ’ ’) r += c;
 }
 return r;
-}
-
-function normalizeIndianPhone(raw) {
+}function normalizeIndianPhone(raw) {
 let digits = digitsOnly(raw);
 if (digits.length === 12 && digits.startsWith(‘91’)) digits = digits.slice(2);
 else if (digits.length === 11 && digits.startsWith(‘0’)) digits = digits.slice(1);
@@ -1010,7 +1039,9 @@ const [mode, setMode] = useState(‘choose’);
 const [name, setName] = useState(’’);
 const [phone, setPhone] = useState(’’);
 const [pin, setPin] = useState(’’);
-const [error, setError] = useState(’’);// OTP verification state - shared by both register and login flows.
+const [error, setError] = useState(’’);
+
+// OTP verification state - shared by both register and login flows.
 const [otpStage, setOtpStage] = useState(false); // false | ‘register’ | ‘login’
 const [sentOtp, setSentOtp] = useState(’’);
 const [otpInput, setOtpInput] = useState(’’);
@@ -2027,8 +2058,7 @@ return (
 }
 
 /* –– Review panel –– */
-function ReviewPanel({ job, onSave, showToast }) {
-const [rating, setRating] = useState(job.review?.rating || 0);
+function ReviewPanel({ job, onSave, showToast }) {const [rating, setRating] = useState(job.review?.rating || 0);
 const [hoverRating, setHoverRating] = useState(0);
 const [text, setText] = useState(job.review?.text || ‘’);
 
@@ -2042,18 +2072,19 @@ showToast(‘Review submit ho gayi. Dhanyavaad!’);
 
 return (
 <div style={{ padding: ‘12px 16px’ }}>
-<div style={styles.sectionTitle}>Review dein</div>```
-  <div style={styles.plainTextMuted}>Aapka anubhav kaisa raha? Hamein bataiye.</div>
-  <div style={styles.starRow}>
-    {[1, 2, 3, 4, 5].map((n) => (
-      <button key={n} style={styles.starBtn} onMouseEnter={() => setHoverRating(n)} onMouseLeave={() => setHoverRating(0)} onClick={() => setRating(n)}>
-        <Star size={32} fill={n <= (hoverRating || rating) ? BRAND.gold : 'none'} color={n <= (hoverRating || rating) ? BRAND.gold : '#D7DAE5'} />
-      </button>
-    ))}
-  </div>
-  <textarea style={{ ...styles.input, minHeight: 90, resize: 'vertical', marginTop: 10 }} value={text} onChange={(e) => setText(e.target.value)} placeholder='Kaam, quality, service ke baare mein likhein...' />
-  <button style={styles.primaryBtn2} onClick={submit}><Send size={14} /> Submit Review</button>
+<div style={styles.sectionTitle}>Review dein</div>
+<div style={styles.plainTextMuted}>Aapka anubhav kaisa raha? Hamein bataiye.</div>
+<div style={styles.starRow}>
+{[1, 2, 3, 4, 5].map((n) => (
+<button key={n} style={styles.starBtn} onMouseEnter={() => setHoverRating(n)} onMouseLeave={() => setHoverRating(0)} onClick={() => setRating(n)}>
+<Star size={32} fill={n <= (hoverRating || rating) ? BRAND.gold : ‘none’} color={n <= (hoverRating || rating) ? BRAND.gold : ‘#D7DAE5’} />
+</button>
+))}
+</div>
+<textarea style={{ …styles.input, minHeight: 90, resize: ‘vertical’, marginTop: 10 }} value={text} onChange={(e) => setText(e.target.value)} placeholder=‘Kaam, quality, service ke baare mein likhein…’ />
+<button style={styles.primaryBtn2} onClick={submit}><Send size={14} /> Submit Review</button>
 
+```
   {job.review && (
     <div style={styles.reviewPreview}>
       <div style={styles.fieldLabel}>Aapki last submitted review</div>
@@ -3069,7 +3100,7 @@ return (
       )}
     </div>
   )}
-
+``````
   {mode === 'link' && (
     <div style={{ marginTop: 12 }}>
       <PhotoUrlInput value={linkValue} onChange={setLinkValue} placeholder='Image URL ya Google Drive link paste karein' />
@@ -3077,7 +3108,6 @@ return (
       <button style={styles.addBtn} onClick={addFromLink}><Plus size={14} /> {addLabel || 'Add photo'}</button>
     </div>
   )}
-``````
 </div>
 ```
 
