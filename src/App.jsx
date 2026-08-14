@@ -1165,10 +1165,21 @@ return (
 <div style={styles.loginWrap}>
 <div style={styles.loginBgAccent} />
 <div style={styles.loginBrand}>
-<Logo size={64} />
+<SmartImg
+  src='https://lh3.googleusercontent.com/d/10nsMb4CwewLbWiCOuGkzJy7Vmi8ssme2=w1000'
+  origUrl='https://drive.google.com/file/d/10nsMb4CwewLbWiCOuGkzJy7Vmi8ssme2/view?usp=drivesdk'
+  alt='Shree Krushn PVC Furniture logo'
+  style={styles.loginLogo}
+/>
 <div style={styles.brandName}>SHREE KRUSHN</div>
 <div style={styles.brandNameSub}>PVC FURNITURE</div>
 <div style={styles.brandSub}>Design gallery - Requirements - Live work tracking</div>
+<SmartImg
+  src='https://lh3.googleusercontent.com/d/1CeqX-wlRTirhTsL25CtOvM8i5QInKqRw=w1600'
+  origUrl='https://drive.google.com/file/d/1CeqX-wlRTirhTsL25CtOvM8i5QInKqRw/view?usp=drivesdk'
+  alt='Shree Krushn PVC Furniture cover banner'
+  style={styles.loginCover}
+/>
 </div>
 
 ```
@@ -4185,6 +4196,8 @@ loadingScreen: { display: ‘flex’, flexDirection: ‘column’, alignItems: �
 loginWrap: { minHeight: ‘100vh’, display: ‘flex’, flexDirection: ‘column’, alignItems: ‘center’, justifyContent: ‘center’, padding: 24, position: ‘relative’, overflow: ‘hidden’ },
 loginBgAccent: { position: ‘absolute’, top: -80, right: -80, width: 220, height: 220, borderRadius: ‘50%’, background: ‘radial-gradient(circle, rgba(15,27,61,0.06), transparent 70%)’ },
 loginBrand: { textAlign: ‘center’, marginBottom: 28, position: ‘relative’, display: ‘flex’, flexDirection: ‘column’, alignItems: ‘center’ },
+loginLogo: { width: 76, height: 76, objectFit: ‘contain’, borderRadius: ‘50%’ },
+loginCover: { width: ‘100%’, maxWidth: 340, height: 126, objectFit: ‘cover’, objectPosition: ‘center’, borderRadius: 14, marginTop: 18, border: `1px solid ${BRAND.line}` },
 brandName: { fontWeight: 800, fontSize: 19, letterSpacing: 1.5, marginTop: 14, color: BRAND.navy },
 brandNameSub: { fontSize: 10.5, color: BRAND.gold, fontWeight: 800, letterSpacing: 3, marginTop: 3 },
 brandSub: { fontSize: 12, color: BRAND.textMuted, fontWeight: 600, marginTop: 10 },
