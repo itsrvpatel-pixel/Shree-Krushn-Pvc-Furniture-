@@ -4417,77 +4417,51 @@ return (
 
   <div style={{ ...styles.card, marginTop: 12 }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-      <FileText size={16} color={BRAND.gold} />
-      <div style={{ fontWeight: 800, fontSize: 14 }}>Product Brochures (PDF)</div>
-    </div>
-    <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Category-wise brochure PDFs upload karein - customer inhe Gallery se dekh sakega.</div>
-    <BrochureUploadPanel addBrochure={addBrochure} categories={categories} showToast={showToast} />
-    <div style={{ marginTop: 12 }}>
-      <BrochureList brochures={brochures} showToast={showToast} canManage={true} onDelete={removeBrochure} />
-    </div>
-  </div>
-
-  <div style={{ ...styles.card, marginTop: 12 }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-      <Download size={16} color={BRAND.gold} />
-      <div style={{ fontWeight: 800, fontSize: 14 }}>Backup Data</div>
-    </div>
-    <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Sab customers, jobs, gallery, aur staff ka data ek JSON file mein download karein.</div>
-    <button style={styles.addBtn} onClick={downloadBackup}><Download size={14} /> Download backup</button>
-  </div>
-
-  <div style={{ ...styles.card, marginTop: 12 }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-      <ShieldCheck size={16} color={BRAND.gold} />
-      <div style={{ fontWeight: 800, fontSize: 14 }}>Customer Data Privacy</div>
-    </div>
-    <div style={styles.plainText}>
-      Har customer login sirf apna hi naam, requirements, progress photos aur payment dekh sakta hai.
-      Dusre kisi bhi customer ka data unhe kabhi nahi dikhta - sirf aap (Admin) sabka data ek saath dekh sakte hain.
-    </div>
-  </div>
-
-  <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 12 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
-</div>
-```
-
-);
-}
-
-/* –– Partner: same admin interface but Settings is a stub with no
+      /* –– Partner: same admin interface but Settings is a stub with no
 access to PINs, staff, or backups - only their own login info. –– */
 function PartnerSettings({ staffName, onLogout }) {
-return (
-<div style={{ padding: ‘12px 16px’ }}>
-<div style={styles.sectionTitle}>Settings</div>
-<div style={{ …styles.card, marginTop: 12 }}>
-<div style={{ display: ‘flex’, alignItems: ‘center’, gap: 8, marginBottom: 6 }}>
-<ShieldCheck size={16} color={BRAND.gold} />
-<div style={{ fontWeight: 800, fontSize: 14 }}>Partner Access</div>
-</div>
-<div style={styles.plainText}>
-Aap ‘{staffName || ‘Partner’}’ ke roop mein logged in hain. Partner access mein Admin PIN, staff logins,
-expenses, aur data backup nahi dikhte - sirf customers, gallery, aur reviews manage kar sakte hain.
-</div>
-</div>
-<button style={{ …styles.addBtn, background: ‘#FFEBEE’, color: ‘#C62828’, marginTop: 12 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
-</div>
-);
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>Settings</div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 6,
+          }}
+        >
+          <ShieldCheck size={16} color={BRAND.gold} />
+
+          <div style={{ fontWeight: 800, fontSize: 14 }}>
+            Partner Access
+          </div>
+        </div>
+
+        <div style={styles.plainText}>
+          Aap '{staffName || 'Partner'}' ke roop mein logged in hain.
+          Partner access mein Admin PIN, staff logins, expenses, aur data
+          backup nahi dikhte - sirf customers, gallery, aur reviews manage
+          kar sakte hain.
+        </div>
+      </div>
+
+      <button
+        style={{
+          ...styles.addBtn,
+          background: '#FFEBEE',
+          color: '#C62828',
+          marginTop: 12,
+        }}
+        onClick={onLogout}
+      >
+        <LogOut size={14} /> Logout
+      </button>
+    </div>
+  );
 }
-
-/* –– Brochure upload: reads a PDF file from device, converts to a
-data URI, and saves it under the chosen category. No compression is
-applied (PDFs don’t shrink like images) - if a file exceeds the storage
-cap, the save is rejected with a clear message. Real PDF brochures
-(several pages of product photos) often run 1-5MB, well past what a
-single Firestore document can hold - a scanned/compressed PDF, or one
-split into fewer pages, is needed to fit under this limit. –– */
-function BrochureUploadPanel({ addBrochure, categories, showToast }) {
-const [category, setCategory] = useState(categories[0]);
-const [uploading, setUploading] = useState(false);
-const fileInputRef = React.useRef(null);
-
-const handleFilePicked = async (e) => {
 const file = e.target.files && e.target.files[0];
 e.target.value = ‘’;
 if (!file) return;
