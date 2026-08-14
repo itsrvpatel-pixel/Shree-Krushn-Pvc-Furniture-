@@ -1098,9 +1098,9 @@ return ’+91 ’ + digits10.slice(0, 5) + ’ ’ + digits10.slice(5);
 }
 
 function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
-const [mode, setMode] = useState(‘choose’);
-const [name, setName] = useState(’’);
-const [phone, setPhone] = useState(’’);const [pin, setPin] = useState(’’);
+const [mode, setMode] = useState(‘choose’);const [name, setName] = useState(’’);
+const [phone, setPhone] = useState(’’);
+const [pin, setPin] = useState(’’);
 const [error, setError] = useState(’’);
 
 // OTP verification state - shared by both register and login flows.
@@ -1165,21 +1165,10 @@ return (
 <div style={styles.loginWrap}>
 <div style={styles.loginBgAccent} />
 <div style={styles.loginBrand}>
-<SmartImg
-src='https://lh3.googleusercontent.com/d/10nsMb4CwewLbWiCOuGkzJy7Vmi8ssme2=w1000'
-origUrl='https://drive.google.com/file/d/10nsMb4CwewLbWiCOuGkzJy7Vmi8ssme2/view?usp=drivesdk'
-alt='Shree Krushn PVC Furniture logo'
-style={styles.loginLogo}
-/>
+<img src='/logo.jpg' alt='Shree Krushn PVC Furniture logo' style={styles.loginLogo} />
 <div style={styles.brandName}>SHREE KRUSHN</div>
 <div style={styles.brandNameSub}>PVC FURNITURE</div>
 <div style={styles.brandSub}>Design gallery - Requirements - Live work tracking</div>
-<SmartImg
-src='https://lh3.googleusercontent.com/d/1CeqX-wlRTirhTsL25CtOvM8i5QInKqRw=w1600'
-origUrl='https://drive.google.com/file/d/1CeqX-wlRTirhTsL25CtOvM8i5QInKqRw/view?usp=drivesdk'
-alt='Shree Krushn PVC Furniture cover banner'
-style={styles.loginCover}
-/>
 </div>
 
 ```
@@ -2223,13 +2212,13 @@ return (
 ```
 
 );
-}/* –– Review panel –– */
+}
+
+/* –– Review panel –– */
 function ReviewPanel({ job, onSave, showToast }) {
 const [rating, setRating] = useState(job.review?.rating || 0);
 const [hoverRating, setHoverRating] = useState(0);
-const [text, setText] = useState(job.review?.text || ‘’);
-
-const submit = () => {
+const [text, setText] = useState(job.review?.text || ‘’);const submit = () => {
 if (!rating) { showToast(‘Rating select karein’, true); return; }
 let next = { …job, review: { rating, text: text.trim(), date: new Date().toISOString() } };
 next = logActivity(next, ‘Review submitted (’ + rating + ‘*)’);
@@ -3344,20 +3333,24 @@ setUploadProgress((p) => ({ done: (p ? p.done : 0) + 1, total: imageFiles.length
 setPendingUploads((prev) => […prev, …results]);
 setUploading(false);
 setUploadProgress(null);
-};const removePending = (idx) => setPendingUploads((prev) => prev.filter((_, i) => i !== idx));
+};
+
+const removePending = (idx) => setPendingUploads((prev) => prev.filter((_, i) => i !== idx));
 
 const confirmUploads = () => {
 if (pendingUploads.length === 0) return;
-// A single shared caption applies to every photo in this batch -
+// A single shared caption applies to every photo in this batch -```
 // captions can still be edited individually afterward from the
-// gallery’s own photo-edit dialog if a particular photo needs a
+// gallery's own photo-edit dialog if a particular photo needs a
 // different one.
 for (const p of pendingUploads) {
-onAdd({ url: p.dataUri, origUrl: null, caption: caption.trim() });
+  onAdd({ url: p.dataUri, origUrl: null, caption: caption.trim() });
 }
-showToast(pendingUploads.length + ’ photo’ + (pendingUploads.length !== 1 ? ‘s’ : ‘’) + ’ add ho gayi’);
+showToast(pendingUploads.length + ' photo' + (pendingUploads.length !== 1 ? 's' : '') + ' add ho gayi');
 setPendingUploads([]);
-setCaption(’’);
+setCaption('');
+```
+
 };
 
 const addFromLink = () => {
