@@ -636,6 +636,62 @@ pushNotification(‘payment_due’, j.customerName + ’ - ’ + currency(jobDue
 // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [loaded]);
 
+// Follow-up reminders: an estimate the customer hasn’t responded to
+// (no approve / change-request / cancel) after a few days is a lead
+// that risks going cold - flags it once per day per job, same
+// once-per-calendar-day dedup pattern as the payment-due check above,
+// so admin gets a nudge to call the customer rather than the lead
+// silently sitting untouched.
+const FOLLOW_UP_AFTER_DAYS = 3;
+useEffect(() => {
+if (!loaded) return;
+const todayKey = new Date().toDateString();
+const now = Date.now();
+const needsFollowUp = jobs.filter((j) => {
+if (j.estimateStatus) return false; // already responded to
+if ((j.items || []).length === 0) return false; // no estimate given yet
+if (!j.createdAt) return false;
+const daysSinceCreated = (now - new Date(j.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+return daysSinceCreated >= FOLLOW_UP_AFTER_DAYS && j.lastFollowUpAlertDate !== todayKey;
+});
+if (needsFollowUp.length === 0) return;
+const next = jobs.map((j) =>
+needsFollowUp.some((nj) => nj.id === j.id) ? { …j, lastFollowUpAlertDate: todayKey } : j
+);
+persistJobs(next);
+for (const j of needsFollowUp) {
+pushNotification(‘follow_up_needed’, j.customerName + ’ ne estimate par abhi tak response nahi diya - follow-up karein’, j.id);
+}
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [loaded]);
+
+// Birthday reminders: WhatsApp has no way to auto-send a message from a
+// web app without the paid WhatsApp Business API, so this surfaces a
+// same-day notification instead - admin taps it, opens a pre-filled
+// WhatsApp wish, and sends it themselves in one tap. Checked against
+// month-day only (birthdayMonthDay, no year on file - see
+// CustomerEditDialog), and deduped once per calendar day the same way
+// as the other daily checks above.
+useEffect(() => {
+if (!loaded) return;
+const todayKey = new Date().toDateString();
+const now = new Date();
+const todayMonthDay = String(now.getMonth() + 1).padStart(2, ‘0’) + ‘-’ + String(now.getDate()).padStart(2, ‘0’);
+const birthdaysToday = customers.filter((c) =>
+c.birthdayMonthDay === todayMonthDay && c.lastBirthdayAlertDate !== todayKey
+);
+if (birthdaysToday.length === 0) return;
+const next = customers.map((c) =>
+birthdaysToday.some((bc) => bc.id === c.id) ? { …c, lastBirthdayAlertDate: todayKey } : c
+);
+persistCustomers(next);
+for (const c of birthdaysToday) {
+const relatedJob = jobs.find((j) => j.customerId === c.id);
+pushNotification(‘customer_birthday’, c.name + ’ ka aaj birthday hai - WhatsApp wish bhejein’, relatedJob ? relatedJob.id : null);
+}
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [loaded]);
+
 async function safeGet(key) {
 try {
 const res = await window.storage.get(key, true);
@@ -952,6 +1008,12 @@ const featuredTestimonials = jobs
 .map((j) => ({ customerName: j.customerName, rating: j.review.rating, text: j.review.text, date: j.review.date }))
 .sort((a, b) => new Date(b.date) - new Date(a.date));
 
+// Customer notifications: filtered down to only this customer’s own job
+// (matched by jobId), same privacy principle as testimonials above -
+// the full shared notifications list includes events about every
+// customer, so it’s narrowed here rather than inside CustomerApp.
+const myNotifications = notifications.filter((n) => n.jobId === myJob.id);
+
 return (
 <div style={styles.app}>
 <style>{fontImport}</style>
@@ -963,6 +1025,9 @@ appointmentItemOptions={appointmentItemOptions}
 categories={categories}
 brochures={brochures}
 testimonials={featuredTestimonials}
+notifications={myNotifications}
+markNotificationRead={markNotificationRead}
+markAllNotificationsRead={markAllNotificationsRead}
 onSaveJob={(j) => {
 if (j.customerId !== myCustomerId) return; // guard: never allow writing another customer’s job
 const prevJob = jobs.find((jj) => jj.id === j.id) || null;
@@ -1098,57 +1163,77 @@ return ’+91 ’ + digits10.slice(0, 5) + ’ ’ + digits10.slice(5);
 }
 
 function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
-const [mode, setMode] = useState(‘choose’);const [name, setName] = useState(’’);
+const [mode, setMode] = useState(‘choose’);
+const [name, setName] = useState(’’);
+const [referredBy, setReferredBy] = useState(’’);
 const [phone, setPhone] = useState(’’);
 const [pin, setPin] = useState(’’);
 const [error, setError] = useState(’’);
 
 // OTP verification state - shared by both register and login flows.
+// confirmationResult holds the object Firebase returns after sending
+// the SMS, which verifyOtp needs to check the code the user types
+// against - unlike the old demo flow, the correct code is never known
+// to this code at all, only to Firebase and the user’s phone.
 const [otpStage, setOtpStage] = useState(false); // false | ‘register’ | ‘login’
-const [sentOtp, setSentOtp] = useState(’’);
+const [confirmationResult, setConfirmationResult] = useState(null);
 const [otpInput, setOtpInput] = useState(’’);
 const [pendingPhone, setPendingPhone] = useState(’’);
+const [sendingOtp, setSendingOtp] = useState(false);
 
-const sendOtp = (forMode) => {
+const sendOtp = async (forMode) => {
 const normalized = normalizeIndianPhone(phone);
 if (forMode === ‘register’ && !name.trim()) { setError(‘Naam daalein’); return; }
 if (!normalized) { setError(‘Sahi 10-digit mobile number daalein (jaise 98765 43210)’); return; }
-if (forMode === ‘login’) {
-const found = customers.find((c) => c.phone === normalized);
-if (!found) { setError(‘Ye number register nahi hai. Pehle register karein.’); return; }
+if (forMode === ‘login’) {```
+  const found = customers.find((c) => c.phone === normalized);
+  if (!found) { setError('Ye number register nahi hai. Pehle register karein.'); return; }
 }
-if (forMode === ‘register’) {
-const existing = customers.find((c) => c.phone === normalized);
-if (existing) { onCustomerLogin(existing.id); return; }
+if (forMode === 'register') {
+  const existing = customers.find((c) => c.phone === normalized);
+  if (existing) { onCustomerLogin(existing.id); return; }
 }
-const code = String(Math.floor(1000 + Math.random() * 9000));
-setSentOtp(code);
+setSendingOtp(true);
+setError('');
+const result = await window.phoneAuth.sendOtp('+91' + normalized, 'recaptcha-container');
+setSendingOtp(false);
+if (!result) {
+  setError('OTP bhej nahi paye - service abhi available nahi hai. Thodi der baad try karein ya admin se contact karein.');
+  return;
+}
+setConfirmationResult(result);
 setPendingPhone(normalized);
-setOtpInput(’’);
-setError(’’);
+setOtpInput('');
 setOtpStage(forMode);
+```
+
 };
 
-const verifyOtp = () => {
-if (otpInput.trim() !== sentOtp) { setError(‘Galat OTP - dobara check karein’); return; }
+const verifyOtp = async () => {
+if (!otpInput.trim()) { setError(‘OTP daalein’); return; }
+const user = await window.phoneAuth.verifyOtp(confirmationResult, otpInput.trim());
+if (!user) { setError(‘Galat OTP - dobara check karein’); return; }
 if (otpStage === ‘register’) {
-onRegister({ id: uid(), name: name.trim(), phone: pendingPhone, phoneVerified: true, createdAt: new Date().toISOString() });
+onRegister({ id: uid(), name: name.trim(), phone: pendingPhone, phoneVerified: true, referredBy: referredBy.trim() || null, createdAt: new Date().toISOString() });
 } else {
 const found = customers.find((c) => c.phone === pendingPhone);
 if (found) onCustomerLogin(found.id);
 }
 };
 
-const resendOtp = () => {
-const code = String(Math.floor(1000 + Math.random() * 9000));
-setSentOtp(code);
-setOtpInput(’’);
+const resendOtp = async () => {
+setSendingOtp(true);
 setError(’’);
+const result = await window.phoneAuth.sendOtp(’+91’ + pendingPhone, ‘recaptcha-container’);
+setSendingOtp(false);
+if (!result) { setError(‘OTP dobara bhej nahi paye - thodi der baad try karein.’); return; }
+setConfirmationResult(result);
+setOtpInput(’’);
 };
 
 const backFromOtp = () => {
 setOtpStage(false);
-setSentOtp(’’);
+setConfirmationResult(null);
 setOtpInput(’’);
 setError(’’);
 };
@@ -1176,25 +1261,26 @@ return (
     <div style={styles.loginCard}>
       <div style={styles.fieldLabel}>Verify OTP</div>
       <div style={styles.plainTextMuted}>{formatPhoneDisplay(pendingPhone)} par bheja gaya code daalein</div>
-      <div style={styles.otpDemoBox}>
-        <ShieldCheck size={13} color={BRAND.gold} />
-        <span>Demo mode - real SMS nahi jaata. Aapka OTP: <b>{sentOtp}</b></span>
-      </div>
       <input
         style={{ ...styles.input, marginTop: 10, textAlign: 'center', fontSize: 20, letterSpacing: 6, fontWeight: 800 }}
         value={otpInput}
-        onChange={(e) => { setOtpInput(digitsOnly(e.target.value).slice(0, 4)); setError(''); }}
-        placeholder='0000'
+        onChange={(e) => { setOtpInput(digitsOnly(e.target.value).slice(0, 6)); setError(''); }}
+        placeholder='000000'
         inputMode='numeric'
-        maxLength={4}
+        maxLength={6}
         autoFocus
       />
       {error && <div style={styles.errorText}>{error}</div>}
       <button style={{ ...styles.primaryBtn, marginTop: 16 }} onClick={verifyOtp}>Verify &amp; Continue</button>
-      <button style={styles.linkBtn2} onClick={resendOtp}>OTP dobara bhejein</button>
+      <button style={styles.linkBtn2} onClick={resendOtp} disabled={sendingOtp}>{sendingOtp ? 'Sending...' : 'OTP dobara bhejein'}</button>
       <button style={styles.backLink} onClick={backFromOtp}><ArrowLeft size={13} /> Back</button>
     </div>
   )}
+
+  {/* Invisible reCAPTCHA mount point required by Firebase Phone Auth to
+      send SMS - stays empty/invisible, but must exist in the DOM
+      before window.phoneAuth.sendOtp is called. */}
+  <div id='recaptcha-container' />
 
   {!otpStage && mode === 'choose' && (
     <div style={styles.loginCard}>
@@ -1216,8 +1302,10 @@ return (
       <input style={styles.input} value={name} onChange={(e) => { setName(e.target.value); setError(''); }} placeholder='Aapka naam' autoFocus />
       <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Phone number</div>
       <input style={styles.input} value={phone} onChange={(e) => { const v = phoneCharsOnly(e.target.value).slice(0, 14); setPhone(v); setError(''); }} placeholder='98765 43210' inputMode='tel' maxLength={14} />
+      <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Kisne refer kiya? (optional)</div>
+      <input style={styles.input} value={referredBy} onChange={(e) => setReferredBy(e.target.value)} placeholder='Naam ya phone number' />
       {error && <div style={styles.errorText}>{error}</div>}
-      <button style={{ ...styles.primaryBtn, marginTop: 16 }} onClick={() => sendOtp('register')}>Send OTP</button>
+      <button style={{ ...styles.primaryBtn, marginTop: 16 }} onClick={() => sendOtp('register')} disabled={sendingOtp}>{sendingOtp ? 'Sending...' : 'Send OTP'}</button>
       <button style={styles.backLink} onClick={() => setMode('choose')}><ArrowLeft size={13} /> Back</button>
     </div>
   )}
@@ -1227,7 +1315,7 @@ return (
       <div style={styles.fieldLabel}>Registered phone number</div>
       <input style={styles.input} value={phone} onChange={(e) => { const v = phoneCharsOnly(e.target.value).slice(0, 14); setPhone(v); setError(''); }} placeholder='98765 43210' inputMode='tel' maxLength={14} autoFocus />
       {error && <div style={styles.errorText}>{error}</div>}
-      <button style={{ ...styles.primaryBtn, marginTop: 16 }} onClick={() => sendOtp('login')}>Send OTP</button>
+      <button style={{ ...styles.primaryBtn, marginTop: 16 }} onClick={() => sendOtp('login')} disabled={sendingOtp}>{sendingOtp ? 'Sending...' : 'Send OTP'}</button>
       <button style={styles.backLink} onClick={() => setMode('choose')}><ArrowLeft size={13} /> Back</button>
     </div>
   )}
@@ -1272,8 +1360,10 @@ extra_work_requested: { icon: ‘Hammer’, label: ‘Extra Work Requested’ },
 extra_work_needs_price: { icon: ‘Hammer’, label: ‘Extra Work Needs Price’ },
 extra_work_approved: { icon: ‘ThumbsUp’, label: ‘Extra Work Approved’ },
 extra_work_rejected: { icon: ‘XCircle’, label: ‘Extra Work Rejected’ },
+follow_up_needed: { icon: ‘AlertCircle’, label: ‘Follow-up Needed’ },
+customer_birthday: { icon: ‘Star’, label: ‘Birthday Today’ },
 };
-const NOTIFICATION_ICONS = { Calendar, CheckCircle2, ThumbsUp, MessageSquare, XCircle, IndianRupee, AlertCircle, Hammer };
+const NOTIFICATION_ICONS = { Calendar, CheckCircle2, ThumbsUp, MessageSquare, XCircle, IndianRupee, AlertCircle, Hammer, Star };
 
 function NotificationBell({ notifications, viewerKey, onOpenJob, onMarkRead, onMarkAllRead }) {
 const [open, setOpen] = useState(false);
@@ -1324,7 +1414,7 @@ return (
 );
 }
 
-function TopBar({ title, subtitle, onLogout, onBack, right }) {
+function TopBar({ title, subtitle, onLogout, onBack, right, hideLogout }) {
 return (
 <div style={styles.header}>
 <div style={styles.brandRow}>
@@ -1340,7 +1430,7 @@ return (
 </div>
 <div style={{ display: ‘flex’, gap: 6, alignItems: ‘center’ }}>
 {right}
-<button style={styles.logoutBtn} onClick={onLogout}><LogOut size={15} /></button>
+{!hideLogout && <button style={styles.logoutBtn} onClick={onLogout}><LogOut size={15} /></button>}
 </div>
 </div>
 );
@@ -1390,7 +1480,7 @@ return (
 
 /* ===================== CUSTOMER APP ===================== */
 /* Everything below receives ONLY this one customer’s data - never a list of others. */
-function CustomerApp({ customer, gallery, job, appointmentItemOptions, categories, brochures, testimonials, onSaveJob, onLogout, showToast }) {
+function CustomerApp({ customer, gallery, job, appointmentItemOptions, categories, brochures, testimonials, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
 // A brand-new customer (no appointment booked yet) lands straight on
 // the appointment tab instead of home, since booking a visit is the
 // one thing every new customer needs to do first - skipping this extra
@@ -1401,10 +1491,23 @@ const [tab, setTab] = useState(job.appointment ? ‘home’ : ‘appointment’)
 
 return (
 <div style={{ paddingBottom: 74 }}>
-<TopBar title={customer?.name || ‘Customer’} subtitle=‘Shree Krushn PVC Furniture’ onLogout={onLogout} />
+<TopBar
+title={customer?.name || ‘Customer’}
+subtitle=‘Shree Krushn PVC Furniture’
+hideLogout
+right={
+<NotificationBell
+notifications={notifications || []}
+viewerKey={‘customer_’ + (customer?.id || ‘unknown’)}
+onOpenJob={null}
+onMarkRead={markNotificationRead}
+onMarkAllRead={markAllNotificationsRead}
+/>
+}
+/>
 
 ```
-  {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} />}
+  {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} onLogout={onLogout} />}
   {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
   {tab === 'gallery' && <GalleryBrowser gallery={gallery} brochures={brochures} categories={categories} testimonials={testimonials} job={job} onSaveJob={onSaveJob} showToast={showToast} />}
   {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} />}
@@ -1428,7 +1531,7 @@ return (
 );
 }
 
-function CustomerHome({ job, customer, setTab }) {
+function CustomerHome({ job, customer, setTab, onLogout }) {
 const st = STATUS[job.status] || STATUS.appointment;
 const total = jobTotal(job);
 const due = jobDue(job);
@@ -1459,11 +1562,27 @@ return (
 
 ```
   {total > 0 && (
-    <div style={styles.payStrip}>
-      <MoneyBit label='Estimate Total' value={currency(total)} />
-      <MoneyBit label='Paid' value={currency(jobPaid(job))} muted />
-      <MoneyBit label='Due' value={currency(due)} highlight={due > 0} />
-    </div>
+    <button style={styles.payStripBtn} onClick={() => setTab('progress')}>
+      <div style={styles.payStrip}>
+        <MoneyBit label='Estimate Total' value={currency(total)} />
+        <MoneyBit label='Paid' value={currency(jobPaid(job))} muted />
+        <MoneyBit label='Due' value={currency(due)} highlight={due > 0} />
+      </div>
+      {(job.items || []).length > 0 && (
+        <div style={styles.homeEstimatePreview}>
+          {(job.items || []).slice(0, 3).map((it) => (
+            <div key={it.id} style={styles.homeEstimateRow}>
+              <span style={styles.homeEstimateDesc}>{it.desc}</span>
+              <span style={styles.homeEstimateAmt}>{currency(estimateItemAmount(it))}</span>
+            </div>
+          ))}
+          {(job.items || []).length > 3 && (
+            <div style={styles.homeEstimateMore}>+{(job.items || []).length - 3} aur item...</div>
+          )}
+          <div style={styles.homeEstimateViewAll}>Poora Estimate Dekhein &rarr;</div>
+        </div>
+      )}
+    </button>
   )}
 
   <div style={styles.quickGrid}>
@@ -1486,6 +1605,8 @@ return (
       </div>
     ))}
   </div>
+
+  <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
 </div>
 ```
 
@@ -1676,6 +1797,7 @@ bhk: appt?.bhk || ‘’,
 items: appt?.items || [],
 address: appt?.address || job.address || ‘’,
 notes: appt?.notes || ‘’,
+branch: appt?.branch || job.branch || (BUSINESS.branches[0] ? BUSINESS.branches[0].city : ‘’),
 });
 
 const set = (k, v) => setForm((f) => ({ …f, [k]: v }));
@@ -1696,7 +1818,7 @@ requestedAt: new Date().toISOString(),
 confirmedDate: null,
 confirmedTime: null,
 };
-let next = { …job, appointment: nextAppt, address: form.address.trim() };
+let next = { …job, appointment: nextAppt, address: form.address.trim(), branch: form.branch };
 const itemsNote = form.items.length ? (’ - ’ + form.items.join(’, ’)) : ‘’;
 next = logActivity(next, ’Appointment requested: ’ + formatDate(form.preferredDate) + (form.preferredTime ? ’, ’ + form.preferredTime : ‘’) + itemsNote);
 onSave(next);
@@ -1802,6 +1924,17 @@ return (
 
     <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Address *</div>
     <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder='Poora address - house/flat no, area, landmark, city' />
+
+    {BUSINESS.branches.length > 1 && (
+      <>
+        <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Kaunsi branch se contact karein?</div>
+        <div style={styles.chipRow}>
+          {BUSINESS.branches.map((b) => (
+            <button key={b.city} onClick={() => set('branch', b.city)} style={{ ...styles.chip, ...(form.branch === b.city ? styles.chipActive : {}) }}>{b.city}</button>
+          ))}
+        </div>
+      </>
+    )}
 
     <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Extra notes</div>
     <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder='Koi special instructions...' />
@@ -2099,7 +2232,7 @@ return (
   )}
 
   {total > 0 && (
-    <div style={styles.payStrip}>
+    <div style={{ ...styles.payStrip, marginTop: 10 }}>
       <MoneyBit label='Total' value={currency(total)} />
       <MoneyBit label='Paid' value={currency(paid)} muted />
       <MoneyBit label='Due' value={currency(due)} highlight={due > 0} />
@@ -2218,13 +2351,33 @@ return (
 function ReviewPanel({ job, onSave, showToast }) {
 const [rating, setRating] = useState(job.review?.rating || 0);
 const [hoverRating, setHoverRating] = useState(0);
-const [text, setText] = useState(job.review?.text || ‘’);const submit = () => {
+const [text, setText] = useState(job.review?.text || ‘’);
+// Review only makes sense once work is actually done - asking earlier
+// risks a premature or unfair rating, and can be confusing to a
+// customer who hasn’t seen the finished result yet. A customer who
+// already has a review on file (e.g. from before this rule existed)
+// can still see/keep it below, even if the job’s status doesn’t
+// currently qualify.
+const canReview = job.status === ‘delivered’ || job.status === ‘paid’;
+
+const submit = () => {
 if (!rating) { showToast(‘Rating select karein’, true); return; }
 let next = { …job, review: { rating, text: text.trim(), date: new Date().toISOString() } };
 next = logActivity(next, ‘Review submitted (’ + rating + ‘*)’);
 onSave(next);
 showToast(‘Review submit ho gayi. Dhanyavaad!’);
 };
+
+if (!canReview && !job.review) {
+return (
+<div style={{ padding: ‘12px 16px’ }}>
+<div style={styles.sectionTitle}>Review dein</div>
+<div style={styles.emptySmall}>
+Kaam complete hone ke baad hi review de sakte hain. Jaise hi aapka order deliver ho jaayega, yahan review ka option aa jaayega.
+</div>
+</div>
+);
+}
 
 return (
 <div style={{ padding: ‘12px 16px’ }}>
@@ -2245,6 +2398,7 @@ return (
     <div style={styles.reviewPreview}>
       <div style={styles.fieldLabel}>Aapki last submitted review</div>
       <div style={{ display: 'flex', gap: 2, marginBottom: 4 }}>
+``````
         {[1,2,3,4,5].map((n) => <Star key={n} size={14} fill={n <= job.review.rating ? BRAND.gold : 'none'} color={n <= job.review.rating ? BRAND.gold : '#D7DAE5'} />)}
       </div>
       <div style={styles.plainText}>{job.review.text}</div>
@@ -2281,7 +2435,7 @@ onSaveJob({ …job, progressPhotos: (job.progressPhotos || []).filter((p) => p.i
 if (activeJob) {
 return (
 <div style={{ paddingBottom: 20 }}>
-<TopBar title={activeJob.customerName} subtitle={STATUS[activeJob.status]?.label || activeJob.status} onLogout={onLogout} onBack={() => setActiveJobId(null)} />
+<TopBar title={activeJob.customerName} subtitle={STATUS[activeJob.status]?.label || activeJob.status} onBack={() => setActiveJobId(null)} hideLogout />
 <div style={{ padding: ‘12px 16px’ }}>
 <div style={styles.sectionTitle}>Progress Photos</div>
 <div style={styles.photoGrid}>
@@ -2302,7 +2456,7 @@ return (
 
 return (
 <div style={{ paddingBottom: 20 }}>
-<TopBar title=‘Karigar Panel’ subtitle={’Logged in as ’ + staffName} onLogout={onLogout} />
+<TopBar title=‘Karigar Panel’ subtitle={’Logged in as ’ + staffName} hideLogout />
 <div style={{ padding: ‘12px 16px’ }}>
 <div style={styles.sectionTitle}>Aapke assigned kaam ({jobs.length})</div>
 {jobs.length === 0 && <div style={styles.emptySmall}>Abhi koi kaam assign nahi hua hai.</div>}
@@ -2315,6 +2469,7 @@ return (
 <ChevronRight size={16} color='#C7CCDC' />
 </button>
 ))}
+<button style={{ …styles.addBtn, background: ‘#FFEBEE’, color: ‘#C62828’, marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
 </div>
 </div>
 );
@@ -2332,7 +2487,7 @@ const viewerKey = isPartner ? ‘partner’ : ‘admin’;
 if (activeJob) {
 return (
 <div style={{ paddingBottom: 20 }}>
-<TopBar title={activeJob.customerName} subtitle={isPartner ? ‘Partner - Job detail’ : ‘Admin - Job detail’} onLogout={onLogout} onBack={() => setActiveJobId(null)} />
+<TopBar title={activeJob.customerName} subtitle={isPartner ? ‘Partner - Job detail’ : ‘Admin - Job detail’} onBack={() => setActiveJobId(null)} hideLogout />
 <AdminJobDetail job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} />
 </div>
 );
@@ -2347,7 +2502,7 @@ return (
 <TopBar
 title={isPartner ? ‘Partner Panel’ : ‘Admin Panel’}
 subtitle={staffName ? (’Logged in as ’ + staffName) : ‘Shree Krushn PVC Furniture’}
-onLogout={onLogout}
+hideLogout
 right={
 <NotificationBell
 notifications={notifications}
@@ -2373,8 +2528,8 @@ onMarkAllRead={markAllNotificationsRead}
   {tab === 'expenses' && !isPartner && <AdminExpenses expenses={expenses} setExpenses={setExpenses} jobs={jobs} showToast={showToast} />}
   {tab === 'settings' && (
     isPartner
-      ? <PartnerSettings staffName={staffName} />
-      : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} showToast={showToast} />
+      ? <PartnerSettings staffName={staffName} onLogout={onLogout} />
+      : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} onLogout={onLogout} showToast={showToast} />
   )}
 
   <BottomNav
@@ -2495,18 +2650,80 @@ return (
 );
 }
 
+/* –– Referral report: groups customers by who referred them, so admin
+can see at a glance which existing customers are bringing in the most
+new business (useful for referral rewards/discounts). Matching is by
+normalized text (trimmed, lowercased) since referredBy is free text
+the new customer typed - a name or phone number - not a link to an
+actual customer record. –– */
+function AdminReferralReport({ customers }) {
+const grouped = useMemo(() => {
+const groups = {};
+let noReferral = 0;
+for (const c of customers) {
+const key = (c.referredBy || ‘’).trim().toLowerCase();
+if (!key) { noReferral++; continue; }
+if (!groups[key]) groups[key] = { displayName: c.referredBy.trim(), count: 0, customers: [] };
+groups[key].count++;
+groups[key].customers.push(c);
+}
+return { list: Object.values(groups).sort((a, b) => b.count - a.count), noReferral };
+}, [customers]);
+
+return (
+<div style={{ padding: ‘12px 16px’ }}>
+<div style={styles.sectionTitle}>Referral Report</div>
+<div style={styles.plainTextMuted}>Kis customer ne kitne naye customers refer kiye hain.</div>
+
+```
+  <div style={styles.statRow2}>
+    <StatCard icon={<Users size={16} />} label='Total Referrals' value={grouped.list.reduce((s, g) => s + g.count, 0)} />
+    <StatCard icon={<User size={16} />} label='Direct Signups' value={grouped.noReferral} />
+  </div>
+
+  <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Top referrers</div>
+  {grouped.list.length === 0 && <div style={styles.emptySmall}>Abhi tak koi referral record nahi hai.</div>}
+  {grouped.list.map((g) => (
+    <div key={g.displayName} style={styles.reviewCard}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={styles.cardName}>{g.displayName}</div>
+        <span style={styles.badge}>{g.count} referral{g.count !== 1 ? 's' : ''}</span>
+      </div>
+      <div style={styles.itemSub}>{g.customers.map((c) => c.name).join(', ')}</div>
+    </div>
+  ))}
+</div>
+```
+
+);
+}
+
 function AdminCustomers({ customers, setCustomers, jobs, setJobs, onOpenJob, showToast }) {
 const [query, setQuery] = useState(’’);
 const [filter, setFilter] = useState(‘all’);
+const [branchFilter, setBranchFilter] = useState(‘all’);
 const [sort, setSort] = useState(‘recent’);
 const [editingCustomer, setEditingCustomer] = useState(null);
 const [deletingCustomer, setDeletingCustomer] = useState(null);
+const [showReferralReport, setShowReferralReport] = useState(false);
+
+if (showReferralReport) {
+return (
+<div>
+<div style={{ padding: ‘12px 16px 0’ }}>
+<button style={styles.backLink} onClick={() => setShowReferralReport(false)}><ArrowLeft size={13} /> Customers</button>
+</div>
+<AdminReferralReport customers={customers} />
+</div>
+);
+}
 
 const rows = useMemo(() => {
 let r = customers
 .map((c) => ({ customer: c, job: jobs.find((j) => j.customerId === c.id) }))
 .filter(({ customer, job }) => {
 if (filter !== ‘all’ && (!job || job.status !== filter)) return false;
+if (branchFilter !== ‘all’ && (!job || job.branch !== branchFilter)) return false;
 if (query.trim()) {
 const q = query.toLowerCase();
 return customer.name.toLowerCase().includes(q) || customer.phone.includes(q);
@@ -2517,7 +2734,7 @@ if (sort === ‘recent’) r.sort((a, b) => new Date(b.customer.createdAt) - new
 if (sort === ‘name’) r.sort((a, b) => a.customer.name.localeCompare(b.customer.name));
 if (sort === ‘due’) r.sort((a, b) => (b.job ? jobDue(b.job) : 0) - (a.job ? jobDue(a.job) : 0));
 return r;
-}, [customers, jobs, query, filter, sort]);
+}, [customers, jobs, query, filter, branchFilter, sort]);
 
 const dueTotal = jobs.reduce((s, j) => s + jobDue(j), 0);
 
@@ -2529,7 +2746,7 @@ return;
 }
 const dupe = customers.find((c) => c.phone === normalized && c.id !== updated.id);
 if (dupe) { showToast(‘Ye phone number pehle se kisi aur customer ka hai’, true); return; }
-setCustomers(customers.map((c) => (c.id === updated.id ? { …c, name: updated.name.trim(), phone: normalized } : c)));
+setCustomers(customers.map((c) => (c.id === updated.id ? { …c, name: updated.name.trim(), phone: normalized, birthdayMonthDay: updated.birthdayMonthDay } : c)));
 setJobs(jobs.map((j) => (j.customerId === updated.id ? { …j, customerName: updated.name.trim(), phone: normalized } : j)));
 setEditingCustomer(null);
 showToast(‘Customer updated’);
@@ -2545,6 +2762,9 @@ showToast(‘Customer deleted’);
 
 return (
 <div style={{ padding: ‘12px 16px’ }}>
+<div style={{ display: ‘flex’, justifyContent: ‘flex-end’ }}>
+<button style={styles.linkBtn2} onClick={() => setShowReferralReport(true)}>Referral Report</button>
+</div>
 <div style={styles.statRow2}>
 <StatCard icon={<User size={16} />} label=‘Customers’ value={customers.length} />
 <StatCard icon={<Hammer size={16} />} label=‘In Progress’ value={jobs.filter((j) => j.status === ‘in_progress’).length} />
@@ -2560,6 +2780,14 @@ return (
     <FilterChip active={filter === 'all'} onClick={() => setFilter('all')} label='All' />
     {STATUS_ORDER.map((s) => <FilterChip key={s} active={filter === s} onClick={() => setFilter(s)} label={STATUS[s].label} color={STATUS[s].color} />)}
   </div>
+  {BUSINESS.branches.length > 1 && (
+    <div style={styles.filterRow}>
+      <FilterChip active={branchFilter === 'all'} onClick={() => setBranchFilter('all')} label='All Branches' />
+      {BUSINESS.branches.map((b) => (
+        <FilterChip key={b.city} active={branchFilter === b.city} onClick={() => setBranchFilter(b.city)} label={b.city} />
+      ))}
+    </div>
+  )}
   <div style={styles.sortRow}>
     <span style={styles.sortLabel}>Sort:</span>
     {[['recent', 'Recent'], ['name', 'Name'], ['due', 'Due amount']].map(([k, l]) => (
@@ -2583,6 +2811,7 @@ return (
                 <span style={styles.metaItem}><Phone size={11} /> {formatPhoneDisplay(customer.phone)}</span>
                 {customer.phoneVerified && <span style={styles.verifiedTag}><ShieldCheck size={10} /> Verified</span>}
                 <span style={styles.metaItem}><Calendar size={11} /> {formatDate(customer.createdAt)}</span>
+                {BUSINESS.branches.length > 1 && job?.branch && <span style={styles.metaItem}>{job.branch}</span>}
               </div>
             </div>
             {job && <StageBadge status={job.status} />}
@@ -2626,6 +2855,9 @@ return (
 function CustomerEditDialog({ customer, onCancel, onSave }) {
 const [name, setName] = useState(customer.name);
 const [phone, setPhone] = useState(formatPhoneDisplay(customer.phone).replace(’+91 ’, ‘’));
+// Birthday is stored as month-day only (no year) - enough to send a
+// yearly wish, without needing a full date of birth on file.
+const [birthdayMonthDay, setBirthdayMonthDay] = useState(customer.birthdayMonthDay || ‘’);
 return (
 <div style={styles.overlay} onClick={onCancel}>
 <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
@@ -2640,9 +2872,16 @@ value={phone}
 onChange={(e) => setPhone(phoneCharsOnly(e.target.value).slice(0, 14))}
 inputMode=‘tel’
 />
+<div style={{ …styles.fieldLabel, marginTop: 12 }}>Birthday (optional, din/mahina)</div>
+<input
+style={styles.input}
+type=‘date’
+value={birthdayMonthDay ? (‘2000-’ + birthdayMonthDay) : ‘’}
+onChange={(e) => setBirthdayMonthDay(e.target.value ? e.target.value.slice(5) : ‘’)}
+/>
 </div>
 <div style={styles.sheetFooter}>
-<button style={styles.primaryBtn} onClick={() => onSave({ id: customer.id, name, phone })}>Save Changes</button>
+<button style={styles.primaryBtn} onClick={() => onSave({ id: customer.id, name, phone, birthdayMonthDay: birthdayMonthDay || null })}>Save Changes</button>
 </div>
 </div>
 </div>
@@ -2842,6 +3081,17 @@ const waText = buildEstimateWhatsAppText(job);
 const waUrl = whatsAppShareUrl(job.phone, waText);
 return (
 <div style={styles.overlay} onClick={onClose}>
+{/* Print/PDF: window.print() on the Download PDF button below opens
+the browser’s native print dialog, where “Save as PDF” is one of
+the built-in destination options on every phone - no extra
+library needed. This stylesheet only takes effect during actual
+printing (@media print), hiding everything on the page except
+the quotation document itself, so what gets printed/saved is a
+clean one-page estimate rather than the whole app chrome
+(overlay, buttons, bottom nav) that’s visible on screen. */}
+<style>
+{’@media print { body * { visibility: hidden; } #quotation-print-area, #quotation-print-area * { visibility: visible; } #quotation-print-area { position: absolute; left: 0; top: 0; width: 100%; } }’}
+</style>
 <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
 <div style={styles.sheetHeader}>
 <div style={styles.sheetTitle}>Estimate & Invoice</div>
@@ -2849,11 +3099,14 @@ return (
 <a href={waUrl} target='_blank' rel='noopener noreferrer' style={styles.waShareBtn}>
 <Send size={13} /> WhatsApp
 </a>
+<button style={styles.pdfDownloadBtn} onClick={() => window.print()}>
+<Download size={13} /> PDF
+</button>
 <button style={styles.iconBtn} onClick={onClose}><X size={20} color={BRAND.navy} /></button>
 </div>
 </div>
 <div style={{ …styles.sheetBody, padding: 0 }}>
-<div style={styles.quoteDoc}>
+<div style={styles.quoteDoc} id='quotation-print-area'>
 <div style={styles.quoteBlessingLine}>श्री कृष्ण शरणं ममः</div>
 
 ```
@@ -3123,7 +3376,7 @@ return (
 
     {tab === 'payment' && (
       <div>
-        <div style={styles.payStrip}>
+        <div style={{ ...styles.payStrip, marginTop: 10 }}>
           <MoneyBit label='Total' value={currency(total)} />
           <MoneyBit label='Paid' value={currency(paid)} muted />
           <MoneyBit label='Due' value={currency(due)} highlight={due > 0} />
@@ -3339,18 +3592,16 @@ const removePending = (idx) => setPendingUploads((prev) => prev.filter((_, i) =>
 
 const confirmUploads = () => {
 if (pendingUploads.length === 0) return;
-// A single shared caption applies to every photo in this batch -```
+// A single shared caption applies to every photo in this batch -
 // captions can still be edited individually afterward from the
-// gallery's own photo-edit dialog if a particular photo needs a
+// gallery’s own photo-edit dialog if a particular photo needs a
 // different one.
 for (const p of pendingUploads) {
-  onAdd({ url: p.dataUri, origUrl: null, caption: caption.trim() });
+onAdd({ url: p.dataUri, origUrl: null, caption: caption.trim() });
 }
-showToast(pendingUploads.length + ' photo' + (pendingUploads.length !== 1 ? 's' : '') + ' add ho gayi');
+showToast(pendingUploads.length + ’ photo’ + (pendingUploads.length !== 1 ? ‘s’ : ‘’) + ’ add ho gayi’);
 setPendingUploads([]);
-setCaption('');
-```
-
+setCaption(’’);
 };
 
 const addFromLink = () => {
@@ -3358,9 +3609,7 @@ if (!linkValue.trim()) return;
 onAdd({ url: toDirectImageUrl(linkValue), origUrl: linkValue.trim(), caption: caption.trim() });
 setLinkValue(’’);
 setCaption(’’);
-};
-
-return (
+};return (
 <div style={styles.formCard}>
 <div style={styles.modeToggleRow}>
 <button style={{ …styles.modeToggleBtn, …(mode === ‘upload’ ? styles.modeToggleBtnActive : {}) }} onClick={() => setMode(‘upload’)}>
@@ -3651,6 +3900,7 @@ const [linkedJobId, setLinkedJobId] = useState(’’);
 const [filterType, setFilterType] = useState(‘all’);
 const [activePayee, setActivePayee] = useState(null);
 const [showProfitReport, setShowProfitReport] = useState(false);
+const [showMonthlyReport, setShowMonthlyReport] = useState(false);
 
 if (showProfitReport) {
 return (
@@ -3659,6 +3909,17 @@ return (
 <button style={styles.backLink} onClick={() => setShowProfitReport(false)}><ArrowLeft size={13} /> Expenses</button>
 </div>
 <AdminProfitReport jobs={jobs} expenses={expenses} />
+</div>
+);
+}
+
+if (showMonthlyReport) {
+return (
+<div>
+<div style={{ padding: ‘12px 16px 0’ }}>
+<button style={styles.backLink} onClick={() => setShowMonthlyReport(false)}><ArrowLeft size={13} /> Expenses</button>
+</div>
+<AdminMonthlyReport jobs={jobs} expenses={expenses} />
 </div>
 );
 }
@@ -3707,7 +3968,7 @@ return (
 <div style={{ padding: ‘12px 16px’ }}>
 <button style={styles.backLink} onClick={() => setActivePayee(null)}><ArrowLeft size={13} /> Sab log</button>
 <div style={styles.catTitle}>{activePayeeDisplayName}</div>
-<div style={styles.payStrip}>
+<div style={{ …styles.payStrip, marginTop: 10 }}>
 <MoneyBit label='Total Diya' value={currency(activeTotal)} highlight />
 <MoneyBit label='Entries' value={String(activePayeeEntries.length)} muted />
 </div>
@@ -3728,9 +3989,12 @@ return (
 
 return (
 <div style={{ padding: ‘12px 16px’ }}>
-<div style={{ display: ‘flex’, justifyContent: ‘space-between’, alignItems: ‘center’ }}>
+<div style={{ display: ‘flex’, justifyContent: ‘space-between’, alignItems: ‘center’, flexWrap: ‘wrap’, gap: 6 }}>
 <div style={styles.sectionTitle}>Karigar & Company Expenses</div>
+<div style={{ display: ‘flex’, gap: 10 }}>
+<button style={styles.linkBtn2} onClick={() => setShowMonthlyReport(true)}>Monthly Report</button>
 <button style={styles.linkBtn2} onClick={() => setShowProfitReport(true)}>Project Profit Report</button>
+</div>
 </div>
 <div style={styles.plainTextMuted}>Customer se aayi payment alag, karigar/company kharch alag track hota hai.</div>
 
@@ -3798,6 +4062,89 @@ return (
 }
 
 /* –– Per-project profit report –– */
+/* –– Monthly business report: groups collected payments by calendar
+month (using each payment’s own date, not the job’s creation date, so
+revenue lands in the month it was actually received) and shows the
+last 6 months with month-over-month comparison, so admin can see at a
+glance whether the business is growing or slowing down. –– */
+function AdminMonthlyReport({ jobs, expenses }) {
+const monthlyData = useMemo(() => {
+const monthKey = (dateStr) => {
+const d = new Date(dateStr);
+return d.getFullYear() + ‘-’ + String(d.getMonth() + 1).padStart(2, ‘0’);
+};
+const monthLabel = (key) => {
+const [y, m] = key.split(’-’);
+const names = [‘Jan’, ‘Feb’, ‘Mar’, ‘Apr’, ‘May’, ‘Jun’, ‘Jul’, ‘Aug’, ‘Sep’, ‘Oct’, ‘Nov’, ‘Dec’];
+return names[Number(m) - 1] + ’ ’ + y;
+};
+const revenueByMonth = {};
+const expenseByMonth = {};
+for (const j of jobs) {
+for (const p of (j.payments || [])) {
+const key = monthKey(p.date);
+revenueByMonth[key] = (revenueByMonth[key] || 0) + (Number(p.amount) || 0);
+}
+}
+for (const e of expenses) {
+const key = monthKey(e.date);
+expenseByMonth[key] = (expenseByMonth[key] || 0) + (Number(e.amount) || 0);
+}
+const now = new Date();
+const months = [];
+for (let i = 5; i >= 0; i–) {
+const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+const key = d.getFullYear() + ‘-’ + String(d.getMonth() + 1).padStart(2, ‘0’);
+const revenue = revenueByMonth[key] || 0;
+const expense = expenseByMonth[key] || 0;
+months.push({ key, label: monthLabel(key), revenue, expense, profit: revenue - expense });
+}
+return months;
+}, [jobs, expenses]);
+
+const currentMonth = monthlyData[monthlyData.length - 1];
+const prevMonth = monthlyData[monthlyData.length - 2];
+const changePercent = prevMonth && prevMonth.revenue > 0
+? Math.round(((currentMonth.revenue - prevMonth.revenue) / prevMonth.revenue) * 100)
+: null;
+const maxRevenue = Math.max(…monthlyData.map((m) => m.revenue), 1);
+
+return (
+<div style={{ padding: ‘12px 16px’ }}>
+<div style={styles.sectionTitle}>Monthly Business Report</div>
+<div style={styles.plainTextMuted}>Pichle 6 mahine ka revenue trend.</div>
+
+```
+  <div style={styles.statRow2}>
+    <StatCard icon={<IndianRupee size={16} />} label='Is Mahine' value={currency(currentMonth.revenue)} accent />
+    {changePercent !== null && (
+      <StatCard
+        icon={<TrendingUp size={16} />}
+        label='Pichle Mahine Se'
+        value={(changePercent >= 0 ? '+' : '') + changePercent + '%'}
+      />
+    )}
+  </div>
+
+  <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Month-wise breakdown</div>
+  {monthlyData.map((m) => (
+    <div key={m.key} style={styles.reviewCard}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={styles.cardName}>{m.label}</div>
+        <div style={styles.itemAmount}>{currency(m.revenue)}</div>
+      </div>
+      <div style={styles.monthlyBarTrack}>
+        <div style={{ ...styles.monthlyBarFill, width: (m.revenue / maxRevenue * 100) + '%' }} />
+      </div>
+      <div style={styles.itemSub}>Expense: {currency(m.expense)} - Profit: {currency(m.profit)}</div>
+    </div>
+  ))}
+</div>
+```
+
+);
+}
+
 function AdminProfitReport({ jobs, expenses }) {
 const rows = useMemo(() => {
 return jobs
@@ -3849,7 +4196,7 @@ return (
 }
 
 /* –– Admin settings –– */
-function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, brochures, addBrochure, removeBrochure, allData, showToast }) {
+function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, brochures, addBrochure, removeBrochure, allData, onLogout, showToast }) {
 const [current, setCurrent] = useState(’’);
 const [next1, setNext1] = useState(’’);
 const [next2, setNext2] = useState(’’);
@@ -4099,6 +4446,8 @@ return (
       Dusre kisi bhi customer ka data unhe kabhi nahi dikhta - sirf aap (Admin) sabka data ek saath dekh sakte hain.
     </div>
   </div>
+
+  <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 12 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
 </div>
 ```
 
@@ -4107,7 +4456,7 @@ return (
 
 /* –– Partner: same admin interface but Settings is a stub with no
 access to PINs, staff, or backups - only their own login info. –– */
-function PartnerSettings({ staffName }) {
+function PartnerSettings({ staffName, onLogout }) {
 return (
 <div style={{ padding: ‘12px 16px’ }}>
 <div style={styles.sectionTitle}>Settings</div>
@@ -4121,6 +4470,7 @@ Aap ‘{staffName || ‘Partner’}’ ke roop mein logged in hain. Partner acce
 expenses, aur data backup nahi dikhte - sirf customers, gallery, aur reviews manage kar sakte hain.
 </div>
 </div>
+<button style={{ …styles.addBtn, background: ‘#FFEBEE’, color: ‘#C62828’, marginTop: 12 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
 </div>
 );
 }
@@ -4194,10 +4544,10 @@ brandName: { fontWeight: 800, fontSize: 19, letterSpacing: 1.5, marginTop: 14, c
 brandNameSub: { fontSize: 10.5, color: BRAND.gold, fontWeight: 800, letterSpacing: 3, marginTop: 3 },
 brandSub: { fontSize: 12, color: BRAND.textMuted, fontWeight: 600, marginTop: 10 },
 loginCard: { width: ‘100%’, maxWidth: 340, background: BRAND.paper, border: `1px solid ${BRAND.line}`, borderRadius: 16, padding: 20, position: ‘relative’, boxShadow: ‘0 4px 20px rgba(15,27,61,0.06)’ },
-otpDemoBox: { display: ‘flex’, alignItems: ‘center’, gap: 7, background: ‘#F3EFE3’, borderRadius: 9, padding: ‘9px 11px’, marginTop: 10, fontSize: 11, color: ‘#5A4E2E’, lineHeight: 1.4 },
 verifiedTag: { display: ‘inline-flex’, alignItems: ‘center’, gap: 3, fontSize: 10, fontWeight: 700, color: ‘#2F7D4F’ },
 callBtn: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, gap: 7, width: ‘100%’, background: ‘#2F7D4F’, color: ‘#FFF’, textDecoration: ‘none’, border: ‘none’, borderRadius: 10, padding: ‘11px’, fontSize: 13, fontWeight: 700, marginBottom: 10, boxSizing: ‘border-box’ },
 waShareBtn: { display: ‘flex’, alignItems: ‘center’, gap: 5, background: ‘#25D366’, color: ‘#FFF’, textDecoration: ‘none’, borderRadius: 20, padding: ‘7px 12px’, fontSize: 11.5, fontWeight: 700 },
+pdfDownloadBtn: { display: ‘flex’, alignItems: ‘center’, gap: 5, background: BRAND.navy, color: ‘#FFF’, border: ‘none’, textDecoration: ‘none’, borderRadius: 20, padding: ‘7px 12px’, fontSize: 11.5, fontWeight: 700, cursor: ‘pointer’ },
 
 header: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘space-between’, padding: ‘16px 16px 12px’, position: ‘sticky’, top: 0, background: BRAND.cream, zIndex: 25 },
 brandRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, minWidth: 0 },
@@ -4375,6 +4725,8 @@ currentTag: { marginLeft: ‘auto’, fontSize: 9.5, fontWeight: 800, color: ‘
 
 itemRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, padding: ‘9px 0’, borderBottom: ‘1px solid #EEF0F5’ },
 milestoneRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, padding: ‘9px 10px’, background: BRAND.paper, borderRadius: 10, marginTop: 6 },
+monthlyBarTrack: { height: 6, background: BRAND.paper, borderRadius: 3, marginTop: 8, overflow: ‘hidden’ },
+monthlyBarFill: { height: ‘100%’, background: BRAND.gold, borderRadius: 3 },
 waReminderBtn: { display: ‘flex’, alignItems: ‘center’, gap: 4, background: ‘#25D366’, color: ‘#FFF’, textDecoration: ‘none’, borderRadius: 8, padding: ‘6px 10px’, fontSize: 11, fontWeight: 700, whiteSpace: ‘nowrap’ },
 itemDesc: { fontSize: 13.5, fontWeight: 700 },
 itemSub: { fontSize: 11.5, color: BRAND.textMuted, marginTop: 1 },
@@ -4383,7 +4735,14 @@ addRow: { display: ‘flex’, gap: 8, marginTop: 12 },
 addBtn: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, gap: 6, width: ‘100%’, background: ‘#EEF0F5’, border: `1px dashed ${BRAND.line}`, borderRadius: 10, padding: ‘9px’, fontSize: 12.5, fontWeight: 700, color: ‘#333B57’, marginTop: 8, cursor: ‘pointer’ },
 totalBar: { display: ‘flex’, justifyContent: ‘space-between’, alignItems: ‘center’, marginTop: 16, padding: ‘12px 14px’, background: BRAND.navy, borderRadius: 10, color: ‘#FDFCF8’, fontSize: 13, fontWeight: 700 },
 totalAmt: { fontSize: 16, fontWeight: 800, fontFamily: “‘DM Mono’, monospace” },
-payStrip: { display: ‘flex’, justifyContent: ‘space-around’, background: BRAND.paper, border: `1px solid ${BRAND.line}`, borderRadius: 12, padding: ‘12px 8px’, marginTop: 10 },
+payStrip: { display: ‘flex’, justifyContent: ‘space-around’, background: BRAND.paper, border: `1px solid ${BRAND.line}`, borderRadius: 12, padding: ‘12px 8px’ },
+payStripBtn: { display: ‘block’, width: ‘100%’, background: ‘none’, border: ‘none’, padding: 0, marginTop: 10, cursor: ‘pointer’, textAlign: ‘left’, fontFamily: ‘inherit’ },
+homeEstimatePreview: { background: BRAND.paper, border: `1px solid ${BRAND.line}`, borderTop: ‘none’, borderRadius: ‘0 0 12px 12px’, padding: ‘8px 12px 10px’ },
+homeEstimateRow: { display: ‘flex’, justifyContent: ‘space-between’, padding: ‘4px 0’, fontSize: 12 },
+homeEstimateDesc: { color: BRAND.textMuted, fontWeight: 600 },
+homeEstimateAmt: { fontWeight: 700, color: BRAND.navy },
+homeEstimateMore: { fontSize: 11, color: BRAND.textMuted, marginTop: 2 },
+homeEstimateViewAll: { fontSize: 11.5, color: BRAND.gold, fontWeight: 800, marginTop: 6, textAlign: ‘center’ },
 moneyLabel: { fontSize: 9.5, color: ‘#A8AEC2’, fontWeight: 700, letterSpacing: 0.3, textTransform: ‘uppercase’ },
 moneyValue: { fontSize: 13, fontWeight: 800, fontFamily: “‘DM Mono’, monospace”, marginTop: 1 },
 
