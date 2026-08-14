@@ -527,6 +527,7 @@ const [categories, setCategoriesRaw] = useState(DEFAULT_CATEGORIES);
 const [notifications, setNotificationsRaw] = useState([]);
 const [brochures, setBrochures] = useState([]);
 const [session, setSessionRaw] = useState(() => loadStoredSession());
+const [publicView, setPublicView] = useState(() => !loadStoredSession());
 // Wraps setSession so every update (login, logout, role switch) is
 // automatically persisted to localStorage, keeping the session alive
 // across page refreshes without needing to update every call site.
@@ -844,6 +845,7 @@ if (!session) {
 return (
 <div style={styles.app}>
 <style>{fontImport}</style>
+{publicView ? <PublicHome gallery={gallery} onOpenLogin={() => setPublicView(false)} /> : <>
 <LoginScreen
 customers={customers}
 adminPin={adminPin}
@@ -860,6 +862,8 @@ showToast(’Registered! Welcome ’ + cust.name);
 }}
 onAdminLogin={(staffName, role) => setSession({ role: role || ‘admin’, staffName })}
 />
+<button style={styles.backToWebsite} onClick={() => setPublicView(true)}>← Back to website</button>
+</>}
 <ToastEl toast={toast} />
 </div>
 );
@@ -1097,6 +1101,65 @@ if (!digits10 || digits10.length !== 10) return digits10 || ‘’;
 return ’+91 ’ + digits10.slice(0, 5) + ’ ’ + digits10.slice(5);
 }
 
+function PublicHome({ gallery, onOpenLogin }) {
+const coverUrl = 'https://lh3.googleusercontent.com/d/1CeqX-wlRTirhTsL25CtOvM8i5QInKqRw=w1600';
+const coverOrigUrl = 'https://drive.google.com/file/d/1CeqX-wlRTirhTsL25CtOvM8i5QInKqRw/view?usp=drivesdk';
+const logoUrl = 'https://lh3.googleusercontent.com/d/10nsMb4CwewLbWiCOuGkzJy7Vmi8ssme2=w1000';
+const logoOrigUrl = 'https://drive.google.com/file/d/10nsMb4CwewLbWiCOuGkzJy7Vmi8ssme2/view?usp=drivesdk';
+const serviceNames = ['PVC Modular Kitchen', 'Sliding Wardrobe', 'TV Unit', 'PVC Cupboard', 'Interior Furniture'];
+const galleryPhotos = Object.values(gallery || {}).flat().filter((photo) => photo.url).slice(0, 6);
+const enquiryText = encodeURIComponent('Namaste, mujhe PVC furniture ke liye enquiry karni hai.');
+return (
+<div style={styles.publicHome}>
+  <header style={styles.publicHeader}>
+    <div style={styles.publicBrandRow}>
+      <SmartImg src={logoUrl} origUrl={logoOrigUrl} alt='Shree Krushn PVC Furniture logo' style={styles.publicLogo} />
+      <div><div style={styles.publicBrandName}>SHREE KRUSHN</div><div style={styles.publicBrandSub}>PVC FURNITURE</div></div>
+    </div>
+    <button style={styles.loginLink} onClick={onOpenLogin}>Login</button>
+  </header>
+  <main>
+    <section style={styles.publicHero}>
+      <SmartImg src={coverUrl} origUrl={coverOrigUrl} alt='Shree Krushn PVC Furniture interiors' style={styles.publicCover} />
+      <div style={styles.publicHeroCopy}>
+        <div style={styles.publicEyebrow}>Modern · Stylish · Durable</div>
+        <h1 style={styles.publicTitle}>Premium PVC furniture for your home</h1>
+        <p style={styles.publicText}>Waterproof and termite-proof modular kitchens, wardrobes, TV units and complete interior furniture in Ahmedabad.</p>
+        <div style={styles.publicActions}>
+          <a style={styles.publicPrimaryAction} href='tel:+917990283116'><Phone size={17} /> Call now</a>
+          <a style={styles.publicWhatsAppAction} href={'https://wa.me/917990283116?text=' + enquiryText} target='_blank' rel='noreferrer'><MessageSquare size={17} /> WhatsApp</a>
+        </div>
+      </div>
+    </section>
+    <section style={styles.publicSection}>
+      <div style={styles.publicSectionEyebrow}>Our services</div>
+      <h2 style={styles.publicSectionTitle}>Made for everyday living</h2>
+      <div style={styles.serviceGrid}>{serviceNames.map((name) => <div key={name} style={styles.serviceCard}><CheckCircle2 size={17} color={BRAND.gold} /><span>{name}</span></div>)}</div>
+    </section>
+    <section style={styles.publicSection}>
+      <div style={styles.publicSectionEyebrow}>Why choose us</div>
+      <div style={styles.benefitList}>
+        <div><b>Waterproof PVC</b><span>Built for moisture-resistant, durable interiors.</span></div>
+        <div><b>5-year warranty</b><span>Material warranty on eligible manufacturing defects.</span></div>
+        <div><b>Ahmedabad service</b><span>Design, manufacturing and fitting by our team.</span></div>
+      </div>
+    </section>
+    {galleryPhotos.length > 0 && <section style={styles.publicSection}>
+      <div style={styles.publicSectionEyebrow}>Recent work</div>
+      <div style={styles.publicGallery}>{galleryPhotos.map((photo) => <SmartImg key={photo.id} src={photo.url} origUrl={photo.origUrl} alt={photo.caption || 'PVC furniture work'} style={styles.publicGalleryImage} />)}</div>
+    </section>}
+    <section style={styles.enquiryCard}>
+      <div style={styles.publicSectionEyebrow}>Start your project</div>
+      <h2 style={styles.enquiryTitle}>Get a furniture quote today</h2>
+      <p style={styles.enquiryText}>Share your requirement on WhatsApp or call us at 79902 83116.</p>
+      <a style={styles.publicPrimaryAction} href={'https://wa.me/917990283116?text=' + enquiryText} target='_blank' rel='noreferrer'><MessageSquare size={17} /> Send enquiry</a>
+    </section>
+  </main>
+  <footer style={styles.publicFooter}>Shree Krushn PVC Furniture · Ahmedabad</footer>
+</div>
+);
+}
+
 function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {const [mode, setMode] = useState(‘choose’);
 const [name, setName] = useState(’’);
 const [phone, setPhone] = useState(’’);
@@ -1165,10 +1228,21 @@ return (
 <div style={styles.loginWrap}>
 <div style={styles.loginBgAccent} />
 <div style={styles.loginBrand}>
-<Logo size={64} />
+<SmartImg
+  src='https://lh3.googleusercontent.com/d/10nsMb4CwewLbWiCOuGkzJy7Vmi8ssme2=w1000'
+  origUrl='https://drive.google.com/file/d/10nsMb4CwewLbWiCOuGkzJy7Vmi8ssme2/view?usp=drivesdk'
+  alt='Shree Krushn PVC Furniture logo'
+  style={styles.loginLogo}
+/>
 <div style={styles.brandName}>SHREE KRUSHN</div>
 <div style={styles.brandNameSub}>PVC FURNITURE</div>
 <div style={styles.brandSub}>Design gallery - Requirements - Live work tracking</div>
+<SmartImg
+  src='https://lh3.googleusercontent.com/d/1CeqX-wlRTirhTsL25CtOvM8i5QInKqRw=w1600'
+  origUrl='https://drive.google.com/file/d/1CeqX-wlRTirhTsL25CtOvM8i5QInKqRw/view?usp=drivesdk'
+  alt='Shree Krushn PVC Furniture cover banner'
+  style={styles.loginCover}
+/>
 </div>
 
 ```
@@ -4182,9 +4256,40 @@ const styles = {
 app: { fontFamily: “‘Manrope’, system-ui, sans-serif”, background: BRAND.cream, minHeight: ‘100vh’, color: BRAND.navy, maxWidth: 480, margin: ‘0 auto’, position: ‘relative’ },
 loadingScreen: { display: ‘flex’, flexDirection: ‘column’, alignItems: ‘center’, justifyContent: ‘center’, height: ‘100vh’ },
 
+publicHome: { minHeight: '100vh', background: BRAND.cream, paddingBottom: 24 },
+publicHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', background: BRAND.paper, borderBottom: `1px solid ${BRAND.line}` },
+publicBrandRow: { display: 'flex', alignItems: 'center', gap: 9 },
+publicLogo: { width: 42, height: 42, objectFit: 'contain', borderRadius: '50%' },
+publicBrandName: { fontWeight: 800, fontSize: 13, letterSpacing: 0.6 },
+publicBrandSub: { color: BRAND.gold, fontSize: 9.5, fontWeight: 800, letterSpacing: 2 },
+loginLink: { background: 'none', border: `1px solid ${BRAND.line}`, borderRadius: 18, padding: '7px 12px', color: BRAND.navy, fontSize: 12, fontWeight: 800, cursor: 'pointer' },
+publicHero: { padding: 16 },
+publicCover: { width: '100%', height: 190, display: 'block', objectFit: 'cover', borderRadius: 16, boxShadow: '0 8px 24px rgba(15,27,61,0.12)' },
+publicHeroCopy: { padding: '22px 4px 6px' },
+publicEyebrow: { color: BRAND.gold, fontSize: 11, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase' },
+publicTitle: { fontSize: 29, lineHeight: 1.12, letterSpacing: -1, margin: '7px 0 10px' },
+publicText: { margin: 0, fontSize: 13, lineHeight: 1.65, color: BRAND.textMuted },
+publicActions: { display: 'flex', gap: 9, marginTop: 18 },
+publicPrimaryAction: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: BRAND.navy, color: '#fff', textDecoration: 'none', borderRadius: 10, padding: '12px 15px', fontSize: 13, fontWeight: 800 },
+publicWhatsAppAction: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: '#25D366', color: '#fff', textDecoration: 'none', borderRadius: 10, padding: '12px 15px', fontSize: 13, fontWeight: 800 },
+publicSection: { padding: '18px 16px' },
+publicSectionEyebrow: { color: BRAND.gold, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.1, fontSize: 10 },
+publicSectionTitle: { fontSize: 21, margin: '5px 0 14px', letterSpacing: -0.5 },
+serviceGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 },
+serviceCard: { display: 'flex', alignItems: 'center', gap: 7, minHeight: 48, padding: '10px', background: BRAND.paper, borderRadius: 11, border: `1px solid ${BRAND.line}`, fontSize: 11.5, fontWeight: 700 },
+benefitList: { display: 'grid', gap: 10, marginTop: 10 },
+publicGallery: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 },
+publicGalleryImage: { width: '100%', height: 120, objectFit: 'cover', borderRadius: 10 },
+enquiryCard: { margin: '12px 16px', padding: 20, borderRadius: 16, background: BRAND.navy, color: '#fff' },
+enquiryTitle: { fontSize: 23, margin: '6px 0' },
+enquiryText: { margin: '0 0 16px', color: '#C9D0E3', fontSize: 13, lineHeight: 1.6 },
+publicFooter: { textAlign: 'center', color: BRAND.textMuted, fontSize: 11, paddingTop: 15 },
+backToWebsite: { marginTop: 14, background: 'none', border: 'none', color: BRAND.navyLight, fontWeight: 700, cursor: 'pointer' },
 loginWrap: { minHeight: ‘100vh’, display: ‘flex’, flexDirection: ‘column’, alignItems: ‘center’, justifyContent: ‘center’, padding: 24, position: ‘relative’, overflow: ‘hidden’ },
 loginBgAccent: { position: ‘absolute’, top: -80, right: -80, width: 220, height: 220, borderRadius: ‘50%’, background: ‘radial-gradient(circle, rgba(15,27,61,0.06), transparent 70%)’ },
 loginBrand: { textAlign: ‘center’, marginBottom: 28, position: ‘relative’, display: ‘flex’, flexDirection: ‘column’, alignItems: ‘center’ },
+loginLogo: { width: 76, height: 76, objectFit: ‘contain’, borderRadius: ‘50%’ },
+loginCover: { width: ‘100%’, maxWidth: 340, height: 126, objectFit: ‘cover’, objectPosition: ‘center’, borderRadius: 14, marginTop: 18, border: `1px solid ${BRAND.line}` },
 brandName: { fontWeight: 800, fontSize: 19, letterSpacing: 1.5, marginTop: 14, color: BRAND.navy },
 brandNameSub: { fontSize: 10.5, color: BRAND.gold, fontWeight: 800, letterSpacing: 3, marginTop: 3 },
 brandSub: { fontSize: 12, color: BRAND.textMuted, fontWeight: 600, marginTop: 10 },
