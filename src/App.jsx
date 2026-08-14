@@ -1185,12 +1185,12 @@ const sendOtp = async (forMode) => {
 const normalized = normalizeIndianPhone(phone);
 if (forMode === ‘register’ && !name.trim()) { setError(‘Naam daalein’); return; }
 if (!normalized) { setError(‘Sahi 10-digit mobile number daalein (jaise 98765 43210)’); return; }
-if (forMode === ‘login’) {```
-  const found = customers.find((c) => c.phone === normalized);
-  if (!found) { setError('Ye number register nahi hai. Pehle register karein.'); return; }
+if (forMode === ‘login’) {
+const found = customers.find((c) => c.phone === normalized);
+if (!found) { setError(‘Ye number register nahi hai. Pehle register karein.’); return; }
 }
-if (forMode === 'register') {
-  const existing = customers.find((c) => c.phone === normalized);
+if (forMode === ‘register’) {
+const existing = customers.find((c) => c.phone === normalized);```
   if (existing) { onCustomerLogin(existing.id); return; }
 }
 setSendingOtp(true);
@@ -2398,7 +2398,6 @@ return (
     <div style={styles.reviewPreview}>
       <div style={styles.fieldLabel}>Aapki last submitted review</div>
       <div style={{ display: 'flex', gap: 2, marginBottom: 4 }}>
-``````
         {[1,2,3,4,5].map((n) => <Star key={n} size={14} fill={n <= job.review.rating ? BRAND.gold : 'none'} color={n <= job.review.rating ? BRAND.gold : '#D7DAE5'} />)}
       </div>
       <div style={styles.plainText}>{job.review.text}</div>
@@ -2410,8 +2409,7 @@ return (
 );
 }
 
-/* ===================== ADMIN APP ===================== */
-/* –– Karigar (worker) app: deliberately minimal - a karigar only ever
+/* ===================== ADMIN APP ===================== *//* –– Karigar (worker) app: deliberately minimal - a karigar only ever
 sees jobs explicitly assigned to them (see App’s session routing above,
 which filters by assignedStaffId before this component even receives
 the list), and only progress-photo upload plus a read-only status view.
@@ -2422,11 +2420,12 @@ function KarigarApp({ jobs, staffName, onSaveJob, onLogout, showToast }) {
 const [activeJobId, setActiveJobId] = useState(null);
 const activeJob = jobs.find((j) => j.id === activeJobId);
 
-const addPhoto = (job, url, origUrl, caption) => {
-let next = { …job, progressPhotos: […(job.progressPhotos || []), { id: uid(), url, origUrl, caption, date: new Date().toISOString() }] };
-next = logActivity(next, ’Progress photo added by ’ + staffName);
+const addPhotos = (job, photos) => {
+const newPhotos = photos.map((p) => ({ id: uid(), url: p.url, origUrl: p.origUrl, caption: p.caption, date: new Date().toISOString() }));
+let next = { …job, progressPhotos: […(job.progressPhotos || []), …newPhotos] };
+next = logActivity(next, newPhotos.length + ’ progress photo’ + (newPhotos.length !== 1 ? ‘s’ : ‘’) + ’ added by ’ + staffName);
 onSaveJob(next);
-showToast(‘Photo add ho gayi’);
+showToast(photos.length + ’ photo’ + (photos.length !== 1 ? ‘s’ : ‘’) + ’ add ho gayi’);
 };
 const removePhoto = (job, photoId) => {
 onSaveJob({ …job, progressPhotos: (job.progressPhotos || []).filter((p) => p.id !== photoId) });
@@ -2447,7 +2446,7 @@ return (
 ))}
 </div>
 <div style={{ marginTop: 10 }}>
-<PhotoAddPanel addLabel=‘Add progress photo’ showToast={showToast} onAdd={({ url, origUrl, caption }) => addPhoto(activeJob, url, origUrl, caption)} />
+<PhotoAddPanel addLabel=‘Add progress photo’ showToast={showToast} onAdd={(photos) => addPhotos(activeJob, photos)} />
 </div>
 </div>
 </div>
@@ -3269,11 +3268,16 @@ showToast(‘Price set, customer approval ke liye bheja gaya’);
 };
 const removeExtraWork = (id) => onSave({ …job, extraWork: extraWork.filter((e) => e.id !== id) });
 
-const addPhotoFromPanel = (url, origUrl, caption) => {
-let next = { …job, progressPhotos: […(job.progressPhotos || []), { id: uid(), url, origUrl, caption, date: new Date().toISOString() }] };
-next = logActivity(next, ‘New progress photo added’);
+const addPhotosFromPanel = (photos) => {
+// Same batching fix as AdminGallery’s addPhotosFromPanel: one onSave
+// call with the whole batch, built from a single fresh `job`
+// snapshot, instead of one onSave per photo (which would only keep
+// the last photo due to each call closing over the same stale job).
+const newPhotos = photos.map((p) => ({ id: uid(), url: p.url, origUrl: p.origUrl, caption: p.caption, date: new Date().toISOString() }));
+let next = { …job, progressPhotos: […(job.progressPhotos || []), …newPhotos] };
+next = logActivity(next, newPhotos.length + ’ new progress photo’ + (newPhotos.length !== 1 ? ‘s’ : ‘’) + ’ added’);
 onSave(next);
-showToast(‘Progress photo added’);
+showToast(photos.length + ’ progress photo’ + (photos.length !== 1 ? ‘s’ : ‘’) + ’ added’);
 };
 const removePhoto = (id) => onSave({ …job, progressPhotos: job.progressPhotos.filter((p) => p.id !== id) });
 
@@ -3467,7 +3471,7 @@ return (
           <PhotoAddPanel
             addLabel='Add progress photo'
             showToast={showToast}
-            onAdd={({ url, origUrl, caption }) => addPhotoFromPanel(url, origUrl, caption)}
+            onAdd={addPhotosFromPanel}
           />
         </div>
       </div>
@@ -3596,9 +3600,16 @@ if (pendingUploads.length === 0) return;
 // captions can still be edited individually afterward from the
 // gallery’s own photo-edit dialog if a particular photo needs a
 // different one.
-for (const p of pendingUploads) {
-onAdd({ url: p.dataUri, origUrl: null, caption: caption.trim() });
-}
+//
+// Calling onAdd ONCE with the whole batch (rather than once per
+// photo in a loop) matters: the caller’s state update is built from
+// whatever gallery/job snapshot was current when onAdd runs, so
+// looping and calling onAdd N times in a row - all before any of
+// those async updates actually land - means each call closes over
+// the same stale “before” snapshot and only the last one survives.
+// A single call with an array lets the caller add all N photos to
+// one fresh snapshot in one state update.
+onAdd(pendingUploads.map((p) => ({ url: p.dataUri, origUrl: null, caption: caption.trim() })));
 showToast(pendingUploads.length + ’ photo’ + (pendingUploads.length !== 1 ? ‘s’ : ‘’) + ’ add ho gayi’);
 setPendingUploads([]);
 setCaption(’’);
@@ -3606,1182 +3617,1197 @@ setCaption(’’);
 
 const addFromLink = () => {
 if (!linkValue.trim()) return;
-onAdd({ url: toDirectImageUrl(linkValue), origUrl: linkValue.trim(), caption: caption.trim() });
+onAdd([{ url: toDirectImageUrl(linkValue), origUrl: linkValue.trim(), caption: caption.trim() }]);
 setLinkValue(’’);
 setCaption(’’);
-};return (
-<div style={styles.formCard}>
-<div style={styles.modeToggleRow}>
-<button style={{ …styles.modeToggleBtn, …(mode === ‘upload’ ? styles.modeToggleBtnActive : {}) }} onClick={() => setMode(‘upload’)}>
-<Camera size={13} /> Upload Photo
-</button>
-<button style={{ …styles.modeToggleBtn, …(mode === ‘link’ ? styles.modeToggleBtnActive : {}) }} onClick={() => setMode(‘link’)}>
-<Link2 size={13} /> Paste Link
-</button>
-</div>
+};
 
-```
-  {mode === 'upload' && (
-    <div style={{ marginTop: 12 }}>
-      {pendingUploads.length === 0 ? (
-        <>
-          <input ref={fileInputRef} type='file' accept='image/*' multiple style={{ display: 'none' }} onChange={handleFilesPicked} />
-          <button style={styles.uploadTapArea} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
-            {uploading ? (
-              <span style={styles.uploadHint}>{uploadProgress ? ('Processing ' + uploadProgress.done + '/' + uploadProgress.total + '...') : 'Processing...'}</span>
-            ) : (
-              <>
-                <Camera size={22} color={BRAND.gold} />
-                <span style={styles.uploadHint}>Camera se click karein ya gallery se ek ya zyada photos select karein</span>
-              </>
-            )}
-          </button>
-        </>
-      ) : (
-        <div>
-          <div style={styles.multiPhotoPreviewGrid}>
-            {pendingUploads.map((p, i) => (
-              <div key={i} style={styles.multiPhotoPreviewItem}>
-                <img src={p.dataUri} alt='preview' style={styles.multiPhotoPreviewImg} />
-                <button style={styles.multiPhotoPreviewRemove} onClick={() => removePending(i)}><X size={12} color='#FFF' /></button>
+return (    <div style={styles.formCard}>
+      <div style={styles.modeToggleRow}>
+        <button style={{ ...styles.modeToggleBtn, ...(mode === 'upload' ? styles.modeToggleBtnActive : {}) }} onClick={() => setMode('upload')}>
+          <Camera size={13} /> Upload Photo
+        </button>
+        <button style={{ ...styles.modeToggleBtn, ...(mode === 'link' ? styles.modeToggleBtnActive : {}) }} onClick={() => setMode('link')}>
+          <Link2 size={13} /> Paste Link
+        </button>
+      </div>
+
+      {mode === 'upload' && (
+        <div style={{ marginTop: 12 }}>
+          {pendingUploads.length === 0 ? (
+            <>
+              <input ref={fileInputRef} type='file' accept='image/*' multiple style={{ display: 'none' }} onChange={handleFilesPicked} />
+              <button style={styles.uploadTapArea} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
+                {uploading ? (
+                  <span style={styles.uploadHint}>{uploadProgress ? ('Processing ' + uploadProgress.done + '/' + uploadProgress.total + '...') : 'Processing...'}</span>
+                ) : (
+                  <>
+                    <Camera size={22} color={BRAND.gold} />
+                    <span style={styles.uploadHint}>Camera se click karein ya gallery se ek ya zyada photos select karein</span>
+                  </>
+                )}
+              </button>
+            </>
+          ) : (
+            <div>
+              <div style={styles.multiPhotoPreviewGrid}>
+                {pendingUploads.map((p, i) => (
+                  <div key={i} style={styles.multiPhotoPreviewItem}>
+                    <img src={p.dataUri} alt='preview' style={styles.multiPhotoPreviewImg} />
+                    <button style={styles.multiPhotoPreviewRemove} onClick={() => removePending(i)}><X size={12} color='#FFF' /></button>
+                  </div>
+                ))}
+                <button style={styles.multiPhotoPreviewAddMore} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
+                  <Plus size={18} color={BRAND.gold} />
+                </button>
               </div>
-            ))}
-            <button style={styles.multiPhotoPreviewAddMore} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
-              <Plus size={18} color={BRAND.gold} />
-            </button>
-          </div>
-          <input ref={fileInputRef} type='file' accept='image/*' multiple style={{ display: 'none' }} onChange={handleFilesPicked} />
-          <div style={styles.hintText}>{pendingUploads.length} photo{pendingUploads.length !== 1 ? 's' : ''} ready - poori quality mein save hongi.</div>
-          <input style={{ ...styles.input, marginTop: 8 }} placeholder='Caption (optional, sabpar lagega)' value={caption} onChange={(e) => setCaption(e.target.value)} />
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={confirmUploads}><Check size={14} /> {addLabel || ('Add ' + pendingUploads.length + ' photo' + (pendingUploads.length !== 1 ? 's' : ''))}</button>
-            <button style={styles.cancelBtn} onClick={() => setPendingUploads([])}>Cancel</button>
-          </div>
+              <input ref={fileInputRef} type='file' accept='image/*' multiple style={{ display: 'none' }} onChange={handleFilesPicked} />
+              <div style={styles.hintText}>{pendingUploads.length} photo{pendingUploads.length !== 1 ? 's' : ''} ready - poori quality mein save hongi.</div>
+              <input style={{ ...styles.input, marginTop: 8 }} placeholder='Caption (optional, sabpar lagega)' value={caption} onChange={(e) => setCaption(e.target.value)} />
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={confirmUploads}><Check size={14} /> {addLabel || ('Add ' + pendingUploads.length + ' photo' + (pendingUploads.length !== 1 ? 's' : ''))}</button>
+                <button style={styles.cancelBtn} onClick={() => setPendingUploads([])}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === 'link' && (
+        <div style={{ marginTop: 12 }}>
+          <PhotoUrlInput value={linkValue} onChange={setLinkValue} placeholder='Image URL ya Google Drive link paste karein' />
+          <input style={{ ...styles.input, marginTop: 8 }} placeholder='Caption (optional)' value={caption} onChange={(e) => setCaption(e.target.value)} />
+          <button style={styles.addBtn} onClick={addFromLink}><Plus size={14} /> {addLabel || 'Add photo'}</button>
         </div>
       )}
     </div>
-  )}
-
-  {mode === 'link' && (
-    <div style={{ marginTop: 12 }}>
-      <PhotoUrlInput value={linkValue} onChange={setLinkValue} placeholder='Image URL ya Google Drive link paste karein' />
-      <input style={{ ...styles.input, marginTop: 8 }} placeholder='Caption (optional)' value={caption} onChange={(e) => setCaption(e.target.value)} />
-      <button style={styles.addBtn} onClick={addFromLink}><Plus size={14} /> {addLabel || 'Add photo'}</button>
-    </div>
-  )}
-</div>
-```
-
-);
+  );
 }
 
-/* –– Admin gallery manager –– */
+/* ---- Admin gallery manager ---- */
 function AdminGallery({ gallery, setGallery, categories, setCategories, showToast }) {
-const [activeCat, setActiveCat] = useState(categories[0]);
-const [bulkText, setBulkText] = useState(’’);
-const [showBulk, setShowBulk] = useState(false);
-const [query, setQuery] = useState(’’);
-const [editingPhoto, setEditingPhoto] = useState(null);
+  const [activeCat, setActiveCat] = useState(categories[0]);
+  const [bulkText, setBulkText] = useState('');
+  const [showBulk, setShowBulk] = useState(false);
+  const [query, setQuery] = useState('');
+  const [editingPhoto, setEditingPhoto] = useState(null);
 
-const allPhotos = gallery[activeCat] || [];
-const photos = allPhotos.filter((p) => !query.trim() || (p.caption || ‘’).toLowerCase().includes(query.toLowerCase()));
+  const allPhotos = gallery[activeCat] || [];
+  const photos = allPhotos.filter((p) => !query.trim() || (p.caption || '').toLowerCase().includes(query.toLowerCase()));
 
-const addPhotoFromPanel = (url, origUrl, caption) => {
-const next = { …gallery, [activeCat]: [{ id: uid(), url, origUrl, caption }, …allPhotos] };
-setGallery(next);
-showToast(’Photo added to ’ + activeCat);
-};
+  const addPhotosFromPanel = (photos) => {
+    // Building the full new-photo list here and calling setGallery ONCE
+    // is what actually fixes the multi-upload bug: this closure's
+    // `allPhotos` is a single fresh snapshot for the whole batch, so
+    // every photo in `photos` lands correctly instead of only the last
+    // one surviving.
+    const newEntries = photos.map((p) => ({ id: uid(), url: p.url, origUrl: p.origUrl, caption: p.caption }));
+    const next = { ...gallery, [activeCat]: [...newEntries, ...allPhotos] };
+    setGallery(next);
+    showToast(photos.length + ' photo' + (photos.length !== 1 ? 's' : '') + ' added to ' + activeCat);
+  };
 
-const addBulk = () => {
-const urls = bulkText.split(NEWLINE).map((l) => l.trim()).filter(Boolean);
-if (urls.length === 0) return;
-const newPhotos = urls.map((u) => ({ id: uid(), url: toDirectImageUrl(u), origUrl: u, caption: ‘’ }));
-const next = { …gallery, [activeCat]: […newPhotos, …allPhotos] };
-setGallery(next);
-setBulkText(’’);
-setShowBulk(false);
-showToast(urls.length + ’ photos added to ’ + activeCat);
-};
+  const addBulk = () => {
+    const urls = bulkText.split(NEWLINE).map((l) => l.trim()).filter(Boolean);
+    if (urls.length === 0) return;
+    const newPhotos = urls.map((u) => ({ id: uid(), url: toDirectImageUrl(u), origUrl: u, caption: '' }));
+    const next = { ...gallery, [activeCat]: [...newPhotos, ...allPhotos] };
+    setGallery(next);
+    setBulkText('');
+    setShowBulk(false);
+    showToast(urls.length + ' photos added to ' + activeCat);
+  };
 
-const removePhoto = (id) => setGallery({ …gallery, [activeCat]: allPhotos.filter((p) => p.id !== id) });
+  const removePhoto = (id) => setGallery({ ...gallery, [activeCat]: allPhotos.filter((p) => p.id !== id) });
 
-const saveEditedPhoto = (photo, newCaption, newCategory) => {
-if (newCategory === activeCat) {
-setGallery({ …gallery, [activeCat]: allPhotos.map((p) => (p.id === photo.id ? { …p, caption: newCaption } : p)) });
-} else {
-// Move to a different category: remove from current, append to target.
-const remaining = allPhotos.filter((p) => p.id !== photo.id);
-const targetPhotos = gallery[newCategory] || [];
-setGallery({
-…gallery,
-[activeCat]: remaining,
-[newCategory]: [{ …photo, caption: newCaption }, …targetPhotos],
-});
-showToast(‘Photo ’ + newCategory + ’ mein move ho gayi’);
-}
-setEditingPhoto(null);
-};
+  const saveEditedPhoto = (photo, newCaption, newCategory) => {
+    if (newCategory === activeCat) {
+      setGallery({ ...gallery, [activeCat]: allPhotos.map((p) => (p.id === photo.id ? { ...p, caption: newCaption } : p)) });
+    } else {
+      // Move to a different category: remove from current, append to target.
+      const remaining = allPhotos.filter((p) => p.id !== photo.id);
+      const targetPhotos = gallery[newCategory] || [];
+      setGallery({
+        ...gallery,
+        [activeCat]: remaining,
+        [newCategory]: [{ ...photo, caption: newCaption }, ...targetPhotos],
+      });
+      showToast('Photo ' + newCategory + ' mein move ho gayi');
+    }
+    setEditingPhoto(null);
+  };
 
-return (
-<div style={{ padding: ‘12px 16px’ }}>
-<div style={styles.sectionTitle}>Design Gallery Manager</div>
-<div style={styles.plainTextMuted}>Categories add/remove karne ke liye Settings mein jaayein.</div>
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>Design Gallery Manager</div>
+      <div style={styles.plainTextMuted}>Categories add/remove karne ke liye Settings mein jaayein.</div>
 
-```
-  <div style={styles.chipRow}>
-    {categories.map((c) => {
-      const count = (gallery[c] || []).length;
-      return <button key={c} onClick={() => setActiveCat(c)} style={{ ...styles.chip, ...(activeCat === c ? styles.chipActive : {}) }}>{c} ({count})</button>;
-    })}
-  </div>
-
-  <div style={{ marginTop: 12 }}>
-    <div style={styles.fieldLabel}>Add photo to '{activeCat}'</div>
-    <PhotoAddPanel addLabel='Add photo' showToast={showToast} onAdd={({ url, origUrl, caption }) => addPhotoFromPanel(url, origUrl, caption)} />
-    <button style={styles.linkBtn2} onClick={() => setShowBulk((s) => !s)}>{showBulk ? 'Hide bulk add' : 'Bulk add (many URLs at once) ->'}</button>
-    {showBulk && (
-      <div style={{ marginTop: 8 }}>
-        <textarea style={{ ...styles.input, minHeight: 100, resize: 'vertical' }} placeholder={['Ek line mein ek URL daalein (Google Drive links bhi chalenge):', 'https://example.com/1.jpg', 'https://drive.google.com/file/d/.../view'].join(NEWLINE)} value={bulkText} onChange={(e) => setBulkText(e.target.value)} />
-        <button style={styles.addBtn} onClick={addBulk}><Plus size={14} /> Add all URLs</button>
+      <div style={styles.chipRow}>
+        {categories.map((c) => {
+          const count = (gallery[c] || []).length;
+          return <button key={c} onClick={() => setActiveCat(c)} style={{ ...styles.chip, ...(activeCat === c ? styles.chipActive : {}) }}>{c} ({count})</button>;
+        })}
       </div>
-    )}
-  </div>
 
-  {allPhotos.length > 6 && (
-    <div style={{ ...styles.searchWrap, marginTop: 16 }}>
-      <Search size={15} color={BRAND.textMuted} />
-      <input style={styles.searchInput} placeholder='Caption se search karein...' value={query} onChange={(e) => setQuery(e.target.value)} />
+      <div style={{ marginTop: 12 }}>
+        <div style={styles.fieldLabel}>Add photo to '{activeCat}'</div>
+        <PhotoAddPanel addLabel='Add photo' showToast={showToast} onAdd={addPhotosFromPanel} />
+        <button style={styles.linkBtn2} onClick={() => setShowBulk((s) => !s)}>{showBulk ? 'Hide bulk add' : 'Bulk add (many URLs at once) ->'}</button>
+        {showBulk && (
+          <div style={{ marginTop: 8 }}>
+            <textarea style={{ ...styles.input, minHeight: 100, resize: 'vertical' }} placeholder={['Ek line mein ek URL daalein (Google Drive links bhi chalenge):', 'https://example.com/1.jpg', 'https://drive.google.com/file/d/.../view'].join(NEWLINE)} value={bulkText} onChange={(e) => setBulkText(e.target.value)} />
+            <button style={styles.addBtn} onClick={addBulk}><Plus size={14} /> Add all URLs</button>
+          </div>
+        )}
+      </div>
+
+      {allPhotos.length > 6 && (
+        <div style={{ ...styles.searchWrap, marginTop: 16 }}>
+          <Search size={15} color={BRAND.textMuted} />
+          <input style={styles.searchInput} placeholder='Caption se search karein...' value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+      )}
+
+      <div style={{ ...styles.fieldLabel, marginTop: 16 }}>{activeCat} photos ({photos.length}) - edit ke liye tap karein</div>
+      <div style={styles.photoGrid}>
+        {photos.map((p) => (
+          <div key={p.id} style={styles.progressPhotoCard}>
+            <button style={styles.photoEditTapArea} onClick={() => setEditingPhoto(p)}>
+              <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption} style={styles.photoImg} />
+            </button>
+            <button style={styles.photoDeleteBtn} onClick={() => removePhoto(p.id)}><Trash2 size={12} color='#FFF' /></button>
+            {p.caption && <div style={styles.progressCaption}>{p.caption}</div>}
+          </div>
+        ))}
+      </div>
+
+      {editingPhoto && (
+        <GalleryPhotoEditDialog
+          photo={editingPhoto}
+          currentCategory={activeCat}
+          categories={categories}
+          onCancel={() => setEditingPhoto(null)}
+          onSave={saveEditedPhoto}
+        />
+      )}
     </div>
-  )}
-
-  <div style={{ ...styles.fieldLabel, marginTop: 16 }}>{activeCat} photos ({photos.length}) - edit ke liye tap karein</div>
-  <div style={styles.photoGrid}>
-    {photos.map((p) => (
-      <div key={p.id} style={styles.progressPhotoCard}>
-        <button style={styles.photoEditTapArea} onClick={() => setEditingPhoto(p)}>
-          <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption} style={styles.photoImg} />
-        </button>
-        <button style={styles.photoDeleteBtn} onClick={() => removePhoto(p.id)}><Trash2 size={12} color='#FFF' /></button>
-        {p.caption && <div style={styles.progressCaption}>{p.caption}</div>}
-      </div>
-    ))}
-  </div>
-
-  {editingPhoto && (
-    <GalleryPhotoEditDialog
-      photo={editingPhoto}
-      currentCategory={activeCat}
-      categories={categories}
-      onCancel={() => setEditingPhoto(null)}
-      onSave={saveEditedPhoto}
-    />
-  )}
-</div>
-```
-
-);
+  );
 }
 
 function GalleryPhotoEditDialog({ photo, currentCategory, categories, onCancel, onSave }) {
-const [caption, setCaption] = useState(photo.caption || ‘’);
-const [category, setCategory] = useState(currentCategory);
-return (
-<div style={styles.overlay} onClick={onCancel}>
-<div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
-<SheetHeader title='Edit Photo' onClose={onCancel} />
-<div style={styles.sheetBody}>
-<div style={styles.previewWrap}>
-<SmartImg src={photo.url} origUrl={photo.origUrl} alt={caption} style={styles.previewImg} />
-</div>
-<div style={{ …styles.fieldLabel, marginTop: 12 }}>Caption</div>
-<input style={styles.input} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder=‘Caption (optional)’ />
-<div style={{ …styles.fieldLabel, marginTop: 12 }}>Category</div>
-<div style={styles.chipRow}>
-{categories.map((c) => (
-<button key={c} onClick={() => setCategory(c)} style={{ …styles.chip, …(category === c ? styles.chipActive : {}) }}>{c}</button>
-))}
-</div>
-</div>
-<div style={styles.sheetFooter}>
-<button style={styles.primaryBtn} onClick={() => onSave(photo, caption, category)}>Save Changes</button>
-</div>
-</div>
-</div>
-);
+  const [caption, setCaption] = useState(photo.caption || '');
+  const [category, setCategory] = useState(currentCategory);
+  return (
+    <div style={styles.overlay} onClick={onCancel}>
+      <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
+        <SheetHeader title='Edit Photo' onClose={onCancel} />
+        <div style={styles.sheetBody}>
+          <div style={styles.previewWrap}>
+            <SmartImg src={photo.url} origUrl={photo.origUrl} alt={caption} style={styles.previewImg} />
+          </div>
+          <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Caption</div>
+          <input style={styles.input} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder='Caption (optional)' />
+          <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Category</div>
+          <div style={styles.chipRow}>
+            {categories.map((c) => (
+              <button key={c} onClick={() => setCategory(c)} style={{ ...styles.chip, ...(category === c ? styles.chipActive : {}) }}>{c}</button>
+            ))}
+          </div>
+        </div>
+        <div style={styles.sheetFooter}>
+          <button style={styles.primaryBtn} onClick={() => onSave(photo, caption, category)}>Save Changes</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-/* –– Admin reviews –– */
+/* ---- Admin reviews ---- */
 function AdminReviews({ jobs, setJobs, showToast }) {
-const [editingJobId, setEditingJobId] = useState(null);
-const reviewed = jobs.filter((j) => j.review).sort((a, b) => new Date(b.review.date) - new Date(a.review.date));
-const avg = reviewed.length ? (reviewed.reduce((s, j) => s + j.review.rating, 0) / reviewed.length).toFixed(1) : ‘-’;
-const featuredCount = reviewed.filter((j) => j.review.featured).length;
+  const [editingJobId, setEditingJobId] = useState(null);
+  const reviewed = jobs.filter((j) => j.review).sort((a, b) => new Date(b.review.date) - new Date(a.review.date));
+  const avg = reviewed.length ? (reviewed.reduce((s, j) => s + j.review.rating, 0) / reviewed.length).toFixed(1) : '-';
+  const featuredCount = reviewed.filter((j) => j.review.featured).length;
 
-const toggleFeatured = (job) => {
-const next = jobs.map((j) => (j.id === job.id ? { …j, review: { …j.review, featured: !j.review.featured } } : j));
-setJobs(next);
-showToast(job.review.featured ? ‘Review featured list se hataya gaya’ : ‘Review featured list mein add ho gaya’);
-};
+  const toggleFeatured = (job) => {
+    const next = jobs.map((j) => (j.id === job.id ? { ...j, review: { ...j.review, featured: !j.review.featured } } : j));
+    setJobs(next);
+    showToast(job.review.featured ? 'Review featured list se hataya gaya' : 'Review featured list mein add ho gaya');
+  };
 
-const saveEdit = (job, newRating, newText) => {
-const next = jobs.map((j) => (j.id === job.id ? { …j, review: { …j.review, rating: newRating, text: newText.trim() } } : j));
-setJobs(next);
-setEditingJobId(null);
-showToast(‘Review update ho gaya’);
-};
+  const saveEdit = (job, newRating, newText) => {
+    const next = jobs.map((j) => (j.id === job.id ? { ...j, review: { ...j.review, rating: newRating, text: newText.trim() } } : j));
+    setJobs(next);
+    setEditingJobId(null);
+    showToast('Review update ho gaya');
+  };
 
-return (
-<div style={{ padding: ‘12px 16px’ }}>
-<div style={styles.sectionTitle}>Customer Reviews</div>
-<div style={styles.statRow2}>
-<StatCard icon={<Star size={16} />} label=‘Avg Rating’ value={avg} accent />
-<StatCard icon={<MessageSquare size={16} />} label=‘Total Reviews’ value={reviewed.length} />
-</div>
-<div style={styles.plainTextMuted}>{featuredCount} review{featuredCount !== 1 ? ‘s’ : ‘’} customers ko dikh rahe hain (featured)</div>
-{reviewed.length === 0 && <div style={styles.empty}>Abhi tak koi review nahi mila.</div>}
-{reviewed.map((j) => (
-<div key={j.id} style={styles.reviewCard}>
-<div style={{ display: ‘flex’, justifyContent: ‘space-between’, alignItems: ‘flex-start’ }}>
-<div style={styles.cardName}>{j.customerName}</div>
-<div style={{ display: ‘flex’, gap: 1 }}>
-{[1,2,3,4,5].map((n) => <Star key={n} size={13} fill={n <= j.review.rating ? BRAND.gold : ‘none’} color={n <= j.review.rating ? BRAND.gold : ‘#D7DAE5’} />)}
-</div>
-</div>
-{editingJobId === j.id ? (
-<ReviewEditForm job={j} onSave={saveEdit} onCancel={() => setEditingJobId(null)} />
-) : (
-<>
-{j.review.text && <div style={{ …styles.plainText, marginTop: 6 }}>{j.review.text}</div>}
-<div style={styles.itemSub}>{formatDate(j.review.date)}</div>
-<div style={{ display: ‘flex’, gap: 8, marginTop: 8 }}>
-<button style={styles.cardActionBtn} onClick={() => setEditingJobId(j.id)}><Edit3 size={12} /> Edit</button>
-<button style={{ …styles.cardActionBtn, …(j.review.featured ? styles.cardActionBtnActive : {}) }} onClick={() => toggleFeatured(j)}>
-<Star size={12} fill={j.review.featured ? ‘#FFF’ : ‘none’} /> {j.review.featured ? ‘Featured’ : ‘Feature karein’}
-</button>
-</div>
-</>
-)}
-</div>
-))}
-</div>
-);
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>Customer Reviews</div>
+      <div style={styles.statRow2}>
+        <StatCard icon={<Star size={16} />} label='Avg Rating' value={avg} accent />
+        <StatCard icon={<MessageSquare size={16} />} label='Total Reviews' value={reviewed.length} />
+      </div>
+      <div style={styles.plainTextMuted}>{featuredCount} review{featuredCount !== 1 ? 's' : ''} customers ko dikh rahe hain (featured)</div>
+      {reviewed.length === 0 && <div style={styles.empty}>Abhi tak koi review nahi mila.</div>}
+      {reviewed.map((j) => (
+        <div key={j.id} style={styles.reviewCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={styles.cardName}>{j.customerName}</div>
+            <div style={{ display: 'flex', gap: 1 }}>
+              {[1,2,3,4,5].map((n) => <Star key={n} size={13} fill={n <= j.review.rating ? BRAND.gold : 'none'} color={n <= j.review.rating ? BRAND.gold : '#D7DAE5'} />)}
+            </div>
+          </div>
+          {editingJobId === j.id ? (
+            <ReviewEditForm job={j} onSave={saveEdit} onCancel={() => setEditingJobId(null)} />
+          ) : (
+            <>
+              {j.review.text && <div style={{ ...styles.plainText, marginTop: 6 }}>{j.review.text}</div>}
+              <div style={styles.itemSub}>{formatDate(j.review.date)}</div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button style={styles.cardActionBtn} onClick={() => setEditingJobId(j.id)}><Edit3 size={12} /> Edit</button>
+                <button style={{ ...styles.cardActionBtn, ...(j.review.featured ? styles.cardActionBtnActive : {}) }} onClick={() => toggleFeatured(j)}>
+                  <Star size={12} fill={j.review.featured ? '#FFF' : 'none'} /> {j.review.featured ? 'Featured' : 'Feature karein'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function ReviewEditForm({ job, onSave, onCancel }) {
-const [rating, setRating] = useState(job.review.rating);
-const [text, setText] = useState(job.review.text || ‘’);
-return (
-<div style={{ marginTop: 8 }}>
-<div style={styles.starRow}>
-{[1,2,3,4,5].map((n) => (
-<button key={n} style={styles.starBtn} onClick={() => setRating(n)}>
-<Star size={22} fill={n <= rating ? BRAND.gold : ‘none’} color={n <= rating ? BRAND.gold : ‘#D7DAE5’} />
-</button>
-))}
-</div>
-<textarea style={{ …styles.input, minHeight: 70, marginTop: 8 }} value={text} onChange={(e) => setText(e.target.value)} placeholder=‘Review text’ />
-<div style={{ display: ‘flex’, gap: 8, marginTop: 8 }}>
-<button style={styles.primaryBtn} onClick={() => onSave(job, rating, text)}>Save</button>
-<button style={styles.cardActionBtn} onClick={onCancel}>Cancel</button>
-</div>
-</div>
-);
+  const [rating, setRating] = useState(job.review.rating);
+  const [text, setText] = useState(job.review.text || '');
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={styles.starRow}>
+        {[1,2,3,4,5].map((n) => (
+          <button key={n} style={styles.starBtn} onClick={() => setRating(n)}>
+            <Star size={22} fill={n <= rating ? BRAND.gold : 'none'} color={n <= rating ? BRAND.gold : '#D7DAE5'} />
+          </button>
+        ))}
+      </div>
+      <textarea style={{ ...styles.input, minHeight: 70, marginTop: 8 }} value={text} onChange={(e) => setText(e.target.value)} placeholder='Review text' />
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <button style={styles.primaryBtn} onClick={() => onSave(job, rating, text)}>Save</button>
+        <button style={styles.cardActionBtn} onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  );
 }
 
-/* –– Admin: Karigar (worker) payments & company expenses - kept
-separate from customer job revenue. Company earning (from jobs) minus
-these expenses gives real net profit. –– */
+/* ---- Admin: Karigar (worker) payments & company expenses - kept
+   separate from customer job revenue. Company earning (from jobs) minus
+   these expenses gives real net profit. ---- */
 function AdminExpenses({ expenses, setExpenses, jobs, showToast }) {
-const [type, setType] = useState(EXPENSE_TYPES[0]);
-const [payee, setPayee] = useState(’’);
-const [amount, setAmount] = useState(’’);
-const [note, setNote] = useState(’’);
-const [linkedJobId, setLinkedJobId] = useState(’’);
-const [filterType, setFilterType] = useState(‘all’);
-const [activePayee, setActivePayee] = useState(null);
-const [showProfitReport, setShowProfitReport] = useState(false);
-const [showMonthlyReport, setShowMonthlyReport] = useState(false);
+  const [type, setType] = useState(EXPENSE_TYPES[0]);
+  const [payee, setPayee] = useState('');
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+  const [linkedJobId, setLinkedJobId] = useState('');
+  const [filterType, setFilterType] = useState('all');
+  const [activePayee, setActivePayee] = useState(null);
+  const [showProfitReport, setShowProfitReport] = useState(false);
+  const [showMonthlyReport, setShowMonthlyReport] = useState(false);
 
-if (showProfitReport) {
-return (
-<div>
-<div style={{ padding: ‘12px 16px 0’ }}>
-<button style={styles.backLink} onClick={() => setShowProfitReport(false)}><ArrowLeft size={13} /> Expenses</button>
-</div>
-<AdminProfitReport jobs={jobs} expenses={expenses} />
-</div>
-);
-}
+  if (showProfitReport) {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowProfitReport(false)}><ArrowLeft size={13} /> Expenses</button>
+        </div>
+        <AdminProfitReport jobs={jobs} expenses={expenses} />
+      </div>
+    );
+  }
 
-if (showMonthlyReport) {
-return (
-<div>
-<div style={{ padding: ‘12px 16px 0’ }}>
-<button style={styles.backLink} onClick={() => setShowMonthlyReport(false)}><ArrowLeft size={13} /> Expenses</button>
-</div>
-<AdminMonthlyReport jobs={jobs} expenses={expenses} />
-</div>
-);
-}
+  if (showMonthlyReport) {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowMonthlyReport(false)}><ArrowLeft size={13} /> Expenses</button>
+        </div>
+        <AdminMonthlyReport jobs={jobs} expenses={expenses} />
+      </div>
+    );
+  }
 
-const totalRevenue = jobs.reduce((s, j) => s + jobTotal(j), 0);
-const totalCollected = jobs.reduce((s, j) => s + jobPaid(j), 0);
-const totalExpense = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-const karigarTotal = expenses.filter((e) => e.type === ‘Karigar Payment’).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-const netProfit = totalCollected - totalExpense;
+  const totalRevenue = jobs.reduce((s, j) => s + jobTotal(j), 0);
+  const totalCollected = jobs.reduce((s, j) => s + jobPaid(j), 0);
+  const totalExpense = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const karigarTotal = expenses.filter((e) => e.type === 'Karigar Payment').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const netProfit = totalCollected - totalExpense;
 
-// Per-person breakdown: groups every expense by payee name (case/space
-// insensitive match so “Ramu Kaka” and “ramu kaka “ land in the same
-// group), so admin can see at a glance who’s been paid how much in
-// total, without having to scroll the full mixed history.
-const payeeSummary = useMemo(() => {
-const groups = {};
-for (const e of expenses) {
-const key = (e.payee || ‘’).trim().toLowerCase();
-if (!key) continue;
-if (!groups[key]) groups[key] = { displayName: e.payee.trim(), total: 0, count: 0, entries: [] };
-groups[key].total += Number(e.amount) || 0;
-groups[key].count += 1;
-groups[key].entries.push(e);
-}
-return Object.values(groups).sort((a, b) => b.total - a.total);
-}, [expenses]);
+  // Per-person breakdown: groups every expense by payee name (case/space
+  // insensitive match so "Ramu Kaka" and "ramu kaka " land in the same
+  // group), so admin can see at a glance who's been paid how much in
+  // total, without having to scroll the full mixed history.
+  const payeeSummary = useMemo(() => {
+    const groups = {};
+    for (const e of expenses) {
+      const key = (e.payee || '').trim().toLowerCase();
+      if (!key) continue;
+      if (!groups[key]) groups[key] = { displayName: e.payee.trim(), total: 0, count: 0, entries: [] };
+      groups[key].total += Number(e.amount) || 0;
+      groups[key].count += 1;
+      groups[key].entries.push(e);
+    }
+    return Object.values(groups).sort((a, b) => b.total - a.total);
+  }, [expenses]);
 
-const addExpense = () => {
-if (!payee.trim() || !amount) { showToast(‘Naam aur amount daalein’, true); return; }
-const entry = { id: uid(), type, payee: payee.trim(), amount, note: note.trim(), jobId: linkedJobId || null, date: new Date().toISOString() };
-setExpenses([entry, …expenses]);
-setPayee(’’); setAmount(’’); setNote(’’); setLinkedJobId(’’);
-showToast(‘Expense add ho gaya’);
-};
-const removeExpense = (id) => setExpenses(expenses.filter((e) => e.id !== id));
+  const addExpense = () => {
+    if (!payee.trim() || !amount) { showToast('Naam aur amount daalein', true); return; }
+    const entry = { id: uid(), type, payee: payee.trim(), amount, note: note.trim(), jobId: linkedJobId || null, date: new Date().toISOString() };
+    setExpenses([entry, ...expenses]);
+    setPayee(''); setAmount(''); setNote(''); setLinkedJobId('');
+    showToast('Expense add ho gaya');
+  };
+  const removeExpense = (id) => setExpenses(expenses.filter((e) => e.id !== id));
 
-const filtered = expenses.filter((e) => filterType === ‘all’ || e.type === filterType).sort((a, b) => new Date(b.date) - new Date(a.date));
-const activePayeeEntries = activePayee
-? expenses.filter((e) => (e.payee || ‘’).trim().toLowerCase() === activePayee).sort((a, b) => new Date(b.date) - new Date(a.date))
-: [];
-const activePayeeDisplayName = activePayee ? (payeeSummary.find((g) => g.displayName.trim().toLowerCase() === activePayee)?.displayName || activePayee) : ‘’;
+  const filtered = expenses.filter((e) => filterType === 'all' || e.type === filterType).sort((a, b) => new Date(b.date) - new Date(a.date));
+  const activePayeeEntries = activePayee
+    ? expenses.filter((e) => (e.payee || '').trim().toLowerCase() === activePayee).sort((a, b) => new Date(b.date) - new Date(a.date))
+    : [];
+  const activePayeeDisplayName = activePayee ? (payeeSummary.find((g) => g.displayName.trim().toLowerCase() === activePayee)?.displayName || activePayee) : '';
 
-if (activePayee) {
-const activeTotal = activePayeeEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-return (
-<div style={{ padding: ‘12px 16px’ }}>
-<button style={styles.backLink} onClick={() => setActivePayee(null)}><ArrowLeft size={13} /> Sab log</button>
-<div style={styles.catTitle}>{activePayeeDisplayName}</div>
-<div style={{ …styles.payStrip, marginTop: 10 }}>
-<MoneyBit label='Total Diya' value={currency(activeTotal)} highlight />
-<MoneyBit label='Entries' value={String(activePayeeEntries.length)} muted />
-</div>
-<div style={{ …styles.fieldLabel, marginTop: 14 }}>Poori history</div>
-{activePayeeEntries.map((e) => (
-<div key={e.id} style={styles.itemRow}>
-<div style={{ flex: 1 }}>
-<div style={styles.itemDesc}><span style={styles.reqCatBadge}>{e.type}</span></div>
-<div style={styles.itemSub}>{formatDate(e.date)} {e.note && (’- ’ + e.note)}</div>
-</div>
-<div style={styles.itemAmount}>{currency(e.amount)}</div>
-<button style={styles.iconBtnSmall} onClick={() => removeExpense(e.id)}><Trash2 size={14} color='#C7CCDC' /></button>
-</div>
-))}
-</div>
-);
-}
-
-return (
-<div style={{ padding: ‘12px 16px’ }}>
-<div style={{ display: ‘flex’, justifyContent: ‘space-between’, alignItems: ‘center’, flexWrap: ‘wrap’, gap: 6 }}>
-<div style={styles.sectionTitle}>Karigar & Company Expenses</div>
-<div style={{ display: ‘flex’, gap: 10 }}>
-<button style={styles.linkBtn2} onClick={() => setShowMonthlyReport(true)}>Monthly Report</button>
-<button style={styles.linkBtn2} onClick={() => setShowProfitReport(true)}>Project Profit Report</button>
-</div>
-</div>
-<div style={styles.plainTextMuted}>Customer se aayi payment alag, karigar/company kharch alag track hota hai.</div>
-
-```
-  <div style={styles.statRow2}>
-    <StatCard icon={<IndianRupee size={16} />} label='Collected' value={currency(totalCollected)} />
-    <StatCard icon={<Users size={16} />} label='Karigar Paid' value={currency(karigarTotal)} />
-    <StatCard icon={<TrendingUp size={16} />} label='Net Profit' value={currency(netProfit)} accent />
-  </div>
-
-  {payeeSummary.length > 0 && (
-    <div style={{ marginTop: 16 }}>
-      <div style={styles.fieldLabel}>Person-wise total (kisko kitna diya)</div>
-      {payeeSummary.map((g) => (
-        <button key={g.displayName} style={{ ...styles.staffRow, background: 'none', border: 'none', width: '100%', cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => setActivePayee(g.displayName.trim().toLowerCase())}>
-          <div style={{ flex: 1, textAlign: 'left' }}>
-            <div style={styles.itemDesc}>{g.displayName}</div>
-            <div style={styles.itemSub}>{g.count} entr{g.count !== 1 ? 'ies' : 'y'}</div>
+  if (activePayee) {
+    const activeTotal = activePayeeEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    return (
+      <div style={{ padding: '12px 16px' }}>
+        <button style={styles.backLink} onClick={() => setActivePayee(null)}><ArrowLeft size={13} /> Sab log</button>
+        <div style={styles.catTitle}>{activePayeeDisplayName}</div>
+        <div style={{ ...styles.payStrip, marginTop: 10 }}>
+          <MoneyBit label='Total Diya' value={currency(activeTotal)} highlight />
+          <MoneyBit label='Entries' value={String(activePayeeEntries.length)} muted />
+        </div>
+        <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Poori history</div>
+        {activePayeeEntries.map((e) => (
+          <div key={e.id} style={styles.itemRow}>
+            <div style={{ flex: 1 }}>
+              <div style={styles.itemDesc}><span style={styles.reqCatBadge}>{e.type}</span></div>
+              <div style={styles.itemSub}>{formatDate(e.date)} {e.note && ('- ' + e.note)}</div>
+            </div>
+            <div style={styles.itemAmount}>{currency(e.amount)}</div>
+            <button style={styles.iconBtnSmall} onClick={() => removeExpense(e.id)}><Trash2 size={14} color='#C7CCDC' /></button>
           </div>
-          <div style={styles.itemAmount}>{currency(g.total)}</div>
-          <ChevronRight size={16} color='#C7CCDC' />
-        </button>
-      ))}
-    </div>
-  )}
-
-  <div style={styles.formCard}>
-    <div style={styles.fieldLabel}>Add expense</div>
-    <div style={styles.chipRow}>
-      {EXPENSE_TYPES.map((t) => (
-        <button key={t} onClick={() => setType(t)} style={{ ...styles.chip, ...(type === t ? styles.chipActive : {}) }}>{t}</button>
-      ))}
-    </div>
-    <input style={{ ...styles.input, marginTop: 10 }} placeholder={type === 'Karigar Payment' ? 'Karigar ka naam' : 'Kisko / kya'} value={payee} onChange={(e) => setPayee(e.target.value)} />
-    <input style={{ ...styles.input, marginTop: 8 }} placeholder='Amount ₹' inputMode='decimal' value={amount} onChange={(e) => setAmount(e.target.value)} />
-    <input style={{ ...styles.input, marginTop: 8 }} placeholder='Note (optional)' value={note} onChange={(e) => setNote(e.target.value)} />
-    <select style={{ ...styles.input, marginTop: 8 }} value={linkedJobId} onChange={(e) => setLinkedJobId(e.target.value)}>
-      <option value=''>Kisi project se link nahi (general expense)</option>
-      {jobs.map((j) => <option key={j.id} value={j.id}>{j.customerName}</option>)}
-    </select>
-    <button style={styles.addBtn} onClick={addExpense}><Plus size={14} /> Add expense</button>
-  </div>
-
-  <div style={styles.filterRow}>
-    <FilterChip active={filterType === 'all'} onClick={() => setFilterType('all')} label='All' />
-    {EXPENSE_TYPES.map((t) => <FilterChip key={t} active={filterType === t} onClick={() => setFilterType(t)} label={t} />)}
-  </div>
-
-  <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Expense history ({filtered.length})</div>
-  {filtered.length === 0 && <div style={styles.emptySmall}>Koi expense record nahi hai.</div>}
-  {filtered.map((e) => (
-    <div key={e.id} style={styles.itemRow}>
-      <div style={{ flex: 1 }}>
-        <div style={styles.itemDesc}>{e.payee} <span style={styles.reqCatBadge}>{e.type}</span></div>
-        <div style={styles.itemSub}>{formatDate(e.date)} {e.note && ('- ' + e.note)}</div>
+        ))}
       </div>
-      <div style={styles.itemAmount}>{currency(e.amount)}</div>
-      <button style={styles.iconBtnSmall} onClick={() => removeExpense(e.id)}><Trash2 size={14} color='#C7CCDC' /></button>
-    </div>
-  ))}
-</div>
-```
+    );
+  }
 
-);
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+        <div style={styles.sectionTitle}>Karigar &amp; Company Expenses</div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button style={styles.linkBtn2} onClick={() => setShowMonthlyReport(true)}>Monthly Report</button>
+          <button style={styles.linkBtn2} onClick={() => setShowProfitReport(true)}>Project Profit Report</button>
+        </div>
+      </div>
+      <div style={styles.plainTextMuted}>Customer se aayi payment alag, karigar/company kharch alag track hota hai.</div>
+
+      <div style={styles.statRow2}>
+        <StatCard icon={<IndianRupee size={16} />} label='Collected' value={currency(totalCollected)} />
+        <StatCard icon={<Users size={16} />} label='Karigar Paid' value={currency(karigarTotal)} />
+        <StatCard icon={<TrendingUp size={16} />} label='Net Profit' value={currency(netProfit)} accent />
+      </div>
+
+      {payeeSummary.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={styles.fieldLabel}>Person-wise total (kisko kitna diya)</div>
+          {payeeSummary.map((g) => (
+            <button key={g.displayName} style={{ ...styles.staffRow, background: 'none', border: 'none', width: '100%', cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => setActivePayee(g.displayName.trim().toLowerCase())}>
+              <div style={{ flex: 1, textAlign: 'left' }}>
+                <div style={styles.itemDesc}>{g.displayName}</div>
+                <div style={styles.itemSub}>{g.count} entr{g.count !== 1 ? 'ies' : 'y'}</div>
+              </div>
+              <div style={styles.itemAmount}>{currency(g.total)}</div>
+              <ChevronRight size={16} color='#C7CCDC' />
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div style={styles.formCard}>
+        <div style={styles.fieldLabel}>Add expense</div>
+        <div style={styles.chipRow}>
+          {EXPENSE_TYPES.map((t) => (
+            <button key={t} onClick={() => setType(t)} style={{ ...styles.chip, ...(type === t ? styles.chipActive : {}) }}>{t}</button>
+          ))}
+        </div>
+        <input style={{ ...styles.input, marginTop: 10 }} placeholder={type === 'Karigar Payment' ? 'Karigar ka naam' : 'Kisko / kya'} value={payee} onChange={(e) => setPayee(e.target.value)} />
+        <input style={{ ...styles.input, marginTop: 8 }} placeholder='Amount ₹' inputMode='decimal' value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <input style={{ ...styles.input, marginTop: 8 }} placeholder='Note (optional)' value={note} onChange={(e) => setNote(e.target.value)} />
+        <select style={{ ...styles.input, marginTop: 8 }} value={linkedJobId} onChange={(e) => setLinkedJobId(e.target.value)}>
+          <option value=''>Kisi project se link nahi (general expense)</option>
+          {jobs.map((j) => <option key={j.id} value={j.id}>{j.customerName}</option>)}
+        </select>
+        <button style={styles.addBtn} onClick={addExpense}><Plus size={14} /> Add expense</button>
+      </div>
+
+      <div style={styles.filterRow}>
+        <FilterChip active={filterType === 'all'} onClick={() => setFilterType('all')} label='All' />
+        {EXPENSE_TYPES.map((t) => <FilterChip key={t} active={filterType === t} onClick={() => setFilterType(t)} label={t} />)}
+      </div>
+
+      <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Expense history ({filtered.length})</div>
+      {filtered.length === 0 && <div style={styles.emptySmall}>Koi expense record nahi hai.</div>}
+      {filtered.map((e) => (
+        <div key={e.id} style={styles.itemRow}>
+          <div style={{ flex: 1 }}>
+            <div style={styles.itemDesc}>{e.payee} <span style={styles.reqCatBadge}>{e.type}</span></div>
+            <div style={styles.itemSub}>{formatDate(e.date)} {e.note && ('- ' + e.note)}</div>
+          </div>
+          <div style={styles.itemAmount}>{currency(e.amount)}</div>
+          <button style={styles.iconBtnSmall} onClick={() => removeExpense(e.id)}><Trash2 size={14} color='#C7CCDC' /></button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-/* –– Per-project profit report –– */
-/* –– Monthly business report: groups collected payments by calendar
-month (using each payment’s own date, not the job’s creation date, so
-revenue lands in the month it was actually received) and shows the
-last 6 months with month-over-month comparison, so admin can see at a
-glance whether the business is growing or slowing down. –– */
+/* ---- Per-project profit report ---- */
+/* ---- Monthly business report: groups collected payments by calendar
+   month (using each payment's own date, not the job's creation date, so
+   revenue lands in the month it was actually received) and shows the
+   last 6 months with month-over-month comparison, so admin can see at a
+   glance whether the business is growing or slowing down. ---- */
 function AdminMonthlyReport({ jobs, expenses }) {
-const monthlyData = useMemo(() => {
-const monthKey = (dateStr) => {
-const d = new Date(dateStr);
-return d.getFullYear() + ‘-’ + String(d.getMonth() + 1).padStart(2, ‘0’);
-};
-const monthLabel = (key) => {
-const [y, m] = key.split(’-’);
-const names = [‘Jan’, ‘Feb’, ‘Mar’, ‘Apr’, ‘May’, ‘Jun’, ‘Jul’, ‘Aug’, ‘Sep’, ‘Oct’, ‘Nov’, ‘Dec’];
-return names[Number(m) - 1] + ’ ’ + y;
-};
-const revenueByMonth = {};
-const expenseByMonth = {};
-for (const j of jobs) {
-for (const p of (j.payments || [])) {
-const key = monthKey(p.date);
-revenueByMonth[key] = (revenueByMonth[key] || 0) + (Number(p.amount) || 0);
-}
-}
-for (const e of expenses) {
-const key = monthKey(e.date);
-expenseByMonth[key] = (expenseByMonth[key] || 0) + (Number(e.amount) || 0);
-}
-const now = new Date();
-const months = [];
-for (let i = 5; i >= 0; i–) {
-const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-const key = d.getFullYear() + ‘-’ + String(d.getMonth() + 1).padStart(2, ‘0’);
-const revenue = revenueByMonth[key] || 0;
-const expense = expenseByMonth[key] || 0;
-months.push({ key, label: monthLabel(key), revenue, expense, profit: revenue - expense });
-}
-return months;
-}, [jobs, expenses]);
+  const monthlyData = useMemo(() => {
+    const monthKey = (dateStr) => {
+      const d = new Date(dateStr);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    };
+    const monthLabel = (key) => {
+      const [y, m] = key.split('-');
+      const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return names[Number(m) - 1] + ' ' + y;
+    };
+    const revenueByMonth = {};
+    const expenseByMonth = {};
+    for (const j of jobs) {
+      for (const p of (j.payments || [])) {
+        const key = monthKey(p.date);
+        revenueByMonth[key] = (revenueByMonth[key] || 0) + (Number(p.amount) || 0);
+      }
+    }
+    for (const e of expenses) {
+      const key = monthKey(e.date);
+      expenseByMonth[key] = (expenseByMonth[key] || 0) + (Number(e.amount) || 0);
+    }
+    const now = new Date();
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      const revenue = revenueByMonth[key] || 0;
+      const expense = expenseByMonth[key] || 0;
+      months.push({ key, label: monthLabel(key), revenue, expense, profit: revenue - expense });
+    }
+    return months;
+  }, [jobs, expenses]);
 
-const currentMonth = monthlyData[monthlyData.length - 1];
-const prevMonth = monthlyData[monthlyData.length - 2];
-const changePercent = prevMonth && prevMonth.revenue > 0
-? Math.round(((currentMonth.revenue - prevMonth.revenue) / prevMonth.revenue) * 100)
-: null;
-const maxRevenue = Math.max(…monthlyData.map((m) => m.revenue), 1);
+  const currentMonth = monthlyData[monthlyData.length - 1];
+  const prevMonth = monthlyData[monthlyData.length - 2];
+  const changePercent = prevMonth && prevMonth.revenue > 0
+    ? Math.round(((currentMonth.revenue - prevMonth.revenue) / prevMonth.revenue) * 100)
+    : null;
+  const maxRevenue = Math.max(...monthlyData.map((m) => m.revenue), 1);
 
-return (
-<div style={{ padding: ‘12px 16px’ }}>
-<div style={styles.sectionTitle}>Monthly Business Report</div>
-<div style={styles.plainTextMuted}>Pichle 6 mahine ka revenue trend.</div>
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>Monthly Business Report</div>
+      <div style={styles.plainTextMuted}>Pichle 6 mahine ka revenue trend.</div>
 
-```
-  <div style={styles.statRow2}>
-    <StatCard icon={<IndianRupee size={16} />} label='Is Mahine' value={currency(currentMonth.revenue)} accent />
-    {changePercent !== null && (
-      <StatCard
-        icon={<TrendingUp size={16} />}
-        label='Pichle Mahine Se'
-        value={(changePercent >= 0 ? '+' : '') + changePercent + '%'}
-      />
-    )}
-  </div>
-
-  <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Month-wise breakdown</div>
-  {monthlyData.map((m) => (
-    <div key={m.key} style={styles.reviewCard}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={styles.cardName}>{m.label}</div>
-        <div style={styles.itemAmount}>{currency(m.revenue)}</div>
+      <div style={styles.statRow2}>
+        <StatCard icon={<IndianRupee size={16} />} label='Is Mahine' value={currency(currentMonth.revenue)} accent />
+        {changePercent !== null && (
+          <StatCard
+            icon={<TrendingUp size={16} />}
+            label='Pichle Mahine Se'
+            value={(changePercent >= 0 ? '+' : '') + changePercent + '%'}
+          />
+        )}
       </div>
-      <div style={styles.monthlyBarTrack}>
-        <div style={{ ...styles.monthlyBarFill, width: (m.revenue / maxRevenue * 100) + '%' }} />
-      </div>
-      <div style={styles.itemSub}>Expense: {currency(m.expense)} - Profit: {currency(m.profit)}</div>
+
+      <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Month-wise breakdown</div>
+      {monthlyData.map((m) => (
+        <div key={m.key} style={styles.reviewCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={styles.cardName}>{m.label}</div>
+            <div style={styles.itemAmount}>{currency(m.revenue)}</div>
+          </div>
+          <div style={styles.monthlyBarTrack}>
+            <div style={{ ...styles.monthlyBarFill, width: (m.revenue / maxRevenue * 100) + '%' }} />
+          </div>
+          <div style={styles.itemSub}>Expense: {currency(m.expense)} - Profit: {currency(m.profit)}</div>
+        </div>
+      ))}
     </div>
-  ))}
-</div>
-```
-
-);
+  );
 }
 
 function AdminProfitReport({ jobs, expenses }) {
-const rows = useMemo(() => {
-return jobs
-.map((j) => ({ job: j, …jobProfit(j, expenses) }))
-.filter((r) => r.collected > 0 || r.linkedExpenses > 0)
-.sort((a, b) => b.profit - a.profit);
-}, [jobs, expenses]);
+  const rows = useMemo(() => {
+    return jobs
+      .map((j) => ({ job: j, ...jobProfit(j, expenses) }))
+      .filter((r) => r.collected > 0 || r.linkedExpenses > 0)
+      .sort((a, b) => b.profit - a.profit);
+  }, [jobs, expenses]);
 
-const totalCollected = rows.reduce((s, r) => s + r.collected, 0);
-const totalLinkedExpense = rows.reduce((s, r) => s + r.linkedExpenses, 0);
-const totalProfit = totalCollected - totalLinkedExpense;
-const unlinkedExpenseTotal = expenses.filter((e) => !e.jobId).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const totalCollected = rows.reduce((s, r) => s + r.collected, 0);
+  const totalLinkedExpense = rows.reduce((s, r) => s + r.linkedExpenses, 0);
+  const totalProfit = totalCollected - totalLinkedExpense;
+  const unlinkedExpenseTotal = expenses.filter((e) => !e.jobId).reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
-return (
-<div style={{ padding: ‘12px 16px’ }}>
-<div style={styles.sectionTitle}>Project-wise Profit Report</div>
-<div style={styles.plainTextMuted}>Har project mein kitna collect hua, kitna expense laga, aur profit kitna hai.</div>
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>Project-wise Profit Report</div>
+      <div style={styles.plainTextMuted}>Har project mein kitna collect hua, kitna expense laga, aur profit kitna hai.</div>
 
-```
-  <div style={styles.statRow2}>
-    <StatCard icon={<IndianRupee size={16} />} label='Collected' value={currency(totalCollected)} />
-    <StatCard icon={<TrendingUp size={16} />} label='Linked Expense' value={currency(totalLinkedExpense)} />
-    <StatCard icon={<CheckCircle2 size={16} />} label='Profit' value={currency(totalProfit)} accent />
-  </div>
-
-  {unlinkedExpenseTotal > 0 && (
-    <div style={styles.plainTextMuted}>
-      + {currency(unlinkedExpenseTotal)} general expenses (kisi project se link nahi) is report mein shamil nahi hain.
-    </div>
-  )}
-
-  <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Project-wise breakdown</div>
-  {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi payment ya linked expense record nahi hai.</div>}
-  {rows.map((r) => (
-    <div key={r.job.id} style={styles.reviewCard}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={styles.cardName}>{r.job.customerName}</div>
-        <span style={{ ...styles.badge, background: r.profit >= 0 ? '#DFF0E4' : '#FFEBEE', color: r.profit >= 0 ? '#2F7D4F' : '#C62828' }}>
-          {currency(r.profit)}
-        </span>
+      <div style={styles.statRow2}>
+        <StatCard icon={<IndianRupee size={16} />} label='Collected' value={currency(totalCollected)} />
+        <StatCard icon={<TrendingUp size={16} />} label='Linked Expense' value={currency(totalLinkedExpense)} />
+        <StatCard icon={<CheckCircle2 size={16} />} label='Profit' value={currency(totalProfit)} accent />
       </div>
-      <div style={styles.itemSub}>Collected: {currency(r.collected)} - Expense: {currency(r.linkedExpenses)}</div>
-    </div>
-  ))}
-</div>
-```
 
-);
+      {unlinkedExpenseTotal > 0 && (
+        <div style={styles.plainTextMuted}>
+          + {currency(unlinkedExpenseTotal)} general expenses (kisi project se link nahi) is report mein shamil nahi hain.
+        </div>
+      )}
+
+      <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Project-wise breakdown</div>
+      {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi payment ya linked expense record nahi hai.</div>}
+      {rows.map((r) => (
+        <div key={r.job.id} style={styles.reviewCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={styles.cardName}>{r.job.customerName}</div>
+            <span style={{ ...styles.badge, background: r.profit >= 0 ? '#DFF0E4' : '#FFEBEE', color: r.profit >= 0 ? '#2F7D4F' : '#C62828' }}>
+              {currency(r.profit)}
+            </span>
+          </div>
+          <div style={styles.itemSub}>Collected: {currency(r.collected)} - Expense: {currency(r.linkedExpenses)}</div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-/* –– Admin settings –– */
+/* ---- Admin settings ---- */
 function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, brochures, addBrochure, removeBrochure, allData, onLogout, showToast }) {
-const [current, setCurrent] = useState(’’);
-const [next1, setNext1] = useState(’’);
-const [next2, setNext2] = useState(’’);
-const [error, setError] = useState(’’);
-const [newStaffName, setNewStaffName] = useState(’’);
-const [newStaffPin, setNewStaffPin] = useState(’’);
-const [newStaffRole, setNewStaffRole] = useState(‘admin’);
-const [staffError, setStaffError] = useState(’’);
-const [newPartnerPin, setNewPartnerPin] = useState(’’);
-const [partnerPinError, setPartnerPinError] = useState(’’);
+  const [current, setCurrent] = useState('');
+  const [next1, setNext1] = useState('');
+  const [next2, setNext2] = useState('');
+  const [error, setError] = useState('');
+  const [newStaffName, setNewStaffName] = useState('');
+  const [newStaffPin, setNewStaffPin] = useState('');
+  const [newStaffRole, setNewStaffRole] = useState('admin');
+  const [staffError, setStaffError] = useState('');
+  const [newPartnerPin, setNewPartnerPin] = useState('');
+  const [partnerPinError, setPartnerPinError] = useState('');
 
-const change = () => {
-if (current !== adminPin) { setError(‘Current PIN galat hai’); return; }
-if (next1.length < 4) { setError(‘Naya PIN kam se kam 4 digit ka hona chahiye’); return; }
-if (next1 !== next2) { setError(‘Dono naye PIN match nahi karte’); return; }
-setAdminPin(next1);
-setCurrent(’’); setNext1(’’); setNext2(’’); setError(’’);
-showToast(‘Admin PIN change ho gaya’);
-};
+  const change = () => {
+    if (current !== adminPin) { setError('Current PIN galat hai'); return; }
+    if (next1.length < 4) { setError('Naya PIN kam se kam 4 digit ka hona chahiye'); return; }
+    if (next1 !== next2) { setError('Dono naye PIN match nahi karte'); return; }
+    setAdminPin(next1);
+    setCurrent(''); setNext1(''); setNext2(''); setError('');
+    showToast('Admin PIN change ho gaya');
+  };
 
-const addStaff = () => {
-if (!newStaffName.trim()) { setStaffError(‘Staff ka naam daalein’); return; }
-if (newStaffPin.length < 4) { setStaffError(‘PIN kam se kam 4 digit ka ho’); return; }
-const allPins = [adminPin, partnerPin, …staff.map((s) => s.pin)].filter(Boolean);
-if (allPins.includes(newStaffPin)) { setStaffError(‘Ye PIN pehle se use ho raha hai - alag PIN chunein’); return; }
-setStaff([…staff, { id: uid(), name: newStaffName.trim(), pin: newStaffPin, role: newStaffRole, createdAt: new Date().toISOString() }]);
-setNewStaffName(’’); setNewStaffPin(’’); setNewStaffRole(‘admin’); setStaffError(’’);
-showToast(‘Staff member add ho gaya’);
-};
-const removeStaff = (id) => {
-setStaff(staff.filter((s) => s.id !== id));
-showToast(‘Staff member hataya gaya’);
-};
+  const addStaff = () => {
+    if (!newStaffName.trim()) { setStaffError('Staff ka naam daalein'); return; }
+    if (newStaffPin.length < 4) { setStaffError('PIN kam se kam 4 digit ka ho'); return; }
+    const allPins = [adminPin, partnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
+    if (allPins.includes(newStaffPin)) { setStaffError('Ye PIN pehle se use ho raha hai - alag PIN chunein'); return; }
+    setStaff([...staff, { id: uid(), name: newStaffName.trim(), pin: newStaffPin, role: newStaffRole, createdAt: new Date().toISOString() }]);
+    setNewStaffName(''); setNewStaffPin(''); setNewStaffRole('admin'); setStaffError('');
+    showToast('Staff member add ho gaya');
+  };
+  const removeStaff = (id) => {
+    setStaff(staff.filter((s) => s.id !== id));
+    showToast('Staff member hataya gaya');
+  };
 
-const savePartnerPin = () => {
-if (newPartnerPin.length < 4) { setPartnerPinError(‘PIN kam se kam 4 digit ka ho’); return; }
-const allPins = [adminPin, …staff.map((s) => s.pin)];
-if (allPins.includes(newPartnerPin)) { setPartnerPinError(‘Ye PIN pehle se use ho raha hai - alag PIN chunein’); return; }
-setPartnerPin(newPartnerPin);
-setNewPartnerPin(’’); setPartnerPinError(’’);
-showToast(‘Partner PIN set ho gaya’);
-};
-const removePartnerPin = () => {
-setPartnerPin(’’);
-showToast(‘Partner access hata diya gaya’);
-};
+  const savePartnerPin = () => {
+    if (newPartnerPin.length < 4) { setPartnerPinError('PIN kam se kam 4 digit ka ho'); return; }
+    const allPins = [adminPin, ...staff.map((s) => s.pin)];
+    if (allPins.includes(newPartnerPin)) { setPartnerPinError('Ye PIN pehle se use ho raha hai - alag PIN chunein'); return; }
+    setPartnerPin(newPartnerPin);
+    setNewPartnerPin(''); setPartnerPinError('');
+    showToast('Partner PIN set ho gaya');
+  };
+  const removePartnerPin = () => {
+    setPartnerPin('');
+    showToast('Partner access hata diya gaya');
+  };
 
-const toggleAppointmentItem = (cat) => {
-const next = appointmentItemOptions.includes(cat)
-? appointmentItemOptions.filter((c) => c !== cat)
-: […appointmentItemOptions, cat];
-setAppointmentItemOptions(next);
-};
-const [newApptItem, setNewApptItem] = useState(’’);
-const addApptItem = () => {
-const name = newApptItem.trim();
-if (!name) return;
-if (appointmentItemOptions.some((c) => c.toLowerCase() === name.toLowerCase())) {
-showToast(‘Ye item pehle se list mein hai’, true);
-return;
-}
-setAppointmentItemOptions([…appointmentItemOptions, name]);
-setNewApptItem(’’);
-showToast(‘Item add ho gaya’);
-};
-const removeApptItem = (cat) => {
-setAppointmentItemOptions(appointmentItemOptions.filter((c) => c !== cat));
-};
+  const toggleAppointmentItem = (cat) => {
+    const next = appointmentItemOptions.includes(cat)
+      ? appointmentItemOptions.filter((c) => c !== cat)
+      : [...appointmentItemOptions, cat];
+    setAppointmentItemOptions(next);
+  };
+  const [newApptItem, setNewApptItem] = useState('');
+  const addApptItem = () => {
+    const name = newApptItem.trim();
+    if (!name) return;
+    if (appointmentItemOptions.some((c) => c.toLowerCase() === name.toLowerCase())) {
+      showToast('Ye item pehle se list mein hai', true);
+      return;
+    }
+    setAppointmentItemOptions([...appointmentItemOptions, name]);
+    setNewApptItem('');
+    showToast('Item add ho gaya');
+  };
+  const removeApptItem = (cat) => {
+    setAppointmentItemOptions(appointmentItemOptions.filter((c) => c !== cat));
+  };
 
-const [newGalleryCategory, setNewGalleryCategory] = useState(’’);
-const addGalleryCategory = () => {
-const name = newGalleryCategory.trim();
-if (!name) return;
-if (categories.some((c) => c.toLowerCase() === name.toLowerCase())) {
-showToast(‘Ye category pehle se list mein hai’, true);
-return;
-}
-setCategories([…categories, name]);
-setNewGalleryCategory(’’);
-showToast(‘Category add ho gayi’);
-};
-const removeGalleryCategory = (cat) => {
-if ((gallery[cat] || []).length > 0) {
-showToast(‘Is category mein photos hain - pehle unhe hataein ya move karein’, true);
-return;
-}
-setCategories(categories.filter((c) => c !== cat));
-setAppointmentItemOptions(appointmentItemOptions.filter((c) => c !== cat));
-};
+  const [newGalleryCategory, setNewGalleryCategory] = useState('');
+  const addGalleryCategory = () => {
+    const name = newGalleryCategory.trim();
+    if (!name) return;
+    if (categories.some((c) => c.toLowerCase() === name.toLowerCase())) {
+      showToast('Ye category pehle se list mein hai', true);
+      return;
+    }
+    setCategories([...categories, name]);
+    setNewGalleryCategory('');
+    showToast('Category add ho gayi');
+  };
+  const removeGalleryCategory = (cat) => {
+    if ((gallery[cat] || []).length > 0) {
+      showToast('Is category mein photos hain - pehle unhe hataein ya move karein', true);
+      return;
+    }
+    setCategories(categories.filter((c) => c !== cat));
+    setAppointmentItemOptions(appointmentItemOptions.filter((c) => c !== cat));
+  };
 
-const downloadBackup = () => {
-try {
-const blob = new Blob([JSON.stringify(allData, null, 2)], { type: ‘application/json’ });
-const url = URL.createObjectURL(blob);
-const a = document.createElement(‘a’);
-const dateStr = new Date().toISOString().slice(0, 10);
-a.href = url;
-a.download = ‘shree-krushn-backup-’ + dateStr + ‘.json’;
-document.body.appendChild(a);
-a.click();
-document.body.removeChild(a);
-URL.revokeObjectURL(url);
-showToast(‘Backup download ho gaya’);
-} catch (e) {
-showToast(‘Backup download nahi ho paya’, true);
-}
-};
+  const downloadBackup = () => {
+    try {
+      const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = 'shree-krushn-backup-' + dateStr + '.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('Backup download ho gaya');
+    } catch (e) {
+      showToast('Backup download nahi ho paya', true);
+    }
+  };
 
-return (
-<div style={{ padding: ‘12px 16px’ }}>
-<div style={styles.sectionTitle}>Settings</div>
-<div style={{ …styles.card, marginTop: 12 }}>
-<div style={{ display: ‘flex’, alignItems: ‘center’, gap: 8, marginBottom: 12 }}>
-<Lock size={16} color={BRAND.gold} />
-<div style={{ fontWeight: 800, fontSize: 14 }}>Change Admin PIN</div>
-</div>
-<div style={styles.fieldLabel}>Current PIN</div>
-<input style={styles.input} type=‘password’ inputMode=‘numeric’ value={current} onChange={(e) => { setCurrent(e.target.value); setError(’’); }} />
-<div style={{ …styles.fieldLabel, marginTop: 10 }}>New PIN</div>
-<input style={styles.input} type=‘password’ inputMode=‘numeric’ value={next1} onChange={(e) => { setNext1(e.target.value); setError(’’); }} />
-<div style={{ …styles.fieldLabel, marginTop: 10 }}>Confirm New PIN</div>
-<input style={styles.input} type=‘password’ inputMode=‘numeric’ value={next2} onChange={(e) => { setNext2(e.target.value); setError(’’); }} />
-{error && <div style={styles.errorText}>{error}</div>}
-<button style={{ …styles.primaryBtn, marginTop: 14 }} onClick={change}>Update PIN</button>
-</div>
-
-```
-  <div style={{ ...styles.card, marginTop: 12 }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-      <Users size={16} color={BRAND.gold} />
-      <div style={{ fontWeight: 800, fontSize: 14 }}>Partner Access</div>
-    </div>
-    <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>
-      Partner ko apni PIN dein - wo customers, gallery, reviews dekh/manage kar sakta hai, lekin Settings, staff PINs, ya expenses nahi dekh sakta.
-    </div>
-    {partnerPin ? (
-      <div style={styles.staffRow}>
-        <div style={{ flex: 1 }}>
-          <div style={styles.itemDesc}>Partner PIN active</div>
-          <div style={styles.itemSub}>PIN: {partnerPin}</div>
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>Settings</div>
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <Lock size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Change Admin PIN</div>
         </div>
-        <button style={styles.cardActionBtn} onClick={removePartnerPin}>Remove</button>
+        <div style={styles.fieldLabel}>Current PIN</div>
+        <input style={styles.input} type='password' inputMode='numeric' value={current} onChange={(e) => { setCurrent(e.target.value); setError(''); }} />
+        <div style={{ ...styles.fieldLabel, marginTop: 10 }}>New PIN</div>
+        <input style={styles.input} type='password' inputMode='numeric' value={next1} onChange={(e) => { setNext1(e.target.value); setError(''); }} />
+        <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Confirm New PIN</div>
+        <input style={styles.input} type='password' inputMode='numeric' value={next2} onChange={(e) => { setNext2(e.target.value); setError(''); }} />
+        {error && <div style={styles.errorText}>{error}</div>}
+        <button style={{ ...styles.primaryBtn, marginTop: 14 }} onClick={change}>Update PIN</button>
       </div>
-    ) : (
-      <div>
-        <input style={styles.input} placeholder='Partner PIN set karein (4+ digit)' inputMode='numeric' type='password' value={newPartnerPin} onChange={(e) => { setNewPartnerPin(e.target.value); setPartnerPinError(''); }} />
-        {partnerPinError && <div style={styles.errorText}>{partnerPinError}</div>}
-        <button style={styles.addBtn} onClick={savePartnerPin}><UserPlus size={14} /> Enable partner access</button>
-      </div>
-    )}
-  </div>
 
-  <div style={{ ...styles.card, marginTop: 12 }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-      <Users size={16} color={BRAND.gold} />
-      <div style={{ fontWeight: 800, fontSize: 14 }}>Staff Logins</div>
-    </div>
-    <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Team members ko alag PIN dein taaki wo bhi access kar sakein.</div>
-
-    {staff.length === 0 && <div style={styles.emptySmall}>Abhi koi staff member add nahi kiya.</div>}
-    {staff.map((s) => (
-      <div key={s.id} style={styles.staffRow}>
-        <div style={{ flex: 1 }}>
-          <div style={styles.itemDesc}>{s.name} <span style={styles.reqCatBadge}>{s.role === 'karigar' ? 'Karigar' : 'Admin'}</span></div>
-          <div style={styles.itemSub}>PIN: {s.pin}</div>
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Users size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Partner Access</div>
         </div>
-        <button style={styles.iconBtnSmall} onClick={() => removeStaff(s.id)}><Trash2 size={14} color='#C7CCDC' /></button>
-      </div>
-    ))}
-
-    <div style={{ marginTop: 10 }}>
-      <input style={styles.input} placeholder='Staff member ka naam' value={newStaffName} onChange={(e) => { setNewStaffName(e.target.value); setStaffError(''); }} />
-      <input style={{ ...styles.input, marginTop: 8 }} placeholder='PIN set karein (4+ digit)' inputMode='numeric' type='password' value={newStaffPin} onChange={(e) => { setNewStaffPin(e.target.value); setStaffError(''); }} />
-      <div style={styles.chipRow}>
-        <button onClick={() => setNewStaffRole('admin')} style={{ ...styles.chip, ...(newStaffRole === 'admin' ? styles.chipActive : {}) }}>Admin Access</button>
-        <button onClick={() => setNewStaffRole('karigar')} style={{ ...styles.chip, ...(newStaffRole === 'karigar' ? styles.chipActive : {}) }}>Karigar (sirf assigned kaam)</button>
-      </div>
-      {staffError && <div style={styles.errorText}>{staffError}</div>}
-      <button style={styles.addBtn} onClick={addStaff}><UserPlus size={14} /> Add staff login</button>
-    </div>
-  </div>
-
-  <div style={{ ...styles.card, marginTop: 12 }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-      <Calendar size={16} color={BRAND.gold} />
-      <div style={{ fontWeight: 800, fontSize: 14 }}>Appointment Checklist</div>
-    </div>
-    <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Customer appointment book karte waqt kaunse work-items dikhne chahiye, select karein.</div>
-    <div style={{ marginTop: 4 }}>
-      {appointmentItemOptions.map((cat) => (
-        <div key={cat} style={styles.staffRow}>
-          <div style={{ flex: 1 }}>{cat}</div>
-          <button style={styles.iconBtnSmall} onClick={() => removeApptItem(cat)}><Trash2 size={14} color='#C7CCDC' /></button>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>
+          Partner ko apni PIN dein - wo customers, gallery, reviews dekh/manage kar sakta hai, lekin Settings, staff PINs, ya expenses nahi dekh sakta.
         </div>
-      ))}
-      <input style={{ ...styles.input, marginTop: 10 }} placeholder='Naya item add karein (jaise "Painting")' value={newApptItem} onChange={(e) => setNewApptItem(e.target.value)} />
-      <button style={styles.addBtn} onClick={addApptItem}><Plus size={14} /> Item add karein</button>
-    </div>
-  </div>
+        {partnerPin ? (
+          <div style={styles.staffRow}>
+            <div style={{ flex: 1 }}>
+              <div style={styles.itemDesc}>Partner PIN active</div>
+              <div style={styles.itemSub}>PIN: {partnerPin}</div>
+            </div>
+            <button style={styles.cardActionBtn} onClick={removePartnerPin}>Remove</button>
+          </div>
+        ) : (
+          <div>
+            <input style={styles.input} placeholder='Partner PIN set karein (4+ digit)' inputMode='numeric' type='password' value={newPartnerPin} onChange={(e) => { setNewPartnerPin(e.target.value); setPartnerPinError(''); }} />
+            {partnerPinError && <div style={styles.errorText}>{partnerPinError}</div>}
+            <button style={styles.addBtn} onClick={savePartnerPin}><UserPlus size={14} /> Enable partner access</button>
+          </div>
+        )}
+      </div>
 
-  <div style={{ ...styles.card, marginTop: 12 }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-      <Grid3x3 size={16} color={BRAND.gold} />
-      <div style={{ fontWeight: 800, fontSize: 14 }}>Gallery Categories</div>
-    </div>
-    <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Design gallery mein kaunse categories dikhein, add/remove karein.</div>
-    <div style={{ marginTop: 4 }}>
-      {categories.map((cat) => (
-        <div key={cat} style={styles.staffRow}>
-          <div style={{ flex: 1 }}>{cat} <span style={styles.itemSub}>({(gallery[cat] || []).length} photos)</span></div>
-          <button style={styles.iconBtnSmall} onClick={() => removeGalleryCategory(cat)}><Trash2 size={14} color='#C7CCDC' /></button>
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Users size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Staff Logins</div>
         </div>
-      ))}
-      <input style={{ ...styles.input, marginTop: 10 }} placeholder='Nayi category ka naam' value={newGalleryCategory} onChange={(e) => setNewGalleryCategory(e.target.value)} />
-      <button style={styles.addBtn} onClick={addGalleryCategory}><Plus size={14} /> Category add karein</button>
-    </div>
-  </div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Team members ko alag PIN dein taaki wo bhi access kar sakein.</div>
 
-  <div style={{ ...styles.card, marginTop: 12 }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-      /* –– Partner: same admin interface but Settings is a stub with no
-access to PINs, staff, or backups - only their own login info. –– */
+        {staff.length === 0 && <div style={styles.emptySmall}>Abhi koi staff member add nahi kiya.</div>}
+        {staff.map((s) => (
+          <div key={s.id} style={styles.staffRow}>
+            <div style={{ flex: 1 }}>
+              <div style={styles.itemDesc}>{s.name} <span style={styles.reqCatBadge}>{s.role === 'karigar' ? 'Karigar' : 'Admin'}</span></div>
+              <div style={styles.itemSub}>PIN: {s.pin}</div>
+            </div>
+            <button style={styles.iconBtnSmall} onClick={() => removeStaff(s.id)}><Trash2 size={14} color='#C7CCDC' /></button>
+          </div>
+        ))}
+
+        <div style={{ marginTop: 10 }}>
+          <input style={styles.input} placeholder='Staff member ka naam' value={newStaffName} onChange={(e) => { setNewStaffName(e.target.value); setStaffError(''); }} />
+          <input style={{ ...styles.input, marginTop: 8 }} placeholder='PIN set karein (4+ digit)' inputMode='numeric' type='password' value={newStaffPin} onChange={(e) => { setNewStaffPin(e.target.value); setStaffError(''); }} />
+          <div style={styles.chipRow}>
+            <button onClick={() => setNewStaffRole('admin')} style={{ ...styles.chip, ...(newStaffRole === 'admin' ? styles.chipActive : {}) }}>Admin Access</button>
+            <button onClick={() => setNewStaffRole('karigar')} style={{ ...styles.chip, ...(newStaffRole === 'karigar' ? styles.chipActive : {}) }}>Karigar (sirf assigned kaam)</button>
+          </div>
+          {staffError && <div style={styles.errorText}>{staffError}</div>}
+          <button style={styles.addBtn} onClick={addStaff}><UserPlus size={14} /> Add staff login</button>
+        </div>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Calendar size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Appointment Checklist</div>
+        </div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Customer appointment book karte waqt kaunse work-items dikhne chahiye, select karein.</div>
+        <div style={{ marginTop: 4 }}>
+          {appointmentItemOptions.map((cat) => (
+            <div key={cat} style={styles.staffRow}>
+              <div style={{ flex: 1 }}>{cat}</div>
+              <button style={styles.iconBtnSmall} onClick={() => removeApptItem(cat)}><Trash2 size={14} color='#C7CCDC' /></button>
+            </div>
+          ))}
+          <input style={{ ...styles.input, marginTop: 10 }} placeholder='Naya item add karein (jaise "Painting")' value={newApptItem} onChange={(e) => setNewApptItem(e.target.value)} />
+          <button style={styles.addBtn} onClick={addApptItem}><Plus size={14} /> Item add karein</button>
+        </div>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Grid3x3 size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Gallery Categories</div>
+        </div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Design gallery mein kaunse categories dikhein, add/remove karein.</div>
+        <div style={{ marginTop: 4 }}>
+          {categories.map((cat) => (
+            <div key={cat} style={styles.staffRow}>
+              <div style={{ flex: 1 }}>{cat} <span style={styles.itemSub}>({(gallery[cat] || []).length} photos)</span></div>
+              <button style={styles.iconBtnSmall} onClick={() => removeGalleryCategory(cat)}><Trash2 size={14} color='#C7CCDC' /></button>
+            </div>
+          ))}
+          <input style={{ ...styles.input, marginTop: 10 }} placeholder='Nayi category ka naam' value={newGalleryCategory} onChange={(e) => setNewGalleryCategory(e.target.value)} />
+          <button style={styles.addBtn} onClick={addGalleryCategory}><Plus size={14} /> Category add karein</button>
+        </div>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <FileText size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Product Brochures (PDF)</div>
+        </div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Category-wise brochure PDFs upload karein - customer inhe Gallery se dekh sakega.</div>
+        <BrochureUploadPanel addBrochure={addBrochure} categories={categories} showToast={showToast} />
+        <div style={{ marginTop: 12 }}>
+          <BrochureList brochures={brochures} showToast={showToast} canManage={true} onDelete={removeBrochure} />
+        </div>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Download size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Backup Data</div>
+        </div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Sab customers, jobs, gallery, aur staff ka data ek JSON file mein download karein.</div>
+        <button style={styles.addBtn} onClick={downloadBackup}><Download size={14} /> Download backup</button>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <ShieldCheck size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Customer Data Privacy</div>
+        </div>
+        <div style={styles.plainText}>
+          Har customer login sirf apna hi naam, requirements, progress photos aur payment dekh sakta hai.
+          Dusre kisi bhi customer ka data unhe kabhi nahi dikhta - sirf aap (Admin) sabka data ek saath dekh sakte hain.
+        </div>
+      </div>
+
+      <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 12 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
+    </div>
+  );
+}
+
+/* ---- Partner: same admin interface but Settings is a stub with no
+   access to PINs, staff, or backups - only their own login info. ---- */
 function PartnerSettings({ staffName, onLogout }) {
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Settings</div>
-
       <div style={{ ...styles.card, marginTop: 12 }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginBottom: 6,
-          }}
-        >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <ShieldCheck size={16} color={BRAND.gold} />
-
-          <div style={{ fontWeight: 800, fontSize: 14 }}>
-            Partner Access
-          </div>
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Partner Access</div>
         </div>
-
         <div style={styles.plainText}>
-          Aap '{staffName || 'Partner'}' ke roop mein logged in hain.
-          Partner access mein Admin PIN, staff logins, expenses, aur data
-          backup nahi dikhte - sirf customers, gallery, aur reviews manage
-          kar sakte hain.
+          Aap '{staffName || 'Partner'}' ke roop mein logged in hain. Partner access mein Admin PIN, staff logins,
+          expenses, aur data backup nahi dikhte - sirf customers, gallery, aur reviews manage kar sakte hain.
         </div>
       </div>
+      <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 12 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
+    </div>
+  );
+}
 
-      <button
-        style={{
-          ...styles.addBtn,
-          background: '#FFEBEE',
-          color: '#C62828',
-          marginTop: 12,
-        }}
-        onClick={onLogout}
-      >
-        <LogOut size={14} /> Logout
+/* ---- Brochure upload: reads a PDF file from device, converts to a
+   data URI, and saves it under the chosen category. No compression is
+   applied (PDFs don't shrink like images) - if a file exceeds the storage
+   cap, the save is rejected with a clear message. Real PDF brochures
+   (several pages of product photos) often run 1-5MB, well past what a
+   single Firestore document can hold - a scanned/compressed PDF, or one
+   split into fewer pages, is needed to fit under this limit. ---- */
+function BrochureUploadPanel({ addBrochure, categories, showToast }) {
+  const [category, setCategory] = useState(categories[0]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = React.useRef(null);
+
+  const handleFilePicked = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.type !== 'application/pdf') { showToast('Sirf PDF file select karein', true); return; }
+    setUploading(true);
+    try {
+      const dataUri = await fileToDataUri(file);
+      const sizeBytes = dataUriByteSize(dataUri);
+      if (sizeBytes > MAX_BROCHURE_BYTES) {
+        showToast('PDF bahut badi hai (' + (sizeBytes / (1024 * 1024)).toFixed(1) + 'MB) - ' + (MAX_BROCHURE_BYTES / (1024 * 1024)).toFixed(0) + 'MB se choti file try karein', true);
+        return;
+      }
+      const nameLower = file.name.toLowerCase();
+      const displayName = nameLower.endsWith('.pdf') ? file.name.slice(0, file.name.length - 4) : file.name;
+      const meta = { id: uid(), name: displayName, category, sizeKb: Math.round(sizeBytes / 1024) };
+      const ok = await addBrochure(meta, dataUri);
+      if (ok) showToast('Brochure add ho gayi');
+    } catch (e) {
+      showToast('Brochure upload nahi ho payi', true);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div>
+      <div style={styles.fieldLabel}>Category</div>
+      <div style={styles.chipRow}>
+        {categories.map((c) => (
+          <button key={c} onClick={() => setCategory(c)} style={{ ...styles.chip, ...(category === c ? styles.chipActive : {}) }}>{c}</button>
+        ))}
+      </div>
+      <input ref={fileInputRef} type='file' accept='application/pdf' style={{ display: 'none' }} onChange={handleFilePicked} />
+      <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
+        <FileText size={14} /> {uploading ? 'Uploading...' : ('Upload PDF to ' + category)}
       </button>
     </div>
   );
 }
-const file = e.target.files && e.target.files[0];
-e.target.value = ‘’;
-if (!file) return;
-if (file.type !== ‘application/pdf’) { showToast(‘Sirf PDF file select karein’, true); return; }
-setUploading(true);
-try {
-const dataUri = await fileToDataUri(file);
-const sizeBytes = dataUriByteSize(dataUri);
-if (sizeBytes > MAX_BROCHURE_BYTES) {
-showToast(‘PDF bahut badi hai (’ + (sizeBytes / (1024 * 1024)).toFixed(1) + ‘MB) - ’ + (MAX_BROCHURE_BYTES / (1024 * 1024)).toFixed(0) + ‘MB se choti file try karein’, true);
-return;
-}
-const nameLower = file.name.toLowerCase();
-const displayName = nameLower.endsWith(’.pdf’) ? file.name.slice(0, file.name.length - 4) : file.name;
-const meta = { id: uid(), name: displayName, category, sizeKb: Math.round(sizeBytes / 1024) };
-const ok = await addBrochure(meta, dataUri);
-if (ok) showToast(‘Brochure add ho gayi’);
-} catch (e) {
-showToast(‘Brochure upload nahi ho payi’, true);
-} finally {
-setUploading(false);
-}
-};
-
-return (
-<div>
-<div style={styles.fieldLabel}>Category</div>
-<div style={styles.chipRow}>
-{categories.map((c) => (
-<button key={c} onClick={() => setCategory(c)} style={{ …styles.chip, …(category === c ? styles.chipActive : {}) }}>{c}</button>
-))}
-</div>
-<input ref={fileInputRef} type=‘file’ accept=‘application/pdf’ style={{ display: ‘none’ }} onChange={handleFilePicked} />
-<button style={{ …styles.addBtn, marginTop: 10 }} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
-<FileText size={14} /> {uploading ? ‘Uploading…’ : (’Upload PDF to ’ + category)}
-</button>
-</div>
-);
-}
 
 /* ===================== styles ===================== */
-const fontImport = “@import url(‘https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=DM+Mono:wght@500&display=swap’);”;
+const fontImport = "@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=DM+Mono:wght@500&display=swap');";
 
 const styles = {
-app: { fontFamily: “‘Manrope’, system-ui, sans-serif”, background: BRAND.cream, minHeight: ‘100vh’, color: BRAND.navy, maxWidth: 480, margin: ‘0 auto’, position: ‘relative’ },
-loadingScreen: { display: ‘flex’, flexDirection: ‘column’, alignItems: ‘center’, justifyContent: ‘center’, height: ‘100vh’ },
+  app: { fontFamily: "'Manrope', system-ui, sans-serif", background: BRAND.cream, minHeight: '100vh', color: BRAND.navy, maxWidth: 480, margin: '0 auto', position: 'relative' },
+  loadingScreen: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh' },
 
-loginWrap: { minHeight: ‘100vh’, display: ‘flex’, flexDirection: ‘column’, alignItems: ‘center’, justifyContent: ‘center’, padding: 24, position: ‘relative’, overflow: ‘hidden’ },
-loginBgAccent: { position: ‘absolute’, top: -80, right: -80, width: 220, height: 220, borderRadius: ‘50%’, background: ‘radial-gradient(circle, rgba(15,27,61,0.06), transparent 70%)’ },
-loginBrand: { textAlign: ‘center’, marginBottom: 28, position: ‘relative’, display: ‘flex’, flexDirection: ‘column’, alignItems: ‘center’ },
-loginLogo: { width: 76, height: 76, objectFit: ‘contain’, borderRadius: ‘50%’ },
-loginCover: { width: ‘100%’, maxWidth: 340, height: 126, objectFit: ‘cover’, objectPosition: ‘center’, borderRadius: 14, marginTop: 18, border: ’1px solid ’ + BRAND.line },
-brandName: { fontWeight: 800, fontSize: 19, letterSpacing: 1.5, marginTop: 14, color: BRAND.navy },
-brandNameSub: { fontSize: 10.5, color: BRAND.gold, fontWeight: 800, letterSpacing: 3, marginTop: 3 },
-brandSub: { fontSize: 12, color: BRAND.textMuted, fontWeight: 600, marginTop: 10 },
-loginCard: { width: ‘100%’, maxWidth: 340, background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 16, padding: 20, position: ‘relative’, boxShadow: ‘0 4px 20px rgba(15,27,61,0.06)’ },
-verifiedTag: { display: ‘inline-flex’, alignItems: ‘center’, gap: 3, fontSize: 10, fontWeight: 700, color: ‘#2F7D4F’ },
-callBtn: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, gap: 7, width: ‘100%’, background: ‘#2F7D4F’, color: ‘#FFF’, textDecoration: ‘none’, border: ‘none’, borderRadius: 10, padding: ‘11px’, fontSize: 13, fontWeight: 700, marginBottom: 10, boxSizing: ‘border-box’ },
-waShareBtn: { display: ‘flex’, alignItems: ‘center’, gap: 5, background: ‘#25D366’, color: ‘#FFF’, textDecoration: ‘none’, borderRadius: 20, padding: ‘7px 12px’, fontSize: 11.5, fontWeight: 700 },
-pdfDownloadBtn: { display: ‘flex’, alignItems: ‘center’, gap: 5, background: BRAND.navy, color: ‘#FFF’, border: ‘none’, textDecoration: ‘none’, borderRadius: 20, padding: ‘7px 12px’, fontSize: 11.5, fontWeight: 700, cursor: ‘pointer’ },
+  loginWrap: { minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, position: 'relative', overflow: 'hidden' },
+  loginBgAccent: { position: 'absolute', top: -80, right: -80, width: 220, height: 220, borderRadius: '50%', background: 'radial-gradient(circle, rgba(15,27,61,0.06), transparent 70%)' },
+  loginBrand: { textAlign: 'center', marginBottom: 28, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' },
+  loginLogo: { width: 76, height: 76, objectFit: 'contain', borderRadius: '50%' },
+  loginCover: { width: '100%', maxWidth: 340, height: 126, objectFit: 'cover', objectPosition: 'center', borderRadius: 14, marginTop: 18, border: '1px solid ' + BRAND.line },
+  brandName: { fontWeight: 800, fontSize: 19, letterSpacing: 1.5, marginTop: 14, color: BRAND.navy },
+  brandNameSub: { fontSize: 10.5, color: BRAND.gold, fontWeight: 800, letterSpacing: 3, marginTop: 3 },
+  brandSub: { fontSize: 12, color: BRAND.textMuted, fontWeight: 600, marginTop: 10 },
+  loginCard: { width: '100%', maxWidth: 340, background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 16, padding: 20, position: 'relative', boxShadow: '0 4px 20px rgba(15,27,61,0.06)' },
+  verifiedTag: { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: '#2F7D4F' },
+  callBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, width: '100%', background: '#2F7D4F', color: '#FFF', textDecoration: 'none', border: 'none', borderRadius: 10, padding: '11px', fontSize: 13, fontWeight: 700, marginBottom: 10, boxSizing: 'border-box' },
+  waShareBtn: { display: 'flex', alignItems: 'center', gap: 5, background: '#25D366', color: '#FFF', textDecoration: 'none', borderRadius: 20, padding: '7px 12px', fontSize: 11.5, fontWeight: 700 },
+  pdfDownloadBtn: { display: 'flex', alignItems: 'center', gap: 5, background: BRAND.navy, color: '#FFF', border: 'none', textDecoration: 'none', borderRadius: 20, padding: '7px 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' },
 
-header: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘space-between’, padding: ‘16px 16px 12px’, position: ‘sticky’, top: 0, background: BRAND.cream, zIndex: 25 },
-brandRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, minWidth: 0 },
-brandNameSm: { fontWeight: 800, fontSize: 14.5, letterSpacing: -0.2, whiteSpace: ‘nowrap’, overflow: ‘hidden’, textOverflow: ‘ellipsis’ },
-brandSubSm: { fontSize: 11, color: BRAND.gold, fontWeight: 700, marginTop: 1 },
-logoutBtn: { background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 20, padding: ‘8px 10px’, cursor: ‘pointer’, color: BRAND.navy, flexShrink: 0 },
-iconBtn: { background: ‘none’, border: ‘none’, cursor: ‘pointer’, padding: 4, position: ‘relative’ },
-notifBadge: { position: ‘absolute’, top: 0, right: 0, minWidth: 15, height: 15, padding: ‘0 3px’, borderRadius: 8, background: ‘#D14343’, color: ‘#FFF’, fontSize: 9.5, fontWeight: 800, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, lineHeight: 1 },
-notifBackdrop: { position: ‘fixed’, inset: 0, zIndex: 90, background: ‘transparent’ },
-notifPanel: { position: ‘absolute’, top: 34, right: 0, width: 300, maxWidth: ‘85vw’, background: ‘#FFF’, borderRadius: 12, boxShadow: ‘0 8px 28px rgba(15,27,61,0.18)’, border: ’1px solid ’ + BRAND.line, zIndex: 91, overflow: ‘hidden’ },
-notifPanelHeader: { display: ‘flex’, justifyContent: ‘space-between’, alignItems: ‘center’, padding: ‘10px 12px’, borderBottom: ’1px solid ’ + BRAND.line, fontWeight: 800, fontSize: 13 },
-notifMarkAllBtn: { background: ‘none’, border: ‘none’, color: BRAND.gold, fontSize: 11, fontWeight: 700, cursor: ‘pointer’, padding: 0 },
-notifList: { maxHeight: 320, overflowY: ‘auto’ },
-notifRow: { display: ‘flex’, alignItems: ‘flex-start’, gap: 8, width: ‘100%’, padding: ‘10px 12px’, background: ‘none’, border: ‘none’, borderBottom: ’1px solid ’ + BRAND.line, cursor: ‘pointer’, textAlign: ‘left’ },
-notifRowUnread: { background: ‘#FBF6EC’ },
-notifIconWrap: { width: 26, height: 26, borderRadius: 13, background: BRAND.paper, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, flexShrink: 0, marginTop: 1 },
-notifMessage: { fontSize: 12.5, fontWeight: 600, color: BRAND.navy, lineHeight: 1.35 },
-notifTime: { fontSize: 10.5, color: BRAND.textMuted, marginTop: 2 },
-notifDot: { width: 7, height: 7, borderRadius: 4, background: BRAND.gold, flexShrink: 0, marginTop: 5 },
-iconBtnSmall: { background: ‘none’, border: ‘none’, cursor: ‘pointer’, padding: 4, flexShrink: 0 },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 16px 12px', position: 'sticky', top: 0, background: BRAND.cream, zIndex: 25 },
+  brandRow: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 },
+  brandNameSm: { fontWeight: 800, fontSize: 14.5, letterSpacing: -0.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  brandSubSm: { fontSize: 11, color: BRAND.gold, fontWeight: 700, marginTop: 1 },
+  logoutBtn: { background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 20, padding: '8px 10px', cursor: 'pointer', color: BRAND.navy, flexShrink: 0 },
+  iconBtn: { background: 'none', border: 'none', cursor: 'pointer', padding: 4, position: 'relative' },
+  notifBadge: { position: 'absolute', top: 0, right: 0, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 8, background: '#D14343', color: '#FFF', fontSize: 9.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 },
+  notifBackdrop: { position: 'fixed', inset: 0, zIndex: 90, background: 'transparent' },
+  notifPanel: { position: 'absolute', top: 34, right: 0, width: 300, maxWidth: '85vw', background: '#FFF', borderRadius: 12, boxShadow: '0 8px 28px rgba(15,27,61,0.18)', border: '1px solid ' + BRAND.line, zIndex: 91, overflow: 'hidden' },
+  notifPanelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderBottom: '1px solid ' + BRAND.line, fontWeight: 800, fontSize: 13 },
+  notifMarkAllBtn: { background: 'none', border: 'none', color: BRAND.gold, fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0 },
+  notifList: { maxHeight: 320, overflowY: 'auto' },
+  notifRow: { display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', padding: '10px 12px', background: 'none', border: 'none', borderBottom: '1px solid ' + BRAND.line, cursor: 'pointer', textAlign: 'left' },
+  notifRowUnread: { background: '#FBF6EC' },
+  notifIconWrap: { width: 26, height: 26, borderRadius: 13, background: BRAND.paper, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 },
+  notifMessage: { fontSize: 12.5, fontWeight: 600, color: BRAND.navy, lineHeight: 1.35 },
+  notifTime: { fontSize: 10.5, color: BRAND.textMuted, marginTop: 2 },
+  notifDot: { width: 7, height: 7, borderRadius: 4, background: BRAND.gold, flexShrink: 0, marginTop: 5 },
+  iconBtnSmall: { background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0 },
 
-bottomNav: { position: ‘fixed’, bottom: 0, left: ‘50%’, transform: ‘translateX(-50%)’, width: ‘100%’, maxWidth: 480, background: BRAND.paper, borderTop: ’1px solid ’ + BRAND.line, display: ‘flex’, padding: ‘8px 4px’, zIndex: 30 },
-navBtn: { position: ‘relative’, flex: 1, background: ‘none’, border: ‘none’, display: ‘flex’, flexDirection: ‘column’, alignItems: ‘center’, gap: 3, cursor: ‘pointer’, padding: ‘4px 0’ },
-navLabel: { fontSize: 9.5 },
-navIndicator: { position: ‘absolute’, top: -8, left: ‘50%’, transform: ‘translateX(-50%)’, width: 4, height: 4, borderRadius: 2, background: BRAND.gold },
+  bottomNav: { position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: BRAND.paper, borderTop: '1px solid ' + BRAND.line, display: 'flex', padding: '8px 4px', zIndex: 30 },
+  navBtn: { position: 'relative', flex: 1, background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, cursor: 'pointer', padding: '4px 0' },
+  navLabel: { fontSize: 9.5 },
+  navIndicator: { position: 'absolute', top: -8, left: '50%', transform: 'translateX(-50%)', width: 4, height: 4, borderRadius: 2, background: BRAND.gold },
 
-heroCard: { background: BRAND.navy, borderRadius: 16, padding: 16, color: ‘#FDFCF8’ },
-heroTop: { display: ‘flex’, justifyContent: ‘space-between’, alignItems: ‘flex-start’, marginBottom: 14 },
-heroGreeting: { fontWeight: 800, fontSize: 15.5, letterSpacing: -0.2 },
-heroSub: { fontSize: 11.5, color: ‘#9AA3C2’, marginTop: 2 },
-progressTrack: { height: 6, background: ‘rgba(255,255,255,0.15)’, borderRadius: 4, overflow: ‘hidden’ },
-progressFill: { height: ‘100%’, borderRadius: 4, transition: ‘width 0.4s ease’ },
-progressLabels: { display: ‘flex’, justifyContent: ‘space-between’, marginTop: 8, fontSize: 9.5 },
+  heroCard: { background: BRAND.navy, borderRadius: 16, padding: 16, color: '#FDFCF8' },
+  heroTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 },
+  heroGreeting: { fontWeight: 800, fontSize: 15.5, letterSpacing: -0.2 },
+  heroSub: { fontSize: 11.5, color: '#9AA3C2', marginTop: 2 },
+  progressTrack: { height: 6, background: 'rgba(255,255,255,0.15)', borderRadius: 4, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 4, transition: 'width 0.4s ease' },
+  progressLabels: { display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 9.5 },
 
-quickGrid: { display: ‘grid’, gridTemplateColumns: ‘1fr 1fr’, gap: 10, margin: ‘14px 0’ },
-quickTile: { background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 13, padding: ‘14px 10px’, display: ‘flex’, flexDirection: ‘column’, alignItems: ‘center’, gap: 6, cursor: ‘pointer’, fontFamily: ‘inherit’ },
-quickTileLabel: { fontSize: 11.5, fontWeight: 700, color: BRAND.navy, textAlign: ‘center’ },
+  quickGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, margin: '14px 0' },
+  quickTile: { background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 13, padding: '14px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, cursor: 'pointer', fontFamily: 'inherit' },
+  quickTileLabel: { fontSize: 11.5, fontWeight: 700, color: BRAND.navy, textAlign: 'center' },
 
-activityList: { display: ‘flex’, flexDirection: ‘column’, gap: 2 },
-activityRow: { display: ‘flex’, gap: 10, alignItems: ‘flex-start’, padding: ‘8px 0’ },
-activityDot: { width: 6, height: 6, borderRadius: 3, background: BRAND.gold, marginTop: 6, flexShrink: 0 },
-activityText: { fontSize: 12.5, fontWeight: 600, color: ‘#333B57’ },
+  activityList: { display: 'flex', flexDirection: 'column', gap: 2 },
+  activityRow: { display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 0' },
+  activityDot: { width: 6, height: 6, borderRadius: 3, background: BRAND.gold, marginTop: 6, flexShrink: 0 },
+  activityText: { fontSize: 12.5, fontWeight: 600, color: '#333B57' },
 
-sectionTitle: { fontWeight: 800, fontSize: 16, letterSpacing: -0.3, marginBottom: 4 },
-plainTextMuted: { fontSize: 12.5, color: BRAND.textMuted, marginBottom: 4 },
-plainText: { fontSize: 13.5, color: ‘#333B57’, lineHeight: 1.5 },
-emptySmall: { fontSize: 12.5, color: BRAND.textMuted, padding: ‘10px 0’ },
-emptyBlock: { textAlign: ‘center’, padding: ‘30px 10px’, color: BRAND.textMuted },
-emptyBlockText: { fontSize: 12.5, marginTop: 8 },
-empty: { textAlign: ‘center’, padding: ‘40px 20px’, color: BRAND.textMuted, fontSize: 13 },
+  sectionTitle: { fontWeight: 800, fontSize: 16, letterSpacing: -0.3, marginBottom: 4 },
+  plainTextMuted: { fontSize: 12.5, color: BRAND.textMuted, marginBottom: 4 },
+  plainText: { fontSize: 13.5, color: '#333B57', lineHeight: 1.5 },
+  emptySmall: { fontSize: 12.5, color: BRAND.textMuted, padding: '10px 0' },
+  emptyBlock: { textAlign: 'center', padding: '30px 10px', color: BRAND.textMuted },
+  emptyBlockText: { fontSize: 12.5, marginTop: 8 },
+  empty: { textAlign: 'center', padding: '40px 20px', color: BRAND.textMuted, fontSize: 13 },
 
-catGrid: { display: ‘grid’, gridTemplateColumns: ‘1fr 1fr’, gap: 10, marginTop: 10 },
-catCard: { background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 14, padding: 12, textAlign: ‘left’, cursor: ‘pointer’, fontFamily: ‘inherit’ },
-catCover: { position: ‘relative’, width: ‘100%’, height: 90, borderRadius: 10, background: ‘#EEF0F5’, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, overflow: ‘hidden’, marginBottom: 8 },
-catCoverImg: { width: ‘100%’, height: ‘100%’, objectFit: ‘cover’ },
-catCoverBadge: { position: ‘absolute’, top: 6, right: 6, background: ‘rgba(15,27,61,0.75)’, color: ‘#FFF’, fontSize: 10, fontWeight: 800, borderRadius: 10, padding: ‘2px 6px’ },
-catName: { fontWeight: 800, fontSize: 13.5 },
-catSub: { fontSize: 11, color: BRAND.textMuted, marginTop: 2, fontWeight: 600 },
-catTitle: { fontWeight: 800, fontSize: 17, letterSpacing: -0.3, margin: ‘10px 0 10px’ },
-catCount: { color: BRAND.textMuted, fontWeight: 600, fontSize: 13 },
+  catGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 10 },
+  catCard: { background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 14, padding: 12, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit' },
+  catCover: { position: 'relative', width: '100%', height: 90, borderRadius: 10, background: '#EEF0F5', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 8 },
+  catCoverImg: { width: '100%', height: '100%', objectFit: 'cover' },
+  catCoverBadge: { position: 'absolute', top: 6, right: 6, background: 'rgba(15,27,61,0.75)', color: '#FFF', fontSize: 10, fontWeight: 800, borderRadius: 10, padding: '2px 6px' },
+  catName: { fontWeight: 800, fontSize: 13.5 },
+  catSub: { fontSize: 11, color: BRAND.textMuted, marginTop: 2, fontWeight: 600 },
+  catTitle: { fontWeight: 800, fontSize: 17, letterSpacing: -0.3, margin: '10px 0 10px' },
+  catCount: { color: BRAND.textMuted, fontWeight: 600, fontSize: 13 },
 
-photoGrid: { display: ‘grid’, gridTemplateColumns: ‘1fr 1fr 1fr’, gap: 6, marginTop: 8 },
-photoThumb: { border: ‘none’, padding: 0, borderRadius: 8, overflow: ‘hidden’, cursor: ‘pointer’, background: ‘#EEF0F5’, aspectRatio: ‘1’, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’ },
-photoImg: { width: ‘100%’, height: ‘100%’, objectFit: ‘contain’, display: ‘block’ },
-progressPhotoCard: { position: ‘relative’, background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 8, overflow: ‘hidden’ },
-progressCaption: { fontSize: 10.5, padding: ‘4px 6px’, color: ‘#333B57’, fontWeight: 600 },
-photoDeleteBtn: { position: ‘absolute’, top: 4, right: 4, background: ‘rgba(15,27,61,0.75)’, border: ‘none’, borderRadius: 6, padding: 4, cursor: ‘pointer’ },
-photoEditTapArea: { display: ‘block’, width: ‘100%’, padding: 0, border: ‘none’, background: ‘none’, cursor: ‘pointer’ },
+  photoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 8 },
+  photoThumb: { border: 'none', padding: 0, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: '#EEF0F5', aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  photoImg: { width: '100%', height: '100%', objectFit: 'contain', display: 'block' },
+  progressPhotoCard: { position: 'relative', background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 8, overflow: 'hidden' },
+  progressCaption: { fontSize: 10.5, padding: '4px 6px', color: '#333B57', fontWeight: 600 },
+  photoDeleteBtn: { position: 'absolute', top: 4, right: 4, background: 'rgba(15,27,61,0.75)', border: 'none', borderRadius: 6, padding: 4, cursor: 'pointer' },
+  photoEditTapArea: { display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'pointer' },
 
-previewWrap: { marginTop: 8, borderRadius: 8, overflow: ‘hidden’, border: ’1px solid ’ + BRAND.line, maxHeight: 140 },
-multiPhotoPreviewGrid: { display: ‘grid’, gridTemplateColumns: ‘repeat(3, 1fr)’, gap: 6, marginTop: 8 },
-multiPhotoPreviewItem: { position: ‘relative’, borderRadius: 8, overflow: ‘hidden’, border: ’1px solid ’ + BRAND.line, aspectRatio: ‘1’, background: ‘#EEF0F5’ },
-multiPhotoPreviewImg: { width: ‘100%’, height: ‘100%’, objectFit: ‘cover’, display: ‘block’ },
-multiPhotoPreviewRemove: { position: ‘absolute’, top: 3, right: 3, width: 20, height: 20, borderRadius: 10, background: ‘rgba(15,27,61,0.75)’, border: ‘none’, cursor: ‘pointer’, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’ },
-multiPhotoPreviewAddMore: { border: ’1.5px dashed ’ + BRAND.line, borderRadius: 8, aspectRatio: ‘1’, background: BRAND.paper, cursor: ‘pointer’, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’ },
-modeToggleRow: { display: ‘flex’, gap: 6 },
-modeToggleBtn: { flex: 1, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, gap: 6, border: ’1px solid ’ + BRAND.line, background: BRAND.paper, borderRadius: 9, padding: ‘9px’, fontSize: 12, fontWeight: 700, color: BRAND.textMuted, cursor: ‘pointer’, fontFamily: ‘inherit’ },
-modeToggleBtnActive: { background: BRAND.navy, color: ‘#FFF’, borderColor: BRAND.navy },
-uploadTapArea: { width: ‘100%’, display: ‘flex’, flexDirection: ‘column’, alignItems: ‘center’, justifyContent: ‘center’, gap: 8, border: ’1.5px dashed ’ + BRAND.gold, background: ‘#F3EFE3’, borderRadius: 12, padding: ‘22px 14px’, cursor: ‘pointer’, fontFamily: ‘inherit’ },
-uploadHint: { fontSize: 12, fontWeight: 600, color: ‘#333B57’, textAlign: ‘center’, maxWidth: 220 },
-previewImg: { width: ‘100%’, height: 140, objectFit: ‘cover’, display: ‘block’ },
+  previewWrap: { marginTop: 8, borderRadius: 8, overflow: 'hidden', border: '1px solid ' + BRAND.line, maxHeight: 140 },
+  multiPhotoPreviewGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginTop: 8 },
+  multiPhotoPreviewItem: { position: 'relative', borderRadius: 8, overflow: 'hidden', border: '1px solid ' + BRAND.line, aspectRatio: '1', background: '#EEF0F5' },
+  multiPhotoPreviewImg: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+  multiPhotoPreviewRemove: { position: 'absolute', top: 3, right: 3, width: 20, height: 20, borderRadius: 10, background: 'rgba(15,27,61,0.75)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  multiPhotoPreviewAddMore: { border: '1.5px dashed ' + BRAND.line, borderRadius: 8, aspectRatio: '1', background: BRAND.paper, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  modeToggleRow: { display: 'flex', gap: 6 },
+  modeToggleBtn: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, border: '1px solid ' + BRAND.line, background: BRAND.paper, borderRadius: 9, padding: '9px', fontSize: 12, fontWeight: 700, color: BRAND.textMuted, cursor: 'pointer', fontFamily: 'inherit' },
+  modeToggleBtnActive: { background: BRAND.navy, color: '#FFF', borderColor: BRAND.navy },
+  uploadTapArea: { width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, border: '1.5px dashed ' + BRAND.gold, background: '#F3EFE3', borderRadius: 12, padding: '22px 14px', cursor: 'pointer', fontFamily: 'inherit' },
+  uploadHint: { fontSize: 12, fontWeight: 600, color: '#333B57', textAlign: 'center', maxWidth: 220 },
+  previewImg: { width: '100%', height: 140, objectFit: 'cover', display: 'block' },
 
-lightboxOverlay: { position: ‘fixed’, inset: 0, background: ‘rgba(10,14,28,0.95)’, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, zIndex: 100, flexDirection: ‘column’ },
-lightboxImg: { maxWidth: ‘92%’, maxHeight: ‘78vh’, borderRadius: 6, objectFit: ‘contain’, touchAction: ‘pan-y’ },
-lightboxImgWrap: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, width: ‘100%’, touchAction: ‘pan-y’ },
-lightboxSwipeHint: { color: ‘#6A7290’, fontSize: 10.5, marginTop: 6, textAlign: ‘center’ },
-lightboxClose: { position: ‘absolute’, top: 16, right: 16, background: ‘none’, border: ‘none’, cursor: ‘pointer’ },
-lightboxSaveBtn: { position: ‘absolute’, top: 16, right: 56, background: ‘none’, border: ‘none’, cursor: ‘pointer’ },
-lightboxCounter: { position: ‘absolute’, top: 18, left: 16, color: ‘#9AA3C2’, fontSize: 12, fontWeight: 700 },
-lightboxNav: { position: ‘absolute’, top: ‘50%’, transform: ‘translateY(-50%)’, background: ‘rgba(255,255,255,0.12)’, border: ‘none’, borderRadius: 20, padding: 6, cursor: ‘pointer’ },
-lightboxCaption: { color: ‘#FDFCF8’, fontSize: 12.5, marginTop: 14, textAlign: ‘center’, padding: ‘0 24px’ },
+  lightboxOverlay: { position: 'fixed', inset: 0, background: 'rgba(10,14,28,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, flexDirection: 'column' },
+  lightboxImg: { maxWidth: '92%', maxHeight: '78vh', borderRadius: 6, objectFit: 'contain', touchAction: 'pan-y' },
+  lightboxImgWrap: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', touchAction: 'pan-y' },
+  lightboxSwipeHint: { color: '#6A7290', fontSize: 10.5, marginTop: 6, textAlign: 'center' },
+  lightboxClose: { position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer' },
+  lightboxSaveBtn: { position: 'absolute', top: 16, right: 56, background: 'none', border: 'none', cursor: 'pointer' },
+  lightboxCounter: { position: 'absolute', top: 18, left: 16, color: '#9AA3C2', fontSize: 12, fontWeight: 700 },
+  lightboxNav: { position: 'absolute', top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: 20, padding: 6, cursor: 'pointer' },
+  lightboxCaption: { color: '#FDFCF8', fontSize: 12.5, marginTop: 14, textAlign: 'center', padding: '0 24px' },
 
-fieldLabel: { fontSize: 11.5, fontWeight: 700, color: BRAND.gold, marginBottom: 6, textTransform: ‘uppercase’, letterSpacing: 0.3 },
-input: { width: ‘100%’, border: ’1px solid ’ + BRAND.line, borderRadius: 10, padding: ‘10px 12px’, fontSize: 14, fontFamily: ‘inherit’, outline: ‘none’, color: BRAND.navy, boxSizing: ‘border-box’, background: BRAND.paper },
-errorText: { color: ‘#B5562E’, fontSize: 12, fontWeight: 600, marginTop: 8 },
-primaryBtn: { width: ‘100%’, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, gap: 7, background: BRAND.navy, color: ‘#FFF’, border: ‘none’, borderRadius: 12, padding: ‘13px’, fontWeight: 800, fontSize: 14.5, cursor: ‘pointer’ },
-primaryBtn2: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, gap: 6, width: ‘100%’, background: BRAND.navy, color: ‘#FFF’, border: ‘none’, borderRadius: 12, padding: ‘12px’, fontWeight: 800, fontSize: 13.5, cursor: ‘pointer’, marginTop: 12 },
-adminLink: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, gap: 5, width: ‘100%’, background: ‘none’, border: ‘none’, color: BRAND.textMuted, fontSize: 12, fontWeight: 700, marginTop: 14, cursor: ‘pointer’ },
-backLink: { display: ‘flex’, alignItems: ‘center’, gap: 4, background: ‘none’, border: ‘none’, color: BRAND.textMuted, fontSize: 12, fontWeight: 700, marginTop: 12, cursor: ‘pointer’, padding: 0 },
-linkBtn2: { background: ‘none’, border: ‘none’, color: ‘#3D6B66’, fontWeight: 700, fontSize: 12, cursor: ‘pointer’, marginTop: 8, padding: 0 },
-roundAddBtn: { width: 36, height: 36, borderRadius: 18, background: BRAND.navy, border: ‘none’, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, cursor: ‘pointer’, flexShrink: 0 },
-cancelBtn: { background: ‘none’, border: ’1px solid ’ + BRAND.line, borderRadius: 12, padding: ‘0 16px’, fontWeight: 700, fontSize: 13, color: BRAND.textMuted, cursor: ‘pointer’ },
-formCard: { background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 14, padding: 14, marginTop: 12 },
+  fieldLabel: { fontSize: 11.5, fontWeight: 700, color: BRAND.gold, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 },
+  input: { width: '100%', border: '1px solid ' + BRAND.line, borderRadius: 10, padding: '10px 12px', fontSize: 14, fontFamily: 'inherit', outline: 'none', color: BRAND.navy, boxSizing: 'border-box', background: BRAND.paper },
+  errorText: { color: '#B5562E', fontSize: 12, fontWeight: 600, marginTop: 8 },
+  primaryBtn: { width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: BRAND.navy, color: '#FFF', border: 'none', borderRadius: 12, padding: '13px', fontWeight: 800, fontSize: 14.5, cursor: 'pointer' },
+  primaryBtn2: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', background: BRAND.navy, color: '#FFF', border: 'none', borderRadius: 12, padding: '12px', fontWeight: 800, fontSize: 13.5, cursor: 'pointer', marginTop: 12 },
+  adminLink: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, width: '100%', background: 'none', border: 'none', color: BRAND.textMuted, fontSize: 12, fontWeight: 700, marginTop: 14, cursor: 'pointer' },
+  backLink: { display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: BRAND.textMuted, fontSize: 12, fontWeight: 700, marginTop: 12, cursor: 'pointer', padding: 0 },
+  linkBtn2: { background: 'none', border: 'none', color: '#3D6B66', fontWeight: 700, fontSize: 12, cursor: 'pointer', marginTop: 8, padding: 0 },
+  roundAddBtn: { width: 36, height: 36, borderRadius: 18, background: BRAND.navy, border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },
+  cancelBtn: { background: 'none', border: '1px solid ' + BRAND.line, borderRadius: 12, padding: '0 16px', fontWeight: 700, fontSize: 13, color: BRAND.textMuted, cursor: 'pointer' },
+  formCard: { background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 14, padding: 14, marginTop: 12 },
 
-chipRow: { display: ‘flex’, gap: 6, overflowX: ‘auto’, paddingBottom: 4 },
-chip: { border: ’1px solid ’ + BRAND.line, background: BRAND.paper, color: ‘#333B57’, borderRadius: 20, padding: ‘6px 12px’, fontSize: 12, fontWeight: 700, whiteSpace: ‘nowrap’, cursor: ‘pointer’, flexShrink: 0 },
-chipActive: { background: BRAND.navy, color: ‘#FFF’, borderColor: BRAND.navy },
-checklistGrid: { display: ‘grid’, gridTemplateColumns: ‘1fr 1fr’, gap: 8, marginTop: 4 },
-checklistItem: { display: ‘flex’, alignItems: ‘center’, gap: 8, border: ’1px solid ’ + BRAND.line, background: BRAND.paper, borderRadius: 10, padding: ‘9px 10px’, fontSize: 12, fontWeight: 700, color: ‘#333B57’, cursor: ‘pointer’, textAlign: ‘left’, fontFamily: ‘inherit’ },
-checklistItemActive: { background: ‘#EEF0F5’, borderColor: BRAND.navy },
-checkbox: { width: 16, height: 16, borderRadius: 4, border: ’1.5px solid ’ + BRAND.line, flexShrink: 0, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, background: BRAND.paper },
-checkboxActive: { background: BRAND.navy, borderColor: BRAND.navy },
-filterRow: { display: ‘flex’, gap: 6, overflowX: ‘auto’, paddingBottom: 4, marginTop: 8 },
-sortRow: { display: ‘flex’, gap: 6, alignItems: ‘center’, marginTop: 8, overflowX: ‘auto’ },
-sortLabel: { fontSize: 11, color: BRAND.textMuted, fontWeight: 700, flexShrink: 0 },
-sortBtn: { border: ‘none’, background: ‘none’, color: BRAND.textMuted, fontSize: 11.5, fontWeight: 700, cursor: ‘pointer’, padding: ‘3px 7px’, borderRadius: 6, flexShrink: 0 },
-sortBtnActive: { background: ‘#F3EFE3’, color: BRAND.gold },
+  chipRow: { display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 },
+  chip: { border: '1px solid ' + BRAND.line, background: BRAND.paper, color: '#333B57', borderRadius: 20, padding: '6px 12px', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', flexShrink: 0 },
+  chipActive: { background: BRAND.navy, color: '#FFF', borderColor: BRAND.navy },
+  checklistGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 },
+  checklistItem: { display: 'flex', alignItems: 'center', gap: 8, border: '1px solid ' + BRAND.line, background: BRAND.paper, borderRadius: 10, padding: '9px 10px', fontSize: 12, fontWeight: 700, color: '#333B57', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' },
+  checklistItemActive: { background: '#EEF0F5', borderColor: BRAND.navy },
+  checkbox: { width: 16, height: 16, borderRadius: 4, border: '1.5px solid ' + BRAND.line, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: BRAND.paper },
+  checkboxActive: { background: BRAND.navy, borderColor: BRAND.navy },
+  filterRow: { display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginTop: 8 },
+  sortRow: { display: 'flex', gap: 6, alignItems: 'center', marginTop: 8, overflowX: 'auto' },
+  sortLabel: { fontSize: 11, color: BRAND.textMuted, fontWeight: 700, flexShrink: 0 },
+  sortBtn: { border: 'none', background: 'none', color: BRAND.textMuted, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', padding: '3px 7px', borderRadius: 6, flexShrink: 0 },
+  sortBtnActive: { background: '#F3EFE3', color: BRAND.gold },
 
-searchWrap: { display: ‘flex’, alignItems: ‘center’, gap: 8, background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 12, padding: ‘9px 12px’, marginTop: 12 },
-searchInput: { border: ‘none’, outline: ‘none’, background: ‘transparent’, fontSize: 13.5, flex: 1, fontFamily: ‘inherit’, color: BRAND.navy },
+  searchWrap: { display: 'flex', alignItems: 'center', gap: 8, background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: '9px 12px', marginTop: 12 },
+  searchInput: { border: 'none', outline: 'none', background: 'transparent', fontSize: 13.5, flex: 1, fontFamily: 'inherit', color: BRAND.navy },
 
-statRow2: { display: ‘grid’, gridTemplateColumns: ‘repeat(3, 1fr)’, gap: 8, marginBottom: 4 },
-statCard: { background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 12, padding: ‘10px 8px’, textAlign: ‘center’ },
-statIcon: { display: ‘flex’, justifyContent: ‘center’, marginBottom: 4 },
-statValue: { fontWeight: 800, fontSize: 14, letterSpacing: -0.3 },
-statLabel: { fontSize: 9, color: BRAND.textMuted, marginTop: 2, fontWeight: 600, lineHeight: 1.2 },
+  statRow2: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 4 },
+  statCard: { background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: '10px 8px', textAlign: 'center' },
+  statIcon: { display: 'flex', justifyContent: 'center', marginBottom: 4 },
+  statValue: { fontWeight: 800, fontSize: 14, letterSpacing: -0.3 },
+  statLabel: { fontSize: 9, color: BRAND.textMuted, marginTop: 2, fontWeight: 600, lineHeight: 1.2 },
 
-alertBox: { display: ‘flex’, gap: 10, alignItems: ‘flex-start’, background: ‘#F7E3D8’, border: ‘1px solid #EAC4AC’, borderRadius: 12, padding: ‘10px 12px’, marginTop: 10 },
-alertText: { fontSize: 12, fontWeight: 700, color: ‘#8A3E1F’ },
+  alertBox: { display: 'flex', gap: 10, alignItems: 'flex-start', background: '#F7E3D8', border: '1px solid #EAC4AC', borderRadius: 12, padding: '10px 12px', marginTop: 10 },
+  alertText: { fontSize: 12, fontWeight: 700, color: '#8A3E1F' },
 
-card: { position: ‘relative’, background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 14, padding: 14, textAlign: ‘left’, fontFamily: ‘inherit’, boxShadow: ‘0 1px 2px rgba(15,27,61,0.04)’ },
-cardClickArea: { display: ‘block’, width: ‘100%’, background: ‘none’, border: ‘none’, padding: 0, margin: 0, textAlign: ‘left’, cursor: ‘pointer’, fontFamily: ‘inherit’ },
-cardActionsRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, marginTop: 10, paddingTop: 10, borderTop: ‘1px dashed #EEF0F5’ },
-cardActionBtn: { display: ‘flex’, alignItems: ‘center’, gap: 4, background: ‘none’, border: ‘none’, color: BRAND.textMuted, fontSize: 11.5, fontWeight: 700, cursor: ‘pointer’, padding: 0 },
-cardActionBtnActive: { background: BRAND.gold, color: ‘#FFF’, padding: ‘4px 8px’, borderRadius: 12 },
-confirmDialog: { background: ‘#FFF’, borderRadius: 16, padding: 22, width: ‘100%’, maxWidth: 320, display: ‘flex’, flexDirection: ‘column’, alignItems: ‘center’, textAlign: ‘center’ },
-confirmDialogTitle: { fontWeight: 800, fontSize: 14.5, color: BRAND.navy, marginTop: 10 },
-confirmDialogText: { fontSize: 12, color: BRAND.textMuted, marginTop: 6, lineHeight: 1.5 },
-staffRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, padding: ‘9px 0’, borderBottom: ‘1px solid #EEF0F5’ },
-brochureRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, padding: ‘9px 0’, borderBottom: ‘1px solid #EEF0F5’ },
-brochureSection: { marginTop: 12, background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 12, padding: 10 },
-brochureSectionToggle: { display: ‘flex’, alignItems: ‘center’, gap: 8, width: ‘100%’, background: ‘none’, border: ‘none’, padding: 0, cursor: ‘pointer’, fontSize: 13, fontWeight: 700, color: BRAND.navy, fontFamily: ‘inherit’ },
-brochureIcon: { width: 32, height: 32, borderRadius: 8, background: ‘#F3EFE3’, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, flexShrink: 0 },
-brochureOpenBtn: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, width: 30, height: 30, borderRadius: 15, background: BRAND.navy, color: ‘#FFF’, border: ‘none’, cursor: ‘pointer’, flexShrink: 0 },
+  card: { position: 'relative', background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 14, padding: 14, textAlign: 'left', fontFamily: 'inherit', boxShadow: '0 1px 2px rgba(15,27,61,0.04)' },
+  cardClickArea: { display: 'block', width: '100%', background: 'none', border: 'none', padding: 0, margin: 0, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit' },
+  cardActionsRow: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, paddingTop: 10, borderTop: '1px dashed #EEF0F5' },
+  cardActionBtn: { display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: BRAND.textMuted, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', padding: 0 },
+  cardActionBtnActive: { background: BRAND.gold, color: '#FFF', padding: '4px 8px', borderRadius: 12 },
+  confirmDialog: { background: '#FFF', borderRadius: 16, padding: 22, width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' },
+  confirmDialogTitle: { fontWeight: 800, fontSize: 14.5, color: BRAND.navy, marginTop: 10 },
+  confirmDialogText: { fontSize: 12, color: BRAND.textMuted, marginTop: 6, lineHeight: 1.5 },
+  staffRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid #EEF0F5' },
+  brochureRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid #EEF0F5' },
+  brochureSection: { marginTop: 12, background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: 10 },
+  brochureSectionToggle: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: BRAND.navy, fontFamily: 'inherit' },
+  brochureIcon: { width: 32, height: 32, borderRadius: 8, background: '#F3EFE3', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  brochureOpenBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 15, background: BRAND.navy, color: '#FFF', border: 'none', cursor: 'pointer', flexShrink: 0 },
 
-overlay: { position: ‘fixed’, inset: 0, background: ‘rgba(15,27,61,0.45)’, display: ‘flex’, alignItems: ‘flex-end’, justifyContent: ‘center’, zIndex: 50 },
-sheet: { background: BRAND.cream, width: ‘100%’, maxWidth: 480, maxHeight: ‘88vh’, borderRadius: ‘20px 20px 0 0’, display: ‘flex’, flexDirection: ‘column’, overflow: ‘hidden’ },
-sheetHeader: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘space-between’, padding: ‘16px 16px 10px’, borderBottom: ’1px solid ’ + BRAND.line, background: BRAND.paper },
-sheetTitle: { fontWeight: 800, fontSize: 16, letterSpacing: -0.2, color: BRAND.navy },
-sheetBody: { padding: ‘14px 16px’, overflowY: ‘auto’ },
-sheetFooter: { padding: ‘12px 16px 18px’, borderTop: ’1px solid ’ + BRAND.line, background: BRAND.paper },
-cardTop: { display: ‘flex’, alignItems: ‘flex-start’, gap: 10 },
-cardStub: { background: BRAND.cream, border: ’1px dashed ’ + BRAND.line, borderRadius: 8, padding: ‘5px 8px’, textAlign: ‘center’, flexShrink: 0 },
-stubLabel: { fontSize: 8, fontWeight: 800, color: ‘#A8AEC2’, letterSpacing: 1 },
-stubNo: { fontSize: 11, fontWeight: 800, color: BRAND.gold, fontFamily: “‘DM Mono’, monospace” },
-cardName: { fontWeight: 800, fontSize: 14.5, letterSpacing: -0.2, marginBottom: 3 },
-cardMeta: { display: ‘flex’, gap: 10, flexWrap: ‘wrap’ },
-metaItem: { display: ‘flex’, alignItems: ‘center’, gap: 4, fontSize: 11.5, color: BRAND.textMuted, fontWeight: 600 },
-badge: { display: ‘inline-flex’, alignItems: ‘center’, gap: 3, fontWeight: 800, padding: ‘4px 9px’, borderRadius: 20, flexShrink: 0 },
-reqPreview: { marginTop: 10, paddingTop: 8, borderTop: ’1px dashed ’ + BRAND.line, fontSize: 11.5, color: ‘#3D6B66’, fontWeight: 700 },
-miniRow: { display: ‘flex’, alignItems: ‘center’, gap: 8, background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 10, padding: ‘6px 8px 6px 12px’, fontFamily: ‘inherit’ },
-miniRowClickArea: { display: ‘flex’, alignItems: ‘center’, gap: 10, flex: 1, background: ‘none’, border: ‘none’, padding: ‘4px 0’, cursor: ‘pointer’, fontFamily: ‘inherit’, textAlign: ‘left’, minWidth: 0 },
-miniCallBtn: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, width: 30, height: 30, borderRadius: 15, background: ‘#DFF0E4’, flexShrink: 0, textDecoration: ‘none’ },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(15,27,61,0.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 50 },
+  sheet: { background: BRAND.cream, width: '100%', maxWidth: 480, maxHeight: '88vh', borderRadius: '20px 20px 0 0', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  sheetHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 16px 10px', borderBottom: '1px solid ' + BRAND.line, background: BRAND.paper },
+  sheetTitle: { fontWeight: 800, fontSize: 16, letterSpacing: -0.2, color: BRAND.navy },
+  sheetBody: { padding: '14px 16px', overflowY: 'auto' },
+  sheetFooter: { padding: '12px 16px 18px', borderTop: '1px solid ' + BRAND.line, background: BRAND.paper },
+  cardTop: { display: 'flex', alignItems: 'flex-start', gap: 10 },
+  cardStub: { background: BRAND.cream, border: '1px dashed ' + BRAND.line, borderRadius: 8, padding: '5px 8px', textAlign: 'center', flexShrink: 0 },
+  stubLabel: { fontSize: 8, fontWeight: 800, color: '#A8AEC2', letterSpacing: 1 },
+  stubNo: { fontSize: 11, fontWeight: 800, color: BRAND.gold, fontFamily: "'DM Mono', monospace" },
+  cardName: { fontWeight: 800, fontSize: 14.5, letterSpacing: -0.2, marginBottom: 3 },
+  cardMeta: { display: 'flex', gap: 10, flexWrap: 'wrap' },
+  metaItem: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: BRAND.textMuted, fontWeight: 600 },
+  badge: { display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 800, padding: '4px 9px', borderRadius: 20, flexShrink: 0 },
+  reqPreview: { marginTop: 10, paddingTop: 8, borderTop: '1px dashed ' + BRAND.line, fontSize: 11.5, color: '#3D6B66', fontWeight: 700 },
+  miniRow: { display: 'flex', alignItems: 'center', gap: 8, background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 10, padding: '6px 8px 6px 12px', fontFamily: 'inherit' },
+  miniRowClickArea: { display: 'flex', alignItems: 'center', gap: 10, flex: 1, background: 'none', border: 'none', padding: '4px 0', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', minWidth: 0 },
+  miniCallBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 15, background: '#DFF0E4', flexShrink: 0, textDecoration: 'none' },
 
-tabRow: { display: ‘flex’, padding: ‘10px 16px 0’, gap: 5, overflowX: ‘auto’, position: ‘sticky’, top: 62, background: BRAND.cream, zIndex: 20 },
-tabBtn: { flexShrink: 0, background: ‘#EEF0F5’, border: ‘none’, borderRadius: 9, padding: ‘8px 10px’, fontSize: 11.5, fontWeight: 700, color: BRAND.textMuted, cursor: ‘pointer’ },
-tabBtnActive: { background: BRAND.navy, color: ‘#FDFCF8’ },
+  tabRow: { display: 'flex', padding: '10px 16px 0', gap: 5, overflowX: 'auto', position: 'sticky', top: 62, background: BRAND.cream, zIndex: 20 },
+  tabBtn: { flexShrink: 0, background: '#EEF0F5', border: 'none', borderRadius: 9, padding: '8px 10px', fontSize: 11.5, fontWeight: 700, color: BRAND.textMuted, cursor: 'pointer' },
+  tabBtnActive: { background: BRAND.navy, color: '#FDFCF8' },
 
-stageGrid: { display: ‘flex’, flexDirection: ‘column’, gap: 6 },
-stageBtn: { display: ‘flex’, alignItems: ‘center’, border: ’1px solid ’ + BRAND.line, background: BRAND.paper, borderRadius: 10, padding: ‘10px 12px’, fontSize: 13.5, fontWeight: 700, color: ‘#333B57’, cursor: ‘pointer’, textAlign: ‘left’ },
-stageGridRead: { display: ‘flex’, flexDirection: ‘column’, gap: 2, marginTop: 6 },
-progressStep: { display: ‘flex’, alignItems: ‘center’, gap: 10, padding: ‘6px 0’, fontSize: 13 },
-progressDot: { width: 24, height: 24, borderRadius: 12, display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, flexShrink: 0 },
-currentTag: { marginLeft: ‘auto’, fontSize: 9.5, fontWeight: 800, color: ‘#B5562E’, background: ‘#F7E3D8’, padding: ‘2px 7px’, borderRadius: 8 },
+  stageGrid: { display: 'flex', flexDirection: 'column', gap: 6 },
+  stageBtn: { display: 'flex', alignItems: 'center', border: '1px solid ' + BRAND.line, background: BRAND.paper, borderRadius: 10, padding: '10px 12px', fontSize: 13.5, fontWeight: 700, color: '#333B57', cursor: 'pointer', textAlign: 'left' },
+  stageGridRead: { display: 'flex', flexDirection: 'column', gap: 2, marginTop: 6 },
+  progressStep: { display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', fontSize: 13 },
+  progressDot: { width: 24, height: 24, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  currentTag: { marginLeft: 'auto', fontSize: 9.5, fontWeight: 800, color: '#B5562E', background: '#F7E3D8', padding: '2px 7px', borderRadius: 8 },
 
-itemRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, padding: ‘9px 0’, borderBottom: ‘1px solid #EEF0F5’ },
-milestoneRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, padding: ‘9px 10px’, background: BRAND.paper, borderRadius: 10, marginTop: 6 },
-monthlyBarTrack: { height: 6, background: BRAND.paper, borderRadius: 3, marginTop: 8, overflow: ‘hidden’ },
-monthlyBarFill: { height: ‘100%’, background: BRAND.gold, borderRadius: 3 },
-waReminderBtn: { display: ‘flex’, alignItems: ‘center’, gap: 4, background: ‘#25D366’, color: ‘#FFF’, textDecoration: ‘none’, borderRadius: 8, padding: ‘6px 10px’, fontSize: 11, fontWeight: 700, whiteSpace: ‘nowrap’ },
-itemDesc: { fontSize: 13.5, fontWeight: 700 },
-itemSub: { fontSize: 11.5, color: BRAND.textMuted, marginTop: 1 },
-itemAmount: { fontSize: 13, fontWeight: 800, fontFamily: “‘DM Mono’, monospace” },
-addRow: { display: ‘flex’, gap: 8, marginTop: 12 },
-addBtn: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, gap: 6, width: ‘100%’, background: ‘#EEF0F5’, border: ’1px dashed ’ + BRAND.line, borderRadius: 10, padding: ‘9px’, fontSize: 12.5, fontWeight: 700, color: ‘#333B57’, marginTop: 8, cursor: ‘pointer’ },
-totalBar: { display: ‘flex’, justifyContent: ‘space-between’, alignItems: ‘center’, marginTop: 16, padding: ‘12px 14px’, background: BRAND.navy, borderRadius: 10, color: ‘#FDFCF8’, fontSize: 13, fontWeight: 700 },
-totalAmt: { fontSize: 16, fontWeight: 800, fontFamily: “‘DM Mono’, monospace” },
-payStrip: { display: ‘flex’, justifyContent: ‘space-around’, background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 12, padding: ‘12px 8px’ },
-payStripBtn: { display: ‘block’, width: ‘100%’, background: ‘none’, border: ‘none’, padding: 0, marginTop: 10, cursor: ‘pointer’, textAlign: ‘left’, fontFamily: ‘inherit’ },
-homeEstimatePreview: { background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderTop: ‘none’, borderRadius: ‘0 0 12px 12px’, padding: ‘8px 12px 10px’ },
-homeEstimateRow: { display: ‘flex’, justifyContent: ‘space-between’, padding: ‘4px 0’, fontSize: 12 },
-homeEstimateDesc: { color: BRAND.textMuted, fontWeight: 600 },
-homeEstimateAmt: { fontWeight: 700, color: BRAND.navy },
-homeEstimateMore: { fontSize: 11, color: BRAND.textMuted, marginTop: 2 },
-homeEstimateViewAll: { fontSize: 11.5, color: BRAND.gold, fontWeight: 800, marginTop: 6, textAlign: ‘center’ },
-moneyLabel: { fontSize: 9.5, color: ‘#A8AEC2’, fontWeight: 700, letterSpacing: 0.3, textTransform: ‘uppercase’ },
-moneyValue: { fontSize: 13, fontWeight: 800, fontFamily: “‘DM Mono’, monospace”, marginTop: 1 },
+  itemRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid #EEF0F5' },
+  milestoneRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', background: BRAND.paper, borderRadius: 10, marginTop: 6 },
+  monthlyBarTrack: { height: 6, background: BRAND.paper, borderRadius: 3, marginTop: 8, overflow: 'hidden' },
+  monthlyBarFill: { height: '100%', background: BRAND.gold, borderRadius: 3 },
+  waReminderBtn: { display: 'flex', alignItems: 'center', gap: 4, background: '#25D366', color: '#FFF', textDecoration: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' },
+  itemDesc: { fontSize: 13.5, fontWeight: 700 },
+  itemSub: { fontSize: 11.5, color: BRAND.textMuted, marginTop: 1 },
+  itemAmount: { fontSize: 13, fontWeight: 800, fontFamily: "'DM Mono', monospace" },
+  addRow: { display: 'flex', gap: 8, marginTop: 12 },
+  addBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', background: '#EEF0F5', border: '1px dashed ' + BRAND.line, borderRadius: 10, padding: '9px', fontSize: 12.5, fontWeight: 700, color: '#333B57', marginTop: 8, cursor: 'pointer' },
+  totalBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, padding: '12px 14px', background: BRAND.navy, borderRadius: 10, color: '#FDFCF8', fontSize: 13, fontWeight: 700 },
+  totalAmt: { fontSize: 16, fontWeight: 800, fontFamily: "'DM Mono', monospace" },
+  payStrip: { display: 'flex', justifyContent: 'space-around', background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: '12px 8px' },
+  payStripBtn: { display: 'block', width: '100%', background: 'none', border: 'none', padding: 0, marginTop: 10, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' },
+  homeEstimatePreview: { background: BRAND.paper, border: '1px solid ' + BRAND.line, borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '8px 12px 10px' },
+  homeEstimateRow: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12 },
+  homeEstimateDesc: { color: BRAND.textMuted, fontWeight: 600 },
+  homeEstimateAmt: { fontWeight: 700, color: BRAND.navy },
+  homeEstimateMore: { fontSize: 11, color: BRAND.textMuted, marginTop: 2 },
+  homeEstimateViewAll: { fontSize: 11.5, color: BRAND.gold, fontWeight: 800, marginTop: 6, textAlign: 'center' },
+  moneyLabel: { fontSize: 9.5, color: '#A8AEC2', fontWeight: 700, letterSpacing: 0.3, textTransform: 'uppercase' },
+  moneyValue: { fontSize: 13, fontWeight: 800, fontFamily: "'DM Mono', monospace", marginTop: 1 },
 
-reqRow: { display: ‘flex’, gap: 10, alignItems: ‘flex-start’, padding: ‘9px 0’, borderBottom: ‘1px solid #EEF0F5’ },
-reqThumb: { width: 44, height: 44, borderRadius: 8, objectFit: ‘cover’, flexShrink: 0, background: ‘#EEF0F5’ },
-savedDesignGrid: { display: ‘grid’, gridTemplateColumns: ‘repeat(2, 1fr)’, gap: 10, marginTop: 10 },
-savedDesignCard: { position: ‘relative’, borderRadius: 10, overflow: ‘hidden’, border: ’1px solid ’ + BRAND.line, aspectRatio: ‘1’, background: ‘#EEF0F5’ },
-savedDesignImg: { width: ‘100%’, height: ‘100%’, objectFit: ‘cover’, display: ‘block’ },
-savedDesignActions: { position: ‘absolute’, bottom: 0, left: 0, right: 0, display: ‘flex’, alignItems: ‘center’, background: ‘rgba(15,27,61,0.75)’, padding: ‘5px 6px’ },
-savedDesignAddBtn: { flex: 1, background: ‘none’, border: ‘none’, color: ‘#FFF’, fontSize: 10.5, fontWeight: 700, cursor: ‘pointer’, padding: ‘3px 0’ },
-savedDesignRemoveBtn: { background: ‘none’, border: ‘none’, cursor: ‘pointer’, padding: 2, display: ‘flex’ },
-reqCatBadge: { fontSize: 9.5, fontWeight: 800, background: ‘#F3EFE3’, color: BRAND.gold, borderRadius: 6, padding: ‘3px 7px’, flexShrink: 0, marginTop: 1 },
-reqText: { fontSize: 13, color: ‘#333B57’, lineHeight: 1.4 },
-reqGroupHeader: { fontSize: 12.5, fontWeight: 800, color: BRAND.navy, marginBottom: 2, marginTop: 6 },
-reqGroupCount: { color: BRAND.textMuted, fontWeight: 600 },
-reqMetaRow: { display: ‘flex’, alignItems: ‘center’, gap: 6, marginTop: 3, flexWrap: ‘wrap’ },
-reqDim: { fontSize: 10.5, fontWeight: 700, color: BRAND.navy, background: ‘#EEF0F5’, borderRadius: 6, padding: ‘2px 6px’ },
-reqPriorityTag: { fontSize: 10, fontWeight: 800, borderRadius: 6, padding: ‘2px 6px’ },
+  reqRow: { display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 0', borderBottom: '1px solid #EEF0F5' },
+  reqThumb: { width: 44, height: 44, borderRadius: 8, objectFit: 'cover', flexShrink: 0, background: '#EEF0F5' },
+  savedDesignGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginTop: 10 },
+  savedDesignCard: { position: 'relative', borderRadius: 10, overflow: 'hidden', border: '1px solid ' + BRAND.line, aspectRatio: '1', background: '#EEF0F5' },
+  savedDesignImg: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+  savedDesignActions: { position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', background: 'rgba(15,27,61,0.75)', padding: '5px 6px' },
+  savedDesignAddBtn: { flex: 1, background: 'none', border: 'none', color: '#FFF', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', padding: '3px 0' },
+  savedDesignRemoveBtn: { background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' },
+  reqCatBadge: { fontSize: 9.5, fontWeight: 800, background: '#F3EFE3', color: BRAND.gold, borderRadius: 6, padding: '3px 7px', flexShrink: 0, marginTop: 1 },
+  reqText: { fontSize: 13, color: '#333B57', lineHeight: 1.4 },
+  reqGroupHeader: { fontSize: 12.5, fontWeight: 800, color: BRAND.navy, marginBottom: 2, marginTop: 6 },
+  reqGroupCount: { color: BRAND.textMuted, fontWeight: 600 },
+  reqMetaRow: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' },
+  reqDim: { fontSize: 10.5, fontWeight: 700, color: BRAND.navy, background: '#EEF0F5', borderRadius: 6, padding: '2px 6px' },
+  reqPriorityTag: { fontSize: 10, fontWeight: 800, borderRadius: 6, padding: '2px 6px' },
 
-starRow: { display: ‘flex’, gap: 6, marginTop: 12 },
-starBtn: { background: ‘none’, border: ‘none’, cursor: ‘pointer’, padding: 2 },
-reviewPreview: { marginTop: 18, padding: 12, background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 10 },
-reviewCard: { background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 12, padding: 12, marginTop: 10 },
-extraWorkCard: { background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 12, padding: 12, marginTop: 10 },
+  starRow: { display: 'flex', gap: 6, marginTop: 12 },
+  starBtn: { background: 'none', border: 'none', cursor: 'pointer', padding: 2 },
+  reviewPreview: { marginTop: 18, padding: 12, background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 10 },
+  reviewCard: { background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: 12, marginTop: 10 },
+  extraWorkCard: { background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: 12, marginTop: 10 },
 
-convertedTag: { display: ‘flex’, alignItems: ‘center’, gap: 4, fontSize: 10.5, color: ‘#2F7D4F’, fontWeight: 700, marginTop: 5 },
+  convertedTag: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: '#2F7D4F', fontWeight: 700, marginTop: 5 },
 
-previewLinkBtn: { display: ‘flex’, alignItems: ‘center’, gap: 4, background: BRAND.navy, color: ‘#FFF’, border: ‘none’, borderRadius: 20, padding: ‘6px 11px’, fontSize: 11, fontWeight: 700, cursor: ‘pointer’ },
-viewQuoteBtn: { display: ‘flex’, alignItems: ‘center’, justifyContent: ‘center’, gap: 6, width: ‘100%’, background: BRAND.navy, color: ‘#FFF’, border: ‘none’, borderRadius: 10, padding: ‘11px’, fontSize: 12.5, fontWeight: 700, cursor: ‘pointer’, marginTop: 10 },
-estimateStatusBanner: { display: ‘flex’, alignItems: ‘center’, gap: 8, marginTop: 12, padding: ‘10px 12px’, borderRadius: 10, fontSize: 12.5, fontWeight: 700 },
-estItemRow: { display: ‘flex’, alignItems: ‘center’, gap: 8, padding: ‘9px 0’, borderBottom: ‘1px solid #EEF0F5’ },
-estItemNo: { width: 18, fontSize: 11, fontWeight: 700, color: BRAND.textMuted, flexShrink: 0 },
+  previewLinkBtn: { display: 'flex', alignItems: 'center', gap: 4, background: BRAND.navy, color: '#FFF', border: 'none', borderRadius: 20, padding: '6px 11px', fontSize: 11, fontWeight: 700, cursor: 'pointer' },
+  viewQuoteBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', background: BRAND.navy, color: '#FFF', border: 'none', borderRadius: 10, padding: '11px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', marginTop: 10 },
+  estimateStatusBanner: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, padding: '10px 12px', borderRadius: 10, fontSize: 12.5, fontWeight: 700 },
+  estItemRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: '1px solid #EEF0F5' },
+  estItemNo: { width: 18, fontSize: 11, fontWeight: 700, color: BRAND.textMuted, flexShrink: 0 },
 
-quoteDoc: { background: ‘#FFF’, padding: ‘20px 18px 30px’ },
-quoteHeader: { display: ‘flex’, alignItems: ‘center’, gap: 12, paddingBottom: 14, borderBottom: ’2px solid ’ + BRAND.navy },
-quoteBizName: { fontWeight: 800, fontSize: 16, color: BRAND.navy, letterSpacing: -0.2 },
-quoteBlessingLine: { textAlign: ‘center’, fontSize: 12, fontWeight: 700, color: BRAND.gold, marginBottom: 10 },
-quoteDocTitle: { fontSize: 11.5, color: ‘#333B57’, fontWeight: 700, marginTop: 1 },
-quoteBizTagline: { fontSize: 10.5, color: BRAND.gold, fontWeight: 700, marginTop: 1 },
-quoteBizContact: { fontSize: 10.5, color: BRAND.textMuted, marginTop: 3, fontWeight: 600 },
-quoteAddressRow: { padding: ‘8px 0’, borderBottom: ’1px solid ’ + BRAND.line, fontSize: 11.5 },
-quoteCustRow: { display: ‘flex’, justifyContent: ‘space-between’, alignItems: ‘flex-start’, padding: ‘14px 0’, borderBottom: ’1px solid ’ + BRAND.line },
-quoteLabel: { fontSize: 9.5, fontWeight: 800, color: BRAND.gold, textTransform: ‘uppercase’, letterSpacing: 0.5, marginBottom: 3 },
-quoteCustName: { fontSize: 14, fontWeight: 800, color: BRAND.navy },
-quoteCustSub: { fontSize: 11.5, color: ‘#333B57’, marginTop: 1 },
-quoteTableWrap: { overflowX: ‘auto’, marginTop: 14 },
-quoteTable: { width: ‘100%’, borderCollapse: ‘collapse’, fontSize: 11 },
-qth: { textAlign: ‘center’, padding: ‘7px 6px’, background: BRAND.navy, color: ‘#FFF’, fontWeight: 700, fontSize: 10, whiteSpace: ‘nowrap’ },
-qtd: { textAlign: ‘center’, padding: ‘7px 6px’, borderBottom: ’1px solid ’ + BRAND.line, whiteSpace: ‘nowrap’ },
-quoteTotalRow: { display: ‘flex’, justifyContent: ‘space-between’, alignItems: ‘center’, marginTop: 14, padding: ‘12px 14px’, background: BRAND.navy, borderRadius: 8, color: ‘#FFF’ },
-quoteTotalAmt: { fontSize: 17, fontWeight: 800, fontFamily: “‘DM Mono’, monospace” },
-quoteTermsTitle: { fontWeight: 800, fontSize: 13, color: BRAND.navy, marginTop: 22, paddingBottom: 6, borderBottom: ’1px solid ’ + BRAND.line },
-quoteTermSection: { marginTop: 12 },
-quoteTermHeading: { fontWeight: 800, fontSize: 11.5, color: BRAND.navy, marginBottom: 3 },
-quoteTermPoint: { fontSize: 11, color: ‘#333B57’, lineHeight: 1.6, paddingLeft: 4 },
-quoteFooter: { textAlign: ‘center’, fontSize: 12, fontWeight: 700, color: BRAND.gold, marginTop: 22, paddingTop: 14, borderTop: ’1px solid ’ + BRAND.line },
-hintText: { fontSize: 10.5, color: BRAND.textMuted, marginTop: 5, lineHeight: 1.4 },
-liveCalcBox: { display: ‘flex’, flexDirection: ‘column’, gap: 2, background: ‘#F3EFE3’, borderRadius: 8, padding: ‘8px 10px’, marginTop: 8, fontSize: 11.5, color: ‘#5A4E2E’ },
+  quoteDoc: { background: '#FFF', padding: '20px 18px 30px' },
+  quoteHeader: { display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 14, borderBottom: '2px solid ' + BRAND.navy },
+  quoteBizName: { fontWeight: 800, fontSize: 16, color: BRAND.navy, letterSpacing: -0.2 },
+  quoteBlessingLine: { textAlign: 'center', fontSize: 12, fontWeight: 700, color: BRAND.gold, marginBottom: 10 },
+  quoteDocTitle: { fontSize: 11.5, color: '#333B57', fontWeight: 700, marginTop: 1 },
+  quoteBizTagline: { fontSize: 10.5, color: BRAND.gold, fontWeight: 700, marginTop: 1 },
+  quoteBizContact: { fontSize: 10.5, color: BRAND.textMuted, marginTop: 3, fontWeight: 600 },
+  quoteAddressRow: { padding: '8px 0', borderBottom: '1px solid ' + BRAND.line, fontSize: 11.5 },
+  quoteCustRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '14px 0', borderBottom: '1px solid ' + BRAND.line },
+  quoteLabel: { fontSize: 9.5, fontWeight: 800, color: BRAND.gold, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 },
+  quoteCustName: { fontSize: 14, fontWeight: 800, color: BRAND.navy },
+  quoteCustSub: { fontSize: 11.5, color: '#333B57', marginTop: 1 },
+  quoteTableWrap: { overflowX: 'auto', marginTop: 14 },
+  quoteTable: { width: '100%', borderCollapse: 'collapse', fontSize: 11 },
+  qth: { textAlign: 'center', padding: '7px 6px', background: BRAND.navy, color: '#FFF', fontWeight: 700, fontSize: 10, whiteSpace: 'nowrap' },
+  qtd: { textAlign: 'center', padding: '7px 6px', borderBottom: '1px solid ' + BRAND.line, whiteSpace: 'nowrap' },
+  quoteTotalRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, padding: '12px 14px', background: BRAND.navy, borderRadius: 8, color: '#FFF' },
+  quoteTotalAmt: { fontSize: 17, fontWeight: 800, fontFamily: "'DM Mono', monospace" },
+  quoteTermsTitle: { fontWeight: 800, fontSize: 13, color: BRAND.navy, marginTop: 22, paddingBottom: 6, borderBottom: '1px solid ' + BRAND.line },
+  quoteTermSection: { marginTop: 12 },
+  quoteTermHeading: { fontWeight: 800, fontSize: 11.5, color: BRAND.navy, marginBottom: 3 },
+  quoteTermPoint: { fontSize: 11, color: '#333B57', lineHeight: 1.6, paddingLeft: 4 },
+  quoteFooter: { textAlign: 'center', fontSize: 12, fontWeight: 700, color: BRAND.gold, marginTop: 22, paddingTop: 14, borderTop: '1px solid ' + BRAND.line },
+  hintText: { fontSize: 10.5, color: BRAND.textMuted, marginTop: 5, lineHeight: 1.4 },
+  liveCalcBox: { display: 'flex', flexDirection: 'column', gap: 2, background: '#F3EFE3', borderRadius: 8, padding: '8px 10px', marginTop: 8, fontSize: 11.5, color: '#5A4E2E' },
 
-apptCard: { background: BRAND.paper, border: ’1px solid ’ + BRAND.line, borderRadius: 12, padding: 14, marginTop: 10 },
-apptRow: { display: ‘flex’, justifyContent: ‘space-between’, gap: 10, padding: ‘7px 0’, borderBottom: ‘1px solid #EEF0F5’ },
-apptRowLabel: { fontSize: 11.5, color: BRAND.textMuted, fontWeight: 700, flexShrink: 0 },
-apptRowValue: { fontSize: 12.5, color: ‘#333B57’, fontWeight: 600, textAlign: ‘right’ },
-apptConfirmedBlock: { display: ‘flex’, alignItems: ‘center’, gap: 10, background: ‘#DFF0E4’, borderRadius: 10, padding: ‘10px 12px’, margin: ‘8px 0’ },
-apptConfirmedDate: { fontWeight: 800, fontSize: 13.5, color: ‘#1F5C38’ },
+  apptCard: { background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: 14, marginTop: 10 },
+  apptRow: { display: 'flex', justifyContent: 'space-between', gap: 10, padding: '7px 0', borderBottom: '1px solid #EEF0F5' },
+  apptRowLabel: { fontSize: 11.5, color: BRAND.textMuted, fontWeight: 700, flexShrink: 0 },
+  apptRowValue: { fontSize: 12.5, color: '#333B57', fontWeight: 600, textAlign: 'right' },
+  apptConfirmedBlock: { display: 'flex', alignItems: 'center', gap: 10, background: '#DFF0E4', borderRadius: 10, padding: '10px 12px', margin: '8px 0' },
+  apptConfirmedDate: { fontWeight: 800, fontSize: 13.5, color: '#1F5C38' },
 
-toast: { position: ‘fixed’, bottom: 90, left: ‘50%’, transform: ‘translateX(-50%)’, color: ‘#FFF’, padding: ‘9px 18px’, borderRadius: 20, fontSize: 12.5, fontWeight: 700, zIndex: 60, maxWidth: ‘85%’, textAlign: ‘center’ },
+  toast: { position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)', color: '#FFF', padding: '9px 18px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, zIndex: 60, maxWidth: '85%', textAlign: 'center' },
 };
