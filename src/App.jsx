@@ -145,7 +145,15 @@ points: [‘Given prices are tentative’, ‘Final quotation may change after d
 ];
 
 function jobTotal(job) {
-return (job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0);
+const itemsTotal = (job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0);
+// Customer-approved extra work is money the customer has explicitly
+// agreed to pay, on top of the original estimate - it belongs in the
+// payable total the same way an estimate line does. Pending or
+// rejected extra work items are excluded: nothing is owed for a
+// request still awaiting a price, awaiting the customer’s decision, or
+// one they turned down.
+const approvedExtraWork = (job.extraWork || []).filter((e) => e.status === ‘approved’).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+return itemsTotal + approvedExtraWork;
 }
 function jobPaid(job) {
 return (job.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
@@ -885,6 +893,27 @@ showToast={showToast}
 );
 }
 
+if (session.role === ‘karigar’) {
+const myStaffId = staff.find((s) => s.name === session.staffName)?.id;
+const myJobs = jobs.filter((j) => j.assignedStaffId === myStaffId);
+return (
+<div style={styles.app}>
+<style>{fontImport}</style>
+<KarigarApp
+jobs={myJobs}
+staffName={session.staffName}
+onSaveJob={(j) => {
+if (!myJobs.some((jj) => jj.id === j.id)) return; // guard: only ever write a job assigned to this karigar
+persistJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)));
+}}
+onLogout={() => setSession(null)}
+showToast={showToast}
+/>
+<ToastEl toast={toast} />
+</div>
+);
+}
+
 // –– CUSTOMER SESSION ––
 // Strict isolation: a customer session only ever resolves ITS OWN customer
 // record and the ONE job row whose customerId matches the logged-in id.
@@ -937,6 +966,19 @@ testimonials={featuredTestimonials}
 onSaveJob={(j) => {
 if (j.customerId !== myCustomerId) return; // guard: never allow writing another customer’s job
 const prevJob = jobs.find((jj) => jj.id === j.id) || null;
+// Customer approving the estimate is the real-world signal that
+// work is starting - auto-advancing status here means admin
+// doesn’t have to remember a separate manual step every time a
+// customer approves, which is exactly the kind of small gap
+// that causes a job’s status to silently fall out of sync with
+// what’s actually happening. Only fires on the transition into
+// ‘approved’ (not already in_progress or further along), and
+// never moves status backward if admin has already progressed
+// it past ‘estimate’ for some other reason.
+const justApproved = j.estimateStatus === ‘approved’ && prevJob?.estimateStatus !== ‘approved’;
+if (justApproved && (j.status === ‘appointment’ || j.status === ‘estimate’)) {
+j = { …j, status: ‘in_progress’ };
+}
 const exists = !!prevJob;
 const next = exists ? jobs.map((jj) => (jj.id === j.id ? j : jj)) : [j, …jobs];
 persistJobs(next);
@@ -960,6 +1002,25 @@ pushNotification(‘estimate_approved’, j.customerName + ’ ne estimate appro
 pushNotification(‘estimate_change_request’, j.customerName + ’ ne estimate mein change maanga hai’, j.id);
 } else if (j.estimateStatus === ‘cancelled’) {
 pushNotification(‘estimate_cancelled’, j.customerName + ’ ne estimate cancel kar diya’, j.id);
+}
+}
+// Extra work: customer requesting new extra work (no price yet)
+// needs admin’s attention to set a price; a customer’s
+// approve/reject of an already-priced item needs admin to know
+// the outcome. Diffs each entry against the previous job state
+// by id, so only genuinely new/changed entries fire - editing
+// unrelated job fields never re-triggers these.
+const prevExtraWork = prevJob?.extraWork || [];
+for (const item of (j.extraWork || [])) {
+const prevItem = prevExtraWork.find((p) => p.id === item.id);
+if (!prevItem && item.status === ‘pending_admin_price’) {
+pushNotification(‘extra_work_requested’, j.customerName + ’ ne extra kaam request kiya: ’ + item.desc, j.id);
+} else if (prevItem && prevItem.status !== item.status) {
+if (item.status === ‘approved’) {
+pushNotification(‘extra_work_approved’, j.customerName + ’ ne extra kaam approve kiya: ’ + item.desc + ’ - Naya total: ’ + currency(jobTotal(j)), j.id);
+} else if (item.status === ‘rejected’) {
+pushNotification(‘extra_work_rejected’, j.customerName + ’ ne extra kaam reject kiya: ’ + item.desc, j.id);
+}
 }
 }
 }}
@@ -1018,7 +1079,9 @@ const c = s[i];
 if ((c >= ‘0’ && c <= ‘9’) || c === ‘+’ || c === ’ ’) r += c;
 }
 return r;
-}function normalizeIndianPhone(raw) {
+}
+
+function normalizeIndianPhone(raw) {
 let digits = digitsOnly(raw);
 if (digits.length === 12 && digits.startsWith(‘91’)) digits = digits.slice(2);
 else if (digits.length === 11 && digits.startsWith(‘0’)) digits = digits.slice(1);
@@ -1034,8 +1097,7 @@ if (!digits10 || digits10.length !== 10) return digits10 || ‘’;
 return ’+91 ’ + digits10.slice(0, 5) + ’ ’ + digits10.slice(5);
 }
 
-function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
-const [mode, setMode] = useState(‘choose’);
+function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {const [mode, setMode] = useState(‘choose’);
 const [name, setName] = useState(’’);
 const [phone, setPhone] = useState(’’);
 const [pin, setPin] = useState(’’);
@@ -1095,7 +1157,7 @@ const doAdmin = () => {
 if (pin === adminPin) { onAdminLogin(‘Admin’, ‘admin’); return; }
 if (partnerPin && pin === partnerPin) { onAdminLogin(‘Partner’, ‘partner’); return; }
 const staffMatch = (staff || []).find((s) => s.pin === pin);
-if (staffMatch) { onAdminLogin(staffMatch.name, ‘admin’); return; }
+if (staffMatch) { onAdminLogin(staffMatch.name, staffMatch.role === ‘karigar’ ? ‘karigar’ : ‘admin’); return; }
 setError(‘Galat PIN’);
 };
 
@@ -1206,8 +1268,12 @@ estimate_change_request: { icon: ‘MessageSquare’, label: ‘Estimate Change 
 estimate_cancelled: { icon: ‘XCircle’, label: ‘Estimate Cancelled’ },
 payment_received: { icon: ‘IndianRupee’, label: ‘Payment Received’ },
 payment_due: { icon: ‘AlertCircle’, label: ‘Payment Due’ },
+extra_work_requested: { icon: ‘Hammer’, label: ‘Extra Work Requested’ },
+extra_work_needs_price: { icon: ‘Hammer’, label: ‘Extra Work Needs Price’ },
+extra_work_approved: { icon: ‘ThumbsUp’, label: ‘Extra Work Approved’ },
+extra_work_rejected: { icon: ‘XCircle’, label: ‘Extra Work Rejected’ },
 };
-const NOTIFICATION_ICONS = { Calendar, CheckCircle2, ThumbsUp, MessageSquare, XCircle, IndianRupee, AlertCircle };
+const NOTIFICATION_ICONS = { Calendar, CheckCircle2, ThumbsUp, MessageSquare, XCircle, IndianRupee, AlertCircle, Hammer };
 
 function NotificationBell({ notifications, viewerKey, onOpenJob, onMarkRead, onMarkAllRead }) {
 const [open, setOpen] = useState(false);
@@ -1325,7 +1391,13 @@ return (
 /* ===================== CUSTOMER APP ===================== */
 /* Everything below receives ONLY this one customer’s data - never a list of others. */
 function CustomerApp({ customer, gallery, job, appointmentItemOptions, categories, brochures, testimonials, onSaveJob, onLogout, showToast }) {
-const [tab, setTab] = useState(‘home’);
+// A brand-new customer (no appointment booked yet) lands straight on
+// the appointment tab instead of home, since booking a visit is the
+// one thing every new customer needs to do first - skipping this extra
+// navigation step removes a whole separate “now go find the booking
+// tab” step right after registration. Existing customers with an
+// appointment already on file still land on home as before.
+const [tab, setTab] = useState(job.appointment ? ‘home’ : ‘appointment’);
 
 return (
 <div style={{ paddingBottom: 74 }}>
@@ -1919,6 +1991,34 @@ status === ‘change_requested’ ? ‘Change request bhej di gayi’ :
 );
 };
 
+// Extra work: mid-project additions not in the original estimate.
+// Customer-initiated requests carry no price (admin sets it), so they
+// start in ‘pending_admin_price’; once priced, or when admin adds one
+// directly with an amount already set, it moves to
+// ‘pending_customer_approval’ - the customer must explicitly approve
+// before it’s treated as agreed extra cost, same principle as the
+// main estimate approval flow above.
+const [showExtraWorkForm, setShowExtraWorkForm] = useState(false);
+const [extraWorkDesc, setExtraWorkDesc] = useState(’’);
+const extraWork = job.extraWork || [];
+
+const requestExtraWork = () => {
+if (!extraWorkDesc.trim()) return;
+const entry = { id: uid(), desc: extraWorkDesc.trim(), amount: null, addedBy: ‘customer’, status: ‘pending_admin_price’, createdAt: new Date().toISOString() };
+let next = { …job, extraWork: [entry, …extraWork] };
+next = logActivity(next, ‘Customer ne extra kaam request kiya: ’ + entry.desc);
+onSave(next);
+setExtraWorkDesc(’’);
+setShowExtraWorkForm(false);
+showToast(‘Extra kaam request bhej di gayi - admin price set karega’);
+};
+
+const respondToExtraWork = (item, approve) => {
+const next = { …job, extraWork: extraWork.map((e) => (e.id === item.id ? { …e, status: approve ? ‘approved’ : ‘rejected’, respondedAt: new Date().toISOString() } : e)) };
+onSave(logActivity(next, ’Customer ne extra kaam ’ + (approve ? ‘approve’ : ‘reject’) + ’ kiya: ’ + item.desc));
+showToast(approve ? ‘Extra kaam approve ho gaya’ : ‘Extra kaam reject kar diya gaya’);
+};
+
 return (
 <div style={{ padding: ‘12px 16px’ }}>
 <div style={styles.sectionTitle}>Work Progress</div>
@@ -1941,6 +2041,63 @@ return (
 </div>
 
 ```
+  {(job.status === 'in_progress' || job.status === 'delivered' || extraWork.length > 0) && (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={styles.fieldLabel}>Extra Kaam (Original estimate se alag)</div>
+        {job.status === 'in_progress' && !showExtraWorkForm && (
+          <button style={styles.linkBtn2} onClick={() => setShowExtraWorkForm(true)}>+ Request Extra Work</button>
+        )}
+      </div>
+
+      {showExtraWorkForm && (
+        <div style={styles.formCard}>
+          <textarea style={{ ...styles.input, minHeight: 60 }} placeholder='Kya extra kaam chahiye, likhein...' value={extraWorkDesc} onChange={(e) => setExtraWorkDesc(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={requestExtraWork}>Bhejein</button>
+            <button style={styles.cancelBtn} onClick={() => setShowExtraWorkForm(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {extraWork.length === 0 && !showExtraWorkForm && (
+        <div style={styles.emptySmall}>Koi extra kaam nahi hai abhi.</div>
+      )}
+      {extraWork.map((e) => (
+        <div key={e.id} style={styles.extraWorkCard}>
+          <div style={styles.itemDesc}>{e.desc}</div>
+          <div style={styles.itemSub}>
+            {e.addedBy === 'admin' ? 'Admin ne add kiya' : 'Aapne request kiya'} - {formatDate(e.createdAt)}
+          </div>
+          {e.status === 'pending_admin_price' && (
+            <div style={{ ...styles.estimateStatusBanner, background: '#FFF3E0', color: '#E65100', marginTop: 8 }}>
+              <AlertCircle size={14} /> Admin price set karega, phir approval ke liye aayega.
+            </div>
+          )}
+          {e.status === 'pending_customer_approval' && (
+            <>
+              <div style={styles.itemAmount}>{currency(e.amount)}</div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => respondToExtraWork(e, true)}><ThumbsUp size={13} /> Approve</button>
+                <button style={{ ...styles.cancelBtn, flex: 1, background: '#FFEBEE', color: '#C62828' }} onClick={() => respondToExtraWork(e, false)}><XCircle size={13} /> Reject</button>
+              </div>
+            </>
+          )}
+          {e.status === 'approved' && (
+            <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
+              <ThumbsUp size={14} /> Approved - {currency(e.amount)}
+            </div>
+          )}
+          {e.status === 'rejected' && (
+            <div style={{ ...styles.estimateStatusBanner, background: '#FFEBEE', color: '#C62828', marginTop: 8 }}>
+              <XCircle size={14} /> Reject kar diya gaya
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )}
+
   {total > 0 && (
     <div style={styles.payStrip}>
       <MoneyBit label='Total' value={currency(total)} />
@@ -2058,9 +2215,9 @@ return (
 }
 
 /* –– Review panel –– */
-function ReviewPanel({ job, onSave, showToast }) {const [rating, setRating] = useState(job.review?.rating || 0);
-const [hoverRating, setHoverRating] = useState(0);
-const [text, setText] = useState(job.review?.text || ‘’);
+function ReviewPanel({ job, onSave, showToast }) {
+const [rating, setRating] = useState(job.review?.rating || 0);
+const [hoverRating, setHoverRating] = useState(0);const [text, setText] = useState(job.review?.text || ‘’);
 
 const submit = () => {
 if (!rating) { showToast(‘Rating select karein’, true); return; }
@@ -2101,6 +2258,69 @@ return (
 }
 
 /* ===================== ADMIN APP ===================== */
+/* –– Karigar (worker) app: deliberately minimal - a karigar only ever
+sees jobs explicitly assigned to them (see App’s session routing above,
+which filters by assignedStaffId before this component even receives
+the list), and only progress-photo upload plus a read-only status view.
+No customer contact details, no pricing, no payments - none of that is
+this role’s business, so it’s never passed in at all rather than
+merely hidden in the UI. –– */
+function KarigarApp({ jobs, staffName, onSaveJob, onLogout, showToast }) {
+const [activeJobId, setActiveJobId] = useState(null);
+const activeJob = jobs.find((j) => j.id === activeJobId);
+
+const addPhoto = (job, url, origUrl, caption) => {
+let next = { …job, progressPhotos: […(job.progressPhotos || []), { id: uid(), url, origUrl, caption, date: new Date().toISOString() }] };
+next = logActivity(next, ’Progress photo added by ’ + staffName);
+onSaveJob(next);
+showToast(‘Photo add ho gayi’);
+};
+const removePhoto = (job, photoId) => {
+onSaveJob({ …job, progressPhotos: (job.progressPhotos || []).filter((p) => p.id !== photoId) });
+};
+
+if (activeJob) {
+return (
+<div style={{ paddingBottom: 20 }}>
+<TopBar title={activeJob.customerName} subtitle={STATUS[activeJob.status]?.label || activeJob.status} onLogout={onLogout} onBack={() => setActiveJobId(null)} />
+<div style={{ padding: ‘12px 16px’ }}>
+<div style={styles.sectionTitle}>Progress Photos</div>
+<div style={styles.photoGrid}>
+{(activeJob.progressPhotos || []).map((p) => (
+<div key={p.id} style={styles.progressPhotoCard}>
+<SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption} style={styles.photoImg} />
+<button style={styles.photoDeleteBtn} onClick={() => removePhoto(activeJob, p.id)}><Trash2 size={12} color='#FFF' /></button>
+</div>
+))}
+</div>
+<div style={{ marginTop: 10 }}>
+<PhotoAddPanel addLabel=‘Add progress photo’ showToast={showToast} onAdd={({ url, origUrl, caption }) => addPhoto(activeJob, url, origUrl, caption)} />
+</div>
+</div>
+</div>
+);
+}
+
+return (
+<div style={{ paddingBottom: 20 }}>
+<TopBar title=‘Karigar Panel’ subtitle={’Logged in as ’ + staffName} onLogout={onLogout} />
+<div style={{ padding: ‘12px 16px’ }}>
+<div style={styles.sectionTitle}>Aapke assigned kaam ({jobs.length})</div>
+{jobs.length === 0 && <div style={styles.emptySmall}>Abhi koi kaam assign nahi hua hai.</div>}
+{jobs.map((j) => (
+<button key={j.id} style={styles.miniRowClickArea} onClick={() => setActiveJobId(j.id)}>
+<div style={{ flex: 1, textAlign: ‘left’ }}>
+<div style={styles.itemDesc}>{j.customerName}</div>
+<div style={styles.itemSub}>{STATUS[j.status]?.label || j.status} - {(j.progressPhotos || []).length} photos</div>
+</div>
+<ChevronRight size={16} color='#C7CCDC' />
+</button>
+))}
+</div>
+</div>
+);
+}
+
 function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, allData, staffName, isPartner, onLogout, showToast }) {
 const [tab, setTab] = useState(‘home’);
 const [activeJobId, setActiveJobId] = useState(null);
@@ -2114,7 +2334,7 @@ if (activeJob) {
 return (
 <div style={{ paddingBottom: 20 }}>
 <TopBar title={activeJob.customerName} subtitle={isPartner ? ‘Partner - Job detail’ : ‘Admin - Job detail’} onLogout={onLogout} onBack={() => setActiveJobId(null)} />
-<AdminJobDetail job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} />
+<AdminJobDetail job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} />
 </div>
 );
 }
@@ -2724,14 +2944,18 @@ return (
 );
 }
 
-function AdminJobDetail({ job, onSave, showToast }) {
+function AdminJobDetail({ job, onSave, showToast, staff }) {
 const [tab, setTab] = useState(‘status’);
 const [newItem, setNewItem] = useState({ desc: ‘’, length: ‘’, height: ‘’, qty: ‘1’, rate: ‘’ });
 const [newPayment, setNewPayment] = useState({ amount: ‘’, note: ‘’ });
+const [newExtraWork, setNewExtraWork] = useState({ desc: ‘’, amount: ‘’ });
+const [pricingId, setPricingId] = useState(null);
+const [priceInput, setPriceInput] = useState(’’);
 
 const total = jobTotal(job);
 const paid = jobPaid(job);
 const due = jobDue(job);
+const extraWork = job.extraWork || [];
 
 const updateStatus = (status) => {
 let next = { …job, status };
@@ -2771,6 +2995,28 @@ showToast(‘Payment recorded’);
 };
 const removePayment = (id) => onSave({ …job, payments: job.payments.filter((p) => p.id !== id) });
 
+// Admin adding extra work directly (with a price already known) skips
+// straight to pending_customer_approval, since there’s no price gap to
+// fill - unlike a customer-initiated request, which starts priceless.
+const addExtraWork = () => {
+if (!newExtraWork.desc.trim() || !newExtraWork.amount) { showToast(‘Description aur amount daalein’, true); return; }
+const entry = { id: uid(), desc: newExtraWork.desc.trim(), amount: newExtraWork.amount, addedBy: ‘admin’, status: ‘pending_customer_approval’, createdAt: new Date().toISOString() };
+let next = { …job, extraWork: [entry, …extraWork] };
+next = logActivity(next, ‘Extra work added: ’ + entry.desc + ’ (’ + currency(entry.amount) + ‘)’);
+onSave(next);
+setNewExtraWork({ desc: ‘’, amount: ‘’ });
+showToast(‘Extra work added, customer approval ke liye bheja gaya’);
+};
+const setExtraWorkPrice = (item) => {
+if (!priceInput) return;
+const next = { …job, extraWork: extraWork.map((e) => (e.id === item.id ? { …e, amount: priceInput, status: ‘pending_customer_approval’ } : e)) };
+onSave(logActivity(next, ‘Extra work priced: ’ + item.desc + ’ (’ + currency(priceInput) + ‘)’));
+setPricingId(null);
+setPriceInput(’’);
+showToast(‘Price set, customer approval ke liye bheja gaya’);
+};
+const removeExtraWork = (id) => onSave({ …job, extraWork: extraWork.filter((e) => e.id !== id) });
+
 const addPhotoFromPanel = (url, origUrl, caption) => {
 let next = { …job, progressPhotos: […(job.progressPhotos || []), { id: uid(), url, origUrl, caption, date: new Date().toISOString() }] };
 next = logActivity(next, ‘New progress photo added’);
@@ -2785,6 +3031,7 @@ return (
 <TabBtn active={tab === ‘appointment’} onClick={() => setTab(‘appointment’)} label=‘Appointment’ />
 <TabBtn active={tab === ‘status’} onClick={() => setTab(‘status’)} label=‘Status’ />
 <TabBtn active={tab === ‘estimate’} onClick={() => setTab(‘estimate’)} label=‘Estimate’ />
+<TabBtn active={tab === ‘extrawork’} onClick={() => setTab(‘extrawork’)} label=‘Extra Work’ />
 <TabBtn active={tab === ‘payment’} onClick={() => setTab(‘payment’)} label=‘Payment’ />
 <TabBtn active={tab === ‘req’} onClick={() => setTab(‘req’)} label=‘Requirements’ />
 <TabBtn active={tab === ‘photos’} onClick={() => setTab(‘photos’)} label=‘Progress’ />
@@ -2812,11 +3059,67 @@ return (
             );
           })}
         </div>
+
+        {staff && staff.some((s) => s.role === 'karigar') && (
+          <div style={{ marginTop: 16 }}>
+            <div style={styles.fieldLabel}>Karigar assign karein</div>
+            <select style={styles.input} value={job.assignedStaffId || ''} onChange={(e) => onSave({ ...job, assignedStaffId: e.target.value || null })}>
+              <option value=''>Koi assign nahi</option>
+              {staff.filter((s) => s.role === 'karigar').map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+        )}
       </div>
     )}
 
     {tab === 'estimate' && (
       <AdminEstimateTab job={job} newItem={newItem} setNewItem={setNewItem} addItem={addItem} updateItem={updateItem} removeItem={removeItem} total={total} />
+    )}
+
+    {tab === 'extrawork' && (
+      <div>
+        <div style={styles.fieldLabel}>Naya extra work add karein</div>
+        <div style={styles.formCard}>
+          <input style={styles.input} placeholder='Kya kaam hai' value={newExtraWork.desc} onChange={(e) => setNewExtraWork((n) => ({ ...n, desc: e.target.value }))} />
+          <input style={{ ...styles.input, marginTop: 8 }} placeholder='Amount ₹' inputMode='decimal' value={newExtraWork.amount} onChange={(e) => setNewExtraWork((n) => ({ ...n, amount: e.target.value }))} />
+          <button style={styles.addBtn} onClick={addExtraWork}><Plus size={14} /> Add extra work</button>
+        </div>
+
+        <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Extra work history ({extraWork.length})</div>
+        {extraWork.length === 0 && <div style={styles.emptySmall}>Koi extra work nahi hai.</div>}
+        {extraWork.map((e) => (
+          <div key={e.id} style={styles.extraWorkCard}>
+            <div style={styles.itemDesc}>{e.desc}</div>
+            <div style={styles.itemSub}>{e.addedBy === 'admin' ? 'Aapne add kiya' : 'Customer ne request kiya'} - {formatDate(e.createdAt)}</div>
+
+            {e.status === 'pending_admin_price' && pricingId !== e.id && (
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => { setPricingId(e.id); setPriceInput(''); }}>Price set karein</button>
+            )}
+            {pricingId === e.id && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input style={{ ...styles.input, flex: 1 }} placeholder='Amount ₹' inputMode='decimal' value={priceInput} onChange={(ev) => setPriceInput(ev.target.value)} />
+                <button style={{ ...styles.primaryBtn2, marginTop: 0 }} onClick={() => setExtraWorkPrice(e)}>Save</button>
+              </div>
+            )}
+            {e.status === 'pending_customer_approval' && (
+              <div style={{ ...styles.estimateStatusBanner, background: '#FFF3E0', color: '#E65100', marginTop: 8 }}>
+                <AlertCircle size={14} /> Customer approval ka wait hai - {currency(e.amount)}
+              </div>
+            )}
+            {e.status === 'approved' && (
+              <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
+                <ThumbsUp size={14} /> Approved - {currency(e.amount)}
+              </div>
+            )}
+            {e.status === 'rejected' && (
+              <div style={{ ...styles.estimateStatusBanner, background: '#FFEBEE', color: '#C62828', marginTop: 8 }}>
+                <XCircle size={14} /> Customer ne reject kiya
+              </div>
+            )}
+            <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => removeExtraWork(e.id)}><Trash2 size={12} /> Remove</button>
+          </div>
+        ))}
+      </div>
     )}
 
     {tab === 'payment' && (
@@ -2830,20 +3133,28 @@ return (
         {total > 0 && (
           <div style={{ marginTop: 14 }}>
             <div style={styles.fieldLabel}>Payment Milestones (50 / 40 / 10)</div>
-            {jobMilestoneStatus(job).map((m) => (
-              <div key={m.key} style={styles.milestoneRow}>
-                <div style={{ flex: 1 }}>
-                  <div style={styles.itemDesc}>{m.label}</div>
-                  <div style={styles.itemSub}>
-                    {!m.reached ? ('Upcoming - ' + currency(m.amount)) :
-                     m.due > 0 ? ('Due now - ' + currency(m.due) + ' (of ' + currency(m.amount) + ')') :
-                     ('Collected - ' + currency(m.amount))}
+            {jobMilestoneStatus(job).map((m) => {
+              const reminderText = 'Namaste ' + job.customerName + ', aapka ' + m.label + ' payment due hai: ' + currency(m.due) + '. Shree Krushn PVC Furniture.';
+              const reminderUrl = whatsAppShareUrl(job.phone, reminderText);
+              return (
+                <div key={m.key} style={styles.milestoneRow}>
+                  <div style={{ flex: 1 }}>
+                    <div style={styles.itemDesc}>{m.label}</div>
+                    <div style={styles.itemSub}>
+                      {!m.reached ? ('Upcoming - ' + currency(m.amount)) :
+                       m.due > 0 ? ('Due now - ' + currency(m.due) + ' (of ' + currency(m.amount) + ')') :
+                       ('Collected - ' + currency(m.amount))}
+                    </div>
                   </div>
+                  {m.reached && m.due === 0 && <CheckCircle2 size={16} color='#2F7D4F' />}
+                  {m.reached && m.due > 0 && (
+                    <a href={reminderUrl} target='_blank' rel='noopener noreferrer' style={styles.waReminderBtn}>
+                      <Send size={13} /> Remind
+                    </a>
+                  )}
                 </div>
-                {m.reached && m.due === 0 && <CheckCircle2 size={16} color='#2F7D4F' />}
-                {m.reached && m.due > 0 && <AlertCircle size={16} color='#B5562E' />}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -3025,9 +3336,7 @@ setUploading(false);
 setUploadProgress(null);
 };
 
-const removePending = (idx) => setPendingUploads((prev) => prev.filter((_, i) => i !== idx));
-
-const confirmUploads = () => {
+const removePending = (idx) => setPendingUploads((prev) => prev.filter((_, i) => i !== idx));const confirmUploads = () => {
 if (pendingUploads.length === 0) return;
 // A single shared caption applies to every photo in this batch -
 // captions can still be edited individually afterward from the
@@ -3100,7 +3409,7 @@ return (
       )}
     </div>
   )}
-``````
+
   {mode === 'link' && (
     <div style={{ marginTop: 12 }}>
       <PhotoUrlInput value={linkValue} onChange={setLinkValue} placeholder='Image URL ya Google Drive link paste karein' />
@@ -3544,6 +3853,7 @@ const [next2, setNext2] = useState(’’);
 const [error, setError] = useState(’’);
 const [newStaffName, setNewStaffName] = useState(’’);
 const [newStaffPin, setNewStaffPin] = useState(’’);
+const [newStaffRole, setNewStaffRole] = useState(‘admin’);
 const [staffError, setStaffError] = useState(’’);
 const [newPartnerPin, setNewPartnerPin] = useState(’’);
 const [partnerPinError, setPartnerPinError] = useState(’’);
@@ -3562,8 +3872,8 @@ if (!newStaffName.trim()) { setStaffError(‘Staff ka naam daalein’); return; 
 if (newStaffPin.length < 4) { setStaffError(‘PIN kam se kam 4 digit ka ho’); return; }
 const allPins = [adminPin, partnerPin, …staff.map((s) => s.pin)].filter(Boolean);
 if (allPins.includes(newStaffPin)) { setStaffError(‘Ye PIN pehle se use ho raha hai - alag PIN chunein’); return; }
-setStaff([…staff, { id: uid(), name: newStaffName.trim(), pin: newStaffPin, createdAt: new Date().toISOString() }]);
-setNewStaffName(’’); setNewStaffPin(’’); setStaffError(’’);
+setStaff([…staff, { id: uid(), name: newStaffName.trim(), pin: newStaffPin, role: newStaffRole, createdAt: new Date().toISOString() }]);
+setNewStaffName(’’); setNewStaffPin(’’); setNewStaffRole(‘admin’); setStaffError(’’);
 showToast(‘Staff member add ho gaya’);
 };
 const removeStaff = (id) => {
@@ -3694,13 +4004,13 @@ return (
       <Users size={16} color={BRAND.gold} />
       <div style={{ fontWeight: 800, fontSize: 14 }}>Staff Logins</div>
     </div>
-    <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Team members ko alag PIN dein taaki wo bhi admin panel access kar sakein.</div>
+    <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Team members ko alag PIN dein taaki wo bhi access kar sakein.</div>
 
     {staff.length === 0 && <div style={styles.emptySmall}>Abhi koi staff member add nahi kiya.</div>}
     {staff.map((s) => (
       <div key={s.id} style={styles.staffRow}>
         <div style={{ flex: 1 }}>
-          <div style={styles.itemDesc}>{s.name}</div>
+          <div style={styles.itemDesc}>{s.name} <span style={styles.reqCatBadge}>{s.role === 'karigar' ? 'Karigar' : 'Admin'}</span></div>
           <div style={styles.itemSub}>PIN: {s.pin}</div>
         </div>
         <button style={styles.iconBtnSmall} onClick={() => removeStaff(s.id)}><Trash2 size={14} color='#C7CCDC' /></button>
@@ -3710,6 +4020,10 @@ return (
     <div style={{ marginTop: 10 }}>
       <input style={styles.input} placeholder='Staff member ka naam' value={newStaffName} onChange={(e) => { setNewStaffName(e.target.value); setStaffError(''); }} />
       <input style={{ ...styles.input, marginTop: 8 }} placeholder='PIN set karein (4+ digit)' inputMode='numeric' type='password' value={newStaffPin} onChange={(e) => { setNewStaffPin(e.target.value); setStaffError(''); }} />
+      <div style={styles.chipRow}>
+        <button onClick={() => setNewStaffRole('admin')} style={{ ...styles.chip, ...(newStaffRole === 'admin' ? styles.chipActive : {}) }}>Admin Access</button>
+        <button onClick={() => setNewStaffRole('karigar')} style={{ ...styles.chip, ...(newStaffRole === 'karigar' ? styles.chipActive : {}) }}>Karigar (sirf assigned kaam)</button>
+      </div>
       {staffError && <div style={styles.errorText}>{staffError}</div>}
       <button style={styles.addBtn} onClick={addStaff}><UserPlus size={14} /> Add staff login</button>
     </div>
@@ -4056,6 +4370,7 @@ currentTag: { marginLeft: ‘auto’, fontSize: 9.5, fontWeight: 800, color: ‘
 
 itemRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, padding: ‘9px 0’, borderBottom: ‘1px solid #EEF0F5’ },
 milestoneRow: { display: ‘flex’, alignItems: ‘center’, gap: 10, padding: ‘9px 10px’, background: BRAND.paper, borderRadius: 10, marginTop: 6 },
+waReminderBtn: { display: ‘flex’, alignItems: ‘center’, gap: 4, background: ‘#25D366’, color: ‘#FFF’, textDecoration: ‘none’, borderRadius: 8, padding: ‘6px 10px’, fontSize: 11, fontWeight: 700, whiteSpace: ‘nowrap’ },
 itemDesc: { fontSize: 13.5, fontWeight: 700 },
 itemSub: { fontSize: 11.5, color: BRAND.textMuted, marginTop: 1 },
 itemAmount: { fontSize: 13, fontWeight: 800, fontFamily: “‘DM Mono’, monospace” },
@@ -4087,6 +4402,7 @@ starRow: { display: ‘flex’, gap: 6, marginTop: 12 },
 starBtn: { background: ‘none’, border: ‘none’, cursor: ‘pointer’, padding: 2 },
 reviewPreview: { marginTop: 18, padding: 12, background: BRAND.paper, border: `1px solid ${BRAND.line}`, borderRadius: 10 },
 reviewCard: { background: BRAND.paper, border: `1px solid ${BRAND.line}`, borderRadius: 12, padding: 12, marginTop: 10 },
+extraWorkCard: { background: BRAND.paper, border: `1px solid ${BRAND.line}`, borderRadius: 12, padding: 12, marginTop: 10 },
 
 convertedTag: { display: ‘flex’, alignItems: ‘center’, gap: 4, fontSize: 10.5, color: ‘#2F7D4F’, fontWeight: 700, marginTop: 5 },
 
