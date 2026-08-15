@@ -1174,13 +1174,16 @@ function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, 
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
 
-  // OTP verification state - shared by both register and login flows.
-  // confirmationResult holds the object Firebase returns after sending
-  // the SMS, which verifyOtp needs to check the code the user types
-  // against - unlike the old demo flow, the correct code is never known
-  // to this code at all, only to Firebase and the user's phone.
+  // Demo-mode OTP: shows the generated code directly on screen instead of
+  // sending a real SMS, since Firebase Phone Auth SMS requires the Blaze
+  // (pay-as-you-go) plan - the project is currently on the free Spark
+  // plan, where every real sendOtp call fails. This keeps registration
+  // and login working for customers right now; swapping back to
+  // window.phoneAuth.sendOtp/verifyOtp once Blaze is active only needs
+  // this block replaced, everything else (UI, screens, flow) stays the
+  // same either way.
   const [otpStage, setOtpStage] = useState(false); // false | 'register' | 'login'
-  const [confirmationResult, setConfirmationResult] = useState(null);
+  const [sentOtp, setSentOtp] = useState('');
   const [otpInput, setOtpInput] = useState('');
   const [pendingPhone, setPendingPhone] = useState('');
   const [sendingOtp, setSendingOtp] = useState(false);
@@ -1197,24 +1200,17 @@ function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, 
       const existing = customers.find((c) => c.phone === normalized);
       if (existing) { onCustomerLogin(existing.id); return; }
     }
-    setSendingOtp(true);
-    setError('');
-    const result = await window.phoneAuth.sendOtp('+91' + normalized, 'recaptcha-container');
-    setSendingOtp(false);
-    if (!result) {
-      setError('OTP bhej nahi paye - service abhi available nahi hai. Thodi der baad try karein ya admin se contact karein.');
-      return;
-    }
-    setConfirmationResult(result);
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    setSentOtp(code);
     setPendingPhone(normalized);
     setOtpInput('');
+    setError('');
     setOtpStage(forMode);
   };
 
   const verifyOtp = async () => {
     if (!otpInput.trim()) { setError('OTP daalein'); return; }
-    const user = await window.phoneAuth.verifyOtp(confirmationResult, otpInput.trim());
-    if (!user) { setError('Galat OTP - dobara check karein'); return; }
+    if (otpInput.trim() !== sentOtp) { setError('Galat OTP - dobara check karein'); return; }
     if (otpStage === 'register') {
       onRegister({ id: uid(), name: name.trim(), phone: pendingPhone, phoneVerified: true, referredBy: referredBy.trim() || null, createdAt: new Date().toISOString() });
     } else {
@@ -1224,18 +1220,15 @@ function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, 
   };
 
   const resendOtp = async () => {
-    setSendingOtp(true);
-    setError('');
-    const result = await window.phoneAuth.sendOtp('+91' + pendingPhone, 'recaptcha-container');
-    setSendingOtp(false);
-    if (!result) { setError('OTP dobara bhej nahi paye - thodi der baad try karein.'); return; }
-    setConfirmationResult(result);
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    setSentOtp(code);
     setOtpInput('');
+    setError('');
   };
 
   const backFromOtp = () => {
     setOtpStage(false);
-    setConfirmationResult(null);
+    setSentOtp('');
     setOtpInput('');
     setError('');
   };
@@ -1262,6 +1255,10 @@ function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, 
         <div style={styles.loginCard}>
           <div style={styles.fieldLabel}>Verify OTP</div>
           <div style={styles.plainTextMuted}>{formatPhoneDisplay(pendingPhone)} par bheja gaya code daalein</div>
+          <div style={styles.otpDemoBox}>
+            <AlertTriangle size={13} color='#B5562E' />
+            <span>Demo mode - real SMS nahi jaata. Aapka OTP: <b>{sentOtp}</b></span>
+          </div>
           <input
             style={{ ...styles.input, marginTop: 10, textAlign: 'center', fontSize: 20, letterSpacing: 6, fontWeight: 800 }}
             value={otpInput}
@@ -1273,15 +1270,10 @@ function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, 
           />
           {error && <div style={styles.errorText}>{error}</div>}
           <button style={{ ...styles.primaryBtn, marginTop: 16 }} onClick={verifyOtp}>Verify &amp; Continue</button>
-          <button style={styles.linkBtn2} onClick={resendOtp} disabled={sendingOtp}>{sendingOtp ? 'Sending...' : 'OTP dobara bhejein'}</button>
+          <button style={styles.linkBtn2} onClick={resendOtp}>OTP dobara bhejein</button>
           <button style={styles.backLink} onClick={backFromOtp}><ArrowLeft size={13} /> Back</button>
         </div>
       )}
-
-      {/* Invisible reCAPTCHA mount point required by Firebase Phone Auth to
-          send SMS - stays empty/invisible, but must exist in the DOM
-          before window.phoneAuth.sendOtp is called. */}
-      <div id='recaptcha-container' />
 
       {!otpStage && mode === 'choose' && (
         <div style={styles.loginCard}>
@@ -4683,6 +4675,7 @@ const styles = {
   fieldLabel: { fontSize: 11.5, fontWeight: 700, color: BRAND.gold, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 },
   input: { width: '100%', border: '1px solid ' + BRAND.line, borderRadius: 10, padding: '10px 12px', fontSize: 14, fontFamily: 'inherit', outline: 'none', color: BRAND.navy, boxSizing: 'border-box', background: BRAND.paper },
   errorText: { color: '#B5562E', fontSize: 12, fontWeight: 600, marginTop: 8 },
+  otpDemoBox: { display: 'flex', alignItems: 'flex-start', gap: 6, background: '#FFF3E0', border: '1px solid #F5D6B8', borderRadius: 8, padding: '8px 10px', marginTop: 10, fontSize: 11.5, color: '#7A4A1F', lineHeight: 1.4 },
   primaryBtn: { width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: BRAND.navy, color: '#FFF', border: 'none', borderRadius: 12, padding: '13px', fontWeight: 800, fontSize: 14.5, cursor: 'pointer' },
   primaryBtn2: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', background: BRAND.navy, color: '#FFF', border: 'none', borderRadius: 12, padding: '12px', fontWeight: 800, fontSize: 13.5, cursor: 'pointer', marginTop: 12 },
   adminLink: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, width: '100%', background: 'none', border: 'none', color: BRAND.textMuted, fontSize: 12, fontWeight: 700, marginTop: 14, cursor: 'pointer' },
