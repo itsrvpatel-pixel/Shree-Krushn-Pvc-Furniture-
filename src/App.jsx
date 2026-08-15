@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { jsPDF } from 'jspdf';
 import {
   Calendar, Hammer, IndianRupee, Plus, X, Phone, User,
   ChevronRight, ChevronLeft, Trash2, Edit3, Search, CheckCircle2,
@@ -101,7 +102,7 @@ const BUSINESS = {
   ],
   phone: '+91 79902 83116',
   altPhone: '+91 95123 18775',
-  website: 'www.shreekrushnpvcfurniture.com',
+  website: 'www.shreekrushnpvcfurniture.site',
 };
 
 const ESTIMATE_TERMS = [
@@ -247,6 +248,98 @@ function buildEstimateWhatsAppText(job) {
   lines.push(BUSINESS.phone + ' - ' + BUSINESS.website);
   return lines.join(NEWLINE);
 }
+
+/* ---- Payment receipt PDF: a formal, downloadable receipt for a single
+   payment entry. Uses plain "Rs." instead of the actual rupee symbol,
+   since jsPDF's default fonts don't reliably render the Unicode rupee
+   glyph (falls back to a box/blank character on many systems) - "Rs."
+   is universally readable in any PDF viewer regardless of font support.
+   Kept as simple positioned text rather than pulling in the autotable
+   plugin, since a receipt only needs a handful of lines, not a full
+   data table. ---- */
+function generateReceiptPdf(job, payment) {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  let y = 20;
+
+  doc.setFontSize(16);
+  doc.setFont(undefined, 'bold');
+  doc.text(BUSINESS.name, pageWidth / 2, y, { align: 'center' });
+  y += 7;
+  doc.setFontSize(10);
+  doc.setFont(undefined, 'normal');
+  doc.text(BUSINESS.addressLine, pageWidth / 2, y, { align: 'center' });
+  y += 5;
+  doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, pageWidth / 2, y, { align: 'center' });
+  y += 10;
+  doc.setLineWidth(0.5);
+  doc.line(15, y, pageWidth - 15, y);
+  y += 10;
+
+  doc.setFontSize(14);
+  doc.setFont(undefined, 'bold');
+  doc.text('PAYMENT RECEIPT', pageWidth / 2, y, { align: 'center' });
+  y += 12;
+
+  doc.setFontSize(11);
+  doc.setFont(undefined, 'normal');
+  doc.text('Customer:', 15, y);
+  doc.text(job.customerName, 70, y);
+  y += 7;
+  if (job.phone) {
+    doc.text('Phone:', 15, y);
+    doc.text(formatPhoneDisplay(job.phone), 70, y);
+    y += 7;
+  }
+  doc.text('Receipt Date:', 15, y);
+  doc.text(formatDate(payment.date), 70, y);
+  y += 7;
+  doc.text('Receipt No:', 15, y);
+  doc.text(payment.id.slice(-8).toUpperCase(), 70, y);
+  y += 12;
+
+  doc.setLineWidth(0.2);
+  doc.line(15, y, pageWidth - 15, y);
+  y += 10;
+
+  doc.setFontSize(12);
+  doc.setFont(undefined, 'bold');
+  doc.text('Amount Received:', 15, y);
+  doc.text('Rs. ' + Number(payment.amount).toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
+  y += 8;
+  if (payment.note) {
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'normal');
+    doc.text('Note: ' + payment.note, 15, y);
+    y += 8;
+  }
+  y += 4;
+  doc.line(15, y, pageWidth - 15, y);
+  y += 10;
+
+  const total = jobTotal(job);
+  const paidTillNow = jobPaid(job);
+  const dueNow = jobDue(job);
+  doc.setFontSize(10);
+  doc.setFont(undefined, 'normal');
+  doc.text('Project Total:', 15, y);
+  doc.text('Rs. ' + total.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
+  y += 6;
+  doc.text('Total Paid Till Date:', 15, y);
+  doc.text('Rs. ' + paidTillNow.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
+  y += 6;
+  doc.setFont(undefined, 'bold');
+  doc.text('Balance Due:', 15, y);
+  doc.text('Rs. ' + dueNow.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
+  y += 16;
+
+  doc.setFontSize(9);
+  doc.setFont(undefined, 'italic');
+  doc.text('Thank you for your business.', pageWidth / 2, y, { align: 'center' });
+
+  doc.save('Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf');
+}
+
 function whatsAppShareUrl(phoneDigits10, text) {
   const encoded = encodeURIComponent(text);
   if (phoneDigits10) return 'https://wa.me/91' + phoneDigits10 + '?text=' + encoded;
@@ -536,6 +629,8 @@ export default function App() {
   const [appointmentItemOptions, setAppointmentItemOptions] = useState(DEFAULT_CATEGORIES);
   const [categories, setCategoriesRaw] = useState(DEFAULT_CATEGORIES);
   const [notifications, setNotificationsRaw] = useState([]);
+  const [itemTemplates, setItemTemplatesRaw] = useState([]);
+  const [attendance, setAttendanceRaw] = useState([]);
   const [brochures, setBrochures] = useState([]);
   const [session, setSessionRaw] = useState(() => loadStoredSession());
   // Wraps setSession so every update (login, logout, role switch) is
@@ -550,14 +645,14 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [g, c, j, p, st, exp, pp, aio, br, cats, notifs] = await Promise.all([
+        const [g, c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att] = await Promise.all([
           safeGet('gallery'), safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
-          safeGet('categories'), safeGet('notifications'),
+          safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'),
         ]);
         if (g) setGallery(await hydrateGalleryPhotos(JSON.parse(g)));
         if (c) setCustomers(JSON.parse(c));
-        if (j) setJobs(JSON.parse(j));
+        if (j) setJobs(await hydrateJobNotePhotos(JSON.parse(j)));
         if (p) setAdminPin(p);
         if (st) setStaff(JSON.parse(st));
         if (exp) setExpenses(JSON.parse(exp));
@@ -566,6 +661,8 @@ export default function App() {
         if (br) setBrochures(JSON.parse(br));
         if (cats) setCategoriesRaw(JSON.parse(cats));
         if (notifs) setNotificationsRaw(JSON.parse(notifs));
+        if (tmpl) setItemTemplatesRaw(JSON.parse(tmpl));
+        if (att) setAttendanceRaw(JSON.parse(att));
       } finally {
         setLoaded(true);
       }
@@ -588,7 +685,7 @@ export default function App() {
           safeGet('gallery'), safeGet('jobs'), safeGet('brochures'), safeGet('categories'), safeGet('appointment_item_options'),
         ]);
         if (g) setGallery(await hydrateGalleryPhotos(JSON.parse(g)));
-        if (j) setJobs(JSON.parse(j));
+        if (j) setJobs(await hydrateJobNotePhotos(JSON.parse(j)));
         if (br) setBrochures(JSON.parse(br));
         if (cats) setCategoriesRaw(JSON.parse(cats));
         if (aio) setAppointmentItemOptions(JSON.parse(aio));
@@ -742,6 +839,44 @@ export default function App() {
     return hydrated;
   }
 
+  // Same split-storage pattern as hydrateGalleryPhotos, applied to Project
+  // Notes photo attachments across all jobs. A note's photo is a genuinely
+  // new upload (not sourced from the gallery, unlike favorited designs),
+  // so it needs its own small per-attachment document rather than a
+  // gallery reference - stored under 'job_note_photo_<id>' by
+  // ProjectNotesPanel's addNote, and resolved back here on every jobs
+  // load/poll. Without this, the photo's full base64 data would sit
+  // inline inside the single shared 'jobs' document (see persistJobs),
+  // risking the same silent-save-failure/vanishing-photo bug this was
+  // built to fix for the gallery.
+  async function hydrateJobNotePhotos(jobsArray) {
+    const allPhotoIds = [];
+    for (const j of jobsArray) {
+      for (const n of (j.projectNotes || [])) {
+        if (n.photo && n.photo.id) allPhotoIds.push(n.photo.id);
+      }
+    }
+    if (allPhotoIds.length === 0) return jobsArray;
+    const fetched = await Promise.all(allPhotoIds.map((id) => safeGet('job_note_photo_' + id)));
+    const photoDataById = {};
+    allPhotoIds.forEach((id, i) => {
+      if (fetched[i]) {
+        try { photoDataById[id] = JSON.parse(fetched[i]); } catch (e) { /* skip corrupt entry */ }
+      }
+    });
+    return jobsArray.map((j) => {
+      if (!(j.projectNotes || []).some((n) => n.photo && n.photo.id)) return j;
+      return {
+        ...j,
+        projectNotes: j.projectNotes.map((n) => (
+          n.photo && n.photo.id
+            ? { ...n, photo: { url: photoDataById[n.photo.id]?.url || '', origUrl: photoDataById[n.photo.id]?.origUrl || null } }
+            : n
+        )),
+      };
+    });
+  }
+
   const showToast = (msg, isError) => {
     setToast({ msg, isError, id: uid() });
     setTimeout(() => setToast((t) => (t && t.msg === msg ? null : t)), 2400);
@@ -824,6 +959,24 @@ export default function App() {
   const setCategories = useCallback(async (next) => {
     setCategoriesRaw(next);
     try { await window.storage.set('categories', JSON.stringify(next), true); }
+    catch (e) { showToast('Save failed', true); }
+  }, []);
+  // Reusable estimate items (e.g. "Wardrobe 8x7, rate 1000") admin builds
+  // up over time - lets an estimate line be added with one tap instead
+  // of retyping the same desc/rate combination for every new customer.
+  const setItemTemplates = useCallback(async (next) => {
+    setItemTemplatesRaw(next);
+    try { await window.storage.set('item_templates', JSON.stringify(next), true); }
+    catch (e) { showToast('Save failed', true); }
+  }, []);
+  // Attendance is a shared, capped log (like notifications) of every
+  // karigar check-in/out - not scoped to a job, since a karigar's
+  // workday isn't tied to just one project.
+  const ATTENDANCE_CAP = 500;
+  const setAttendance = useCallback(async (next) => {
+    const capped = next.slice(0, ATTENDANCE_CAP);
+    setAttendanceRaw(capped);
+    try { await window.storage.set('attendance', JSON.stringify(capped), true); }
     catch (e) { showToast('Save failed', true); }
   }, []);
   // Notifications are a single shared, capped list (see NOTIFICATION_CAP
@@ -949,6 +1102,8 @@ export default function App() {
           categories={categories} setCategories={setCategories}
           brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure}
           notifications={notifications} markNotificationRead={markNotificationRead} markAllNotificationsRead={markAllNotificationsRead}
+          itemTemplates={itemTemplates} setItemTemplates={setItemTemplates}
+          attendance={attendance}
           allData={{ customers, jobs, gallery, staff, expenses }}
           staffName={session.staffName}
           isPartner={isPartner}
@@ -980,6 +1135,7 @@ export default function App() {
         <KarigarApp
           jobs={myJobs}
           staffName={session.staffName}
+          staffId={myStaffId}
           onSaveJob={(j) => {
             if (!myJobs.some((jj) => jj.id === j.id)) return; // guard: only ever write a job assigned to this karigar
             persistJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)));
@@ -987,6 +1143,8 @@ export default function App() {
           onLogout={() => setSession(null)}
           showToast={showToast}
           pushNotification={pushNotification}
+          attendance={attendance}
+          setAttendance={setAttendance}
         />
         <ToastEl toast={toast} />
       </div>
@@ -1377,24 +1535,41 @@ const NOTIFICATION_META = {
 };
 const NOTIFICATION_ICONS = { Calendar, CheckCircle2, ThumbsUp, MessageSquare, XCircle, IndianRupee, AlertCircle, Hammer, Star };
 
-function FavoritesButton({ job, onSaveJob, showToast, categories }) {
+function FavoritesButton({ job, onSaveJob, showToast, categories, gallery }) {
   const [open, setOpen] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const [addingId, setAddingId] = useState(null);
   const [addCategory, setAddCategory] = useState(categories[0]);
   const savedDesigns = job.savedDesigns || [];
 
+  // Favorited entries only store a photoId (see Lightbox's toggleSave for
+  // why) - the actual image data is resolved here from the live gallery
+  // state, which is already loaded and hydrated separately. If a photo
+  // was later removed from the gallery, resolvedPhoto is null for that
+  // entry and it's skipped from display rather than showing a broken
+  // image or crashing.
+  const resolvePhoto = (photoId) => {
+    for (const cat of Object.keys(gallery || {})) {
+      const found = (gallery[cat] || []).find((p) => p.id === photoId);
+      if (found) return found;
+    }
+    return null;
+  };
+  const resolvedDesigns = savedDesigns
+    .map((d) => ({ ...d, resolved: resolvePhoto(d.photoId) }))
+    .filter((d) => d.resolved);
+
   const removeSavedDesign = (photoId) => {
     onSaveJob({ ...job, savedDesigns: savedDesigns.filter((d) => d.photoId !== photoId) });
     showToast('Favorites se hataya gaya');
   };
 
-  // Adds a favorited photo to the customer's project requirements, using
-  // the exact same requirement shape (photoRef, category, text) that
-  // RequirementsPanel's own "Add to Project" button produces, so a
-  // design added from either place shows up identically to admin -
-  // one requirement list, not two divergent formats depending on where
-  // the customer started from.
+  // Adds a favorited photo to the customer's project requirements. Like
+  // savedDesigns, only the photoId reference is stored in photoRef (not
+  // the photo's url/origUrl) - same reasoning: it's always a gallery
+  // photo, so the image data already exists in the gallery's own
+  // storage and doesn't need a second, inline copy inside the shared
+  // 'jobs' document.
   const addToProject = (d) => {
     const req = {
       id: uid(),
@@ -1402,7 +1577,7 @@ function FavoritesButton({ job, onSaveJob, showToast, categories }) {
       text: 'Saved design reference' + (d.caption ? ': ' + d.caption : ''),
       dimensions: '',
       priority: 'normal',
-      photoRef: { url: d.url, origUrl: d.origUrl },
+      photoRef: { photoId: d.photoId },
       createdAt: new Date().toISOString(),
     };
     let next = { ...job, requirements: [req, ...(job.requirements || [])] };
@@ -1425,14 +1600,14 @@ function FavoritesButton({ job, onSaveJob, showToast, categories }) {
             <div style={styles.notifPanelHeader}>
               <span>Favorites</span>
             </div>
-            <div style={{ ...styles.notifList, padding: savedDesigns.length > 0 ? 10 : 0 }}>
-              {savedDesigns.length === 0 && <div style={styles.emptySmall}>Gallery mein photo ke star icon se favorite add karein.</div>}
-              {savedDesigns.length > 0 && (
+            <div style={{ ...styles.notifList, padding: resolvedDesigns.length > 0 ? 10 : 0 }}>
+              {resolvedDesigns.length === 0 && <div style={styles.emptySmall}>Gallery mein photo ke star icon se favorite add karein.</div>}
+              {resolvedDesigns.length > 0 && (
                 <div style={styles.savedDesignGrid}>
-                  {savedDesigns.map((d, i) => (
+                  {resolvedDesigns.map((d, i) => (
                     <div key={d.photoId} style={styles.savedDesignCard}>
-                      <button style={{ border: 'none', padding: 0, width: '100%', height: '100%', background: 'none', cursor: 'pointer' }} onClick={() => setLightbox({ photos: savedDesigns.map((sd) => ({ id: sd.photoId, url: sd.url, origUrl: sd.origUrl, caption: sd.caption })), index: i })}>
-                        <SmartImg src={d.url} origUrl={d.origUrl} alt={d.caption} style={styles.savedDesignImg} />
+                      <button style={{ border: 'none', padding: 0, width: '100%', height: '100%', background: 'none', cursor: 'pointer' }} onClick={() => setLightbox({ photos: resolvedDesigns.map((sd) => ({ id: sd.photoId, url: sd.resolved.url, origUrl: sd.resolved.origUrl, caption: sd.caption })), index: i })}>
+                        <SmartImg src={d.resolved.url} origUrl={d.resolved.origUrl} alt={d.caption} style={styles.savedDesignImg} />
                       </button>
                       <button style={styles.multiPhotoPreviewRemove} onClick={() => removeSavedDesign(d.photoId)}><X size={12} color='#FFF' /></button>
                       {addingId === d.photoId ? (
@@ -1593,7 +1768,7 @@ function CustomerApp({ customer, gallery, job, appointmentItemOptions, categorie
         hideLogout
         right={
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <FavoritesButton job={job} onSaveJob={onSaveJob} showToast={showToast} categories={categories} />
+            <FavoritesButton job={job} onSaveJob={onSaveJob} showToast={showToast} categories={categories} gallery={gallery} />
             <NotificationBell
               notifications={notifications || []}
               viewerKey={'customer_' + (customer?.id || 'unknown')}
@@ -1608,14 +1783,14 @@ function CustomerApp({ customer, gallery, job, appointmentItemOptions, categorie
       {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} onLogout={onLogout} />}
       {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
       {tab === 'gallery' && <GalleryBrowser gallery={gallery} brochures={brochures} categories={categories} testimonials={testimonials} job={job} onSaveJob={onSaveJob} showToast={showToast} />}
-      {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} customer={customer} />}
+      {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} customer={customer} gallery={gallery} />}
       {tab === 'estimate' && (
         <div style={{ padding: '12px 16px' }}>
           <div style={styles.sectionTitle}>Estimate</div>
           <EstimateView job={job} onSave={onSaveJob} showToast={showToast} />
         </div>
       )}
-      {tab === 'progress' && <ProgressView job={job} onSave={onSaveJob} showToast={showToast} />}
+      {tab === 'progress' && <ProgressView job={job} onSave={onSaveJob} showToast={showToast} customer={customer} />}
       {tab === 'review' && <ReviewPanel job={job} onSave={onSaveJob} showToast={showToast} />}
 
       <BottomNav
@@ -1836,9 +2011,21 @@ function Lightbox({ data, onClose, setLightbox, job, onSaveDesign, showToast }) 
   const toggleSave = () => {
     if (!job || !onSaveDesign) return;
     const current = job.savedDesigns || [];
+    // Store only a lightweight reference (photoId + caption), NOT the
+    // photo's full url/origUrl - a favorited photo always comes from the
+    // gallery, which already has its own image data stored separately
+    // (see gallery_photo_<id> / hydrateGalleryPhotos). Copying the full
+    // base64 url inline here would duplicate it inside the single,
+    // monolithic 'jobs' Firestore document (all jobs share one document -
+    // see persistJobs), and since that data URI can be hundreds of KB,
+    // a handful of favorited photos across customers could push that
+    // shared document past Firestore's 1MiB limit - causing the save to
+    // fail silently and the favorite (or other job data saved in the
+    // same write) to vanish on refresh. Resolving the actual image at
+    // display time from the live gallery state avoids storing it twice.
     const next = isSaved
       ? current.filter((d) => d.photoId !== photo.id)
-      : [...current, { photoId: photo.id, url: photo.url, origUrl: photo.origUrl, caption: photo.caption || '', savedAt: new Date().toISOString() }];
+      : [...current, { photoId: photo.id, caption: photo.caption || '', savedAt: new Date().toISOString() }];
     onSaveDesign({ ...job, savedDesigns: next });
     if (showToast) showToast(isSaved ? 'Design saved list se hataya' : 'Design save ho gaya');
   };
@@ -2087,16 +2274,33 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName }) {
     }
   };
 
-  const addNote = () => {
+  const addNote = async () => {
     if (!text.trim() && !pendingPhoto) return;
     const entry = {
       id: uid(),
       text: text.trim(),
-      photo: pendingPhoto ? { url: pendingPhoto, origUrl: null } : null,
+      photo: null,
       addedBy: authorRole,
       authorName,
       createdAt: new Date().toISOString(),
     };
+    // The photo (if any) is written to its own small Firestore document
+    // BEFORE the note itself is saved, and the note only ever carries a
+    // reference {id} to it - never the raw base64 data. All jobs share a
+    // single Firestore document (see persistJobs), so embedding a photo's
+    // full data URI directly inside a note would duplicate potentially
+    // hundreds of KB into that shared document; across a handful of
+    // notes with photos, that risks pushing it past Firestore's 1MiB
+    // limit and silently failing to save - which is exactly what caused
+    // photos to vanish on refresh before this fix.
+    if (pendingPhoto) {
+      try {
+        await window.storage.set('job_note_photo_' + entry.id, JSON.stringify({ url: pendingPhoto, origUrl: null }), true);
+        entry.photo = { id: entry.id };
+      } catch (e) {
+        showToast('Photo save nahi ho payi, sirf text save ho raha hai', true);
+      }
+    }
     onSave({ ...job, projectNotes: [entry, ...notes] });
     setText('');
     setPendingPhoto(null);
@@ -2145,13 +2349,24 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName }) {
   );
 }
 
-function RequirementsPanel({ job, onSave, showToast, categories, customer }) {
+function RequirementsPanel({ job, onSave, showToast, categories, customer, gallery }) {
   const [category, setCategory] = useState(categories[0]);
   const [text, setText] = useState('');
   const [dimensions, setDimensions] = useState('');
   const [priority, setPriority] = useState('normal');
   const [showForm, setShowForm] = useState((job.requirements || []).length === 0);
   const savedDesigns = job.savedDesigns || [];
+
+  // photoRef only stores a photoId (see FavoritesButton's addToProject
+  // for why - the image itself already lives in the gallery's own
+  // storage, so this just looks it up live rather than duplicating it).
+  const resolveGalleryPhoto = (photoId) => {
+    for (const cat of Object.keys(gallery || {})) {
+      const found = (gallery[cat] || []).find((p) => p.id === photoId);
+      if (found) return found;
+    }
+    return null;
+  };
 
   const add = (photoRef) => {
     if (!photoRef && !text.trim()) return;
@@ -2161,7 +2376,13 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer }) {
       text: photoRef ? ('Saved design reference' + (photoRef.caption ? ': ' + photoRef.caption : '')) : text.trim(),
       dimensions: dimensions.trim(),
       priority,
-      photoRef: photoRef ? { url: photoRef.url, origUrl: photoRef.origUrl } : null,
+      // photoRef here is a savedDesigns entry ({photoId, caption}), not
+      // a photo object - only the photoId reference is kept, resolved
+      // to the actual image via the live gallery at display time (see
+      // resolveGalleryPhoto above), for the same reason FavoritesButton
+      // does the same thing: avoids duplicating image data inline into
+      // the shared 'jobs' document.
+      photoRef: photoRef ? { photoId: photoRef.photoId } : null,
       createdAt: new Date().toISOString(),
     };
     let next = { ...job, requirements: [req, ...(job.requirements || [])] };
@@ -2241,15 +2462,19 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer }) {
           <div style={styles.fieldLabel}>Aapke saved designs ({savedDesigns.length})</div>
           <div style={styles.plainTextMuted}>Gallery se save kiye gaye designs - project mein add karein.</div>
           <div style={styles.savedDesignGrid}>
-            {savedDesigns.map((d) => (
-              <div key={d.photoId} style={styles.savedDesignCard}>
-                <SmartImg src={d.url} origUrl={d.origUrl} alt={d.caption} style={styles.savedDesignImg} />
-                <div style={styles.savedDesignActions}>
-                  <button style={styles.savedDesignAddBtn} onClick={() => add(d)}>Add to Project</button>
-                  <button style={styles.savedDesignRemoveBtn} onClick={() => removeSavedDesign(d.photoId)}><X size={12} color='#FFF' /></button>
+            {savedDesigns.map((d) => {
+              const resolved = resolveGalleryPhoto(d.photoId);
+              if (!resolved) return null; // photo was removed from the gallery since being favorited
+              return (
+                <div key={d.photoId} style={styles.savedDesignCard}>
+                  <SmartImg src={resolved.url} origUrl={resolved.origUrl} alt={d.caption} style={styles.savedDesignImg} />
+                  <div style={styles.savedDesignActions}>
+                    <button style={styles.savedDesignAddBtn} onClick={() => add(d)}>Add to Project</button>
+                    <button style={styles.savedDesignRemoveBtn} onClick={() => removeSavedDesign(d.photoId)}><X size={12} color='#FFF' /></button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -2261,8 +2486,8 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer }) {
           <div style={styles.reqGroupHeader}>{cat} <span style={styles.reqGroupCount}>({reqs.length})</span></div>
           {reqs.map((r) => (
             <div key={r.id} style={styles.reqRow}>
-              {r.photoRef && (
-                <SmartImg src={r.photoRef.url} origUrl={r.photoRef.origUrl} alt={r.text} style={styles.reqThumb} />
+              {r.photoRef && resolveGalleryPhoto(r.photoRef.photoId) && (
+                <SmartImg src={resolveGalleryPhoto(r.photoRef.photoId).url} origUrl={resolveGalleryPhoto(r.photoRef.photoId).origUrl} alt={r.text} style={styles.reqThumb} />
               )}
               <div style={{ flex: 1 }}>
                 <div style={styles.reqText}>{r.text}</div>
@@ -2331,7 +2556,22 @@ function EstimateView({ job, onSave, showToast }) {
         </div>
       )}
 
-      {(job.items || []).length > 0 && (
+      {(job.payments || []).length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={styles.fieldLabel}>Payment History</div>
+          {job.payments.map((p) => (
+            <div key={p.id} style={styles.itemRow}>
+              <div style={{ flex: 1 }}>
+                <div style={styles.itemDesc}>{currency(p.amount)}</div>
+                <div style={styles.itemSub}>{formatDate(p.date)}</div>
+              </div>
+              <button style={styles.cardActionBtn} onClick={() => generateReceiptPdf(job, p)}><FileText size={13} /> Receipt</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {((job.items || []).length > 0 || (job.extraWork || []).some((e) => e.status === 'approved')) && (
         <div style={{ marginTop: 18 }}>
           <div style={styles.sectionTitle}>Estimate Details</div>
           <div style={styles.quoteTableWrap}>
@@ -2362,6 +2602,17 @@ function EstimateView({ job, onSave, showToast }) {
                     </tr>
                   );
                 })}
+                {(job.extraWork || []).filter((e) => e.status === 'approved').map((e, i) => (
+                  <tr key={e.id} style={{ background: '#FBF6EC' }}>
+                    <td style={styles.qtd}>{(job.items || []).length + i + 1}</td>
+                    <td style={{ ...styles.qtd, textAlign: 'left' }}>{e.desc} <span style={styles.reqCatBadge}>Extra Work</span></td>
+                    <td style={styles.qtd}>-</td>
+                    <td style={styles.qtd}>-</td>
+                    <td style={styles.qtd}>-</td>
+                    <td style={styles.qtd}>-</td>
+                    <td style={{ ...styles.qtd, fontWeight: 800 }}>{currency(e.amount)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -2426,7 +2677,7 @@ function EstimateView({ job, onSave, showToast }) {
   );
 }
 
-function ProgressView({ job, onSave, showToast }) {
+function ProgressView({ job, onSave, showToast, customer }) {
   const [lightbox, setLightbox] = useState(null);
   const photos = job.progressPhotos || [];
 
@@ -2491,6 +2742,12 @@ function ProgressView({ job, onSave, showToast }) {
       </div>
 
       <EstimateView job={job} onSave={onSave} showToast={showToast} />
+
+      {(job.status === 'in_progress' || job.status === 'delivered' || (job.projectNotes || []).length > 0) && (
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid ' + BRAND.line }}>
+          <ProjectNotesPanel job={job} onSave={onSave} showToast={showToast} authorRole='customer' authorName={customer?.name || 'Customer'} />
+        </div>
+      )}
 
       {(job.status === 'in_progress' || job.status === 'delivered' || extraWork.length > 0) && (
         <div style={{ marginTop: 16 }}>
@@ -2630,10 +2887,26 @@ function ReviewPanel({ job, onSave, showToast }) {
    No customer contact details, no pricing, no payments - none of that is
    this role's business, so it's never passed in at all rather than
    merely hidden in the UI. ---- */
-function KarigarApp({ jobs, staffName, onSaveJob, onLogout, showToast, pushNotification }) {
+function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, pushNotification, attendance, setAttendance }) {
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
   const [msgText, setMsgText] = useState('');
+
+  // Attendance: a check-in/check-out button on the karigar's home screen,
+  // one record per calendar day (dateKey), so tapping it twice in the
+  // same day toggles check-out rather than creating duplicate entries.
+  const todayKey = new Date().toDateString();
+  const todaysRecord = (attendance || []).find((a) => a.staffId === staffId && a.dateKey === todayKey);
+  const toggleAttendance = () => {
+    if (!todaysRecord) {
+      const entry = { id: uid(), staffId, staffName, dateKey: todayKey, checkedInAt: new Date().toISOString(), checkedOutAt: null };
+      setAttendance([entry, ...(attendance || [])]);
+      showToast('Check-in ho gaya');
+    } else if (!todaysRecord.checkedOutAt) {
+      setAttendance((attendance || []).map((a) => (a.id === todaysRecord.id ? { ...a, checkedOutAt: new Date().toISOString() } : a)));
+      showToast('Check-out ho gaya');
+    }
+  };
 
   const addPhotos = (job, photos) => {
     const newPhotos = photos.map((p) => ({ id: uid(), url: p.url, origUrl: p.origUrl, caption: p.caption, date: new Date().toISOString() }));
@@ -2744,6 +3017,18 @@ function KarigarApp({ jobs, staffName, onSaveJob, onLogout, showToast, pushNotif
     <div style={{ paddingBottom: 20 }}>
       <TopBar title='Karigar Panel' subtitle={'Logged in as ' + staffName} hideLogout />
       <div style={{ padding: '12px 16px' }}>
+        <div style={styles.attendanceCard}>
+          <div>
+            <div style={styles.itemDesc}>{todaysRecord ? (todaysRecord.checkedOutAt ? 'Aaj ka kaam complete' : 'Checked in') : 'Abhi check-in nahi kiya'}</div>
+            <div style={styles.itemSub}>
+              {todaysRecord ? ('In: ' + new Date(todaysRecord.checkedInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) + (todaysRecord.checkedOutAt ? (' - Out: ' + new Date(todaysRecord.checkedOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })) : '')) : 'Din shuru karne ke liye check-in karein'}
+            </div>
+          </div>
+          {(!todaysRecord || !todaysRecord.checkedOutAt) && (
+            <button style={styles.addBtn} onClick={toggleAttendance}>{!todaysRecord ? 'Check In' : 'Check Out'}</button>
+          )}
+        </div>
+
         <div style={styles.sectionTitle}>Aapke assigned kaam ({jobs.length})</div>
         {jobs.length === 0 && <div style={styles.emptySmall}>Abhi koi kaam assign nahi hua hai.</div>}
         {jobs.map((j) => (
@@ -2761,7 +3046,7 @@ function KarigarApp({ jobs, staffName, onSaveJob, onLogout, showToast, pushNotif
   );
 }
 
-function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, allData, staffName, isPartner, onLogout, showToast }) {
+function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, staffName, isPartner, onLogout, showToast }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
@@ -2774,7 +3059,7 @@ function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs,
     return (
       <div style={{ paddingBottom: 20 }}>
         <TopBar title={activeJob.customerName} subtitle={isPartner ? 'Partner - Job detail' : 'Admin - Job detail'} onBack={() => setActiveJobId(null)} hideLogout />
-        <AdminJobDetail job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} />
+        <AdminJobDetail job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} />
       </div>
     );
   }
@@ -2810,11 +3095,11 @@ function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs,
       {tab === 'customers' && <AdminCustomers customers={customers} setCustomers={setCustomers} jobs={jobs} setJobs={setJobs} onOpenJob={setActiveJobId} showToast={showToast} isPartner={isPartner} />}
       {tab === 'gallery' && <AdminGallery gallery={gallery} setGallery={setGallery} categories={categories} setCategories={setCategories} showToast={showToast} />}
       {tab === 'reviews' && <AdminReviews jobs={jobs} setJobs={setJobs} showToast={showToast} />}
-      {tab === 'expenses' && !isPartner && <AdminExpenses expenses={expenses} setExpenses={setExpenses} jobs={jobs} showToast={showToast} />}
+      {tab === 'expenses' && !isPartner && <AdminExpenses expenses={expenses} setExpenses={setExpenses} jobs={jobs} showToast={showToast} onOpenJob={setActiveJobId} />}
       {tab === 'settings' && (
         isPartner
           ? <PartnerSettings staffName={staffName} onLogout={onLogout} />
-          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} onLogout={onLogout} showToast={showToast} />
+          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} attendance={attendance} onLogout={onLogout} showToast={showToast} />
       )}
 
       <BottomNav
@@ -2941,6 +3226,40 @@ function AdminHome({ customers, jobs, gallery, categories, pendingEstimates, ove
    normalized text (trimmed, lowercased) since referredBy is free text
    the new customer typed - a name or phone number - not a link to an
    actual customer record. ---- */
+/* ---- Karigar performance report: for each karigar, shows how many
+   jobs are currently assigned, how many they've completed (status
+   delivered/paid among assigned), total progress photos uploaded, and
+   attendance days logged - a single view for admin to see who's
+   actually productive, not just who's on the staff list. ---- */
+function AdminKarigarPerformance({ staff, jobs, attendance }) {
+  const karigars = staff.filter((s) => s.role === 'karigar');
+  const rows = karigars.map((k) => {
+    const assignedJobs = jobs.filter((j) => j.assignedStaffId === k.id);
+    const completedJobs = assignedJobs.filter((j) => j.status === 'delivered' || j.status === 'paid');
+    const totalPhotos = assignedJobs.reduce((s, j) => s + (j.progressPhotos || []).length, 0);
+    const attendanceDays = (attendance || []).filter((a) => a.staffId === k.id).length;
+    return { karigar: k, assignedCount: assignedJobs.length, completedCount: completedJobs.length, totalPhotos, attendanceDays };
+  });
+
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>Karigar Performance</div>
+      <div style={styles.plainTextMuted}>Kaunsa karigar kitna kaam handle kar raha hai.</div>
+      {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi karigar add nahi kiya.</div>}
+      {rows.map((r) => (
+        <div key={r.karigar.id} style={styles.reviewCard}>
+          <div style={styles.cardName}>{r.karigar.name}</div>
+          <div style={styles.statRow2}>
+            <StatCard icon={<Hammer size={14} />} label='Assigned' value={r.assignedCount} />
+            <StatCard icon={<CheckCircle2 size={14} />} label='Completed' value={r.completedCount} />
+          </div>
+          <div style={styles.itemSub}>{r.totalPhotos} progress photos - {r.attendanceDays} din attendance</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AdminReferralReport({ customers }) {
   const grouped = useMemo(() => {
     const groups = {};
@@ -3256,9 +3575,20 @@ function AdminAppointmentTab({ job, onSave, showToast }) {
 /* ---- Admin: Estimate builder - matches the real quotation sheet:
    item, length, height (inches), auto sq-ft, rate/sqft, amount. Editable
    inline. 'Preview Quotation' opens the formal customer-facing document. ---- */
-function AdminEstimateTab({ job, newItem, setNewItem, addItem, updateItem, removeItem, total }) {
+function AdminEstimateTab({ job, newItem, setNewItem, addItem, updateItem, removeItem, total, itemTemplates, setItemTemplates, showToast }) {
   const [showPreview, setShowPreview] = useState(false);
   const [editingId, setEditingId] = useState(null);
+
+  const applyTemplate = (t) => {
+    setNewItem({ desc: t.desc, length: t.length || '', height: t.height || '', qty: t.qty || '1', rate: t.rate || '' });
+  };
+  const saveCurrentAsTemplate = () => {
+    if (!newItem.desc.trim()) { showToast('Pehle description bharein', true); return; }
+    const t = { id: uid(), desc: newItem.desc.trim(), length: newItem.length || '', height: newItem.height || '', qty: newItem.qty || '1', rate: newItem.rate || '' };
+    setItemTemplates([...itemTemplates, t]);
+    showToast('Template save ho gaya - ab har naye customer ke liye use kar sakte ho');
+  };
+  const removeTemplate = (id) => setItemTemplates(itemTemplates.filter((t) => t.id !== id));
 
   return (
     <div>
@@ -3299,6 +3629,16 @@ function AdminEstimateTab({ job, newItem, setNewItem, addItem, updateItem, remov
 
       <div style={styles.formCard}>
         <div style={styles.fieldLabel}>Add item</div>
+        {itemTemplates && itemTemplates.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={styles.hintText}>Saved templates - tap to fill:</div>
+            <div style={styles.chipRow}>
+              {itemTemplates.map((t) => (
+                <button key={t.id} onClick={() => applyTemplate(t)} style={styles.chip}>{t.desc}</button>
+              ))}
+            </div>
+          </div>
+        )}
         <input style={styles.input} placeholder='Item / work description (e.g. Wardrobe box)' value={newItem.desc} onChange={(e) => setNewItem((n) => ({ ...n, desc: e.target.value }))} />
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
           <input style={styles.input} placeholder='Length (inch)' inputMode='decimal' value={newItem.length} onChange={(e) => setNewItem((n) => ({ ...n, length: e.target.value }))} />
@@ -3316,6 +3656,7 @@ function AdminEstimateTab({ job, newItem, setNewItem, addItem, updateItem, remov
           </div>
         )}
         <button style={styles.addBtn} onClick={addItem}><Plus size={14} /> Add item</button>
+        {itemTemplates && <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={saveCurrentAsTemplate}>Save as template</button>}
       </div>
 
       <div style={styles.totalBar}><span>Estimate Total</span><span style={styles.totalAmt}>{currency(total)}</span></div>
@@ -3469,7 +3810,7 @@ function QuotationPreview({ job, onClose }) {
   );
 }
 
-function AdminJobDetail({ job, onSave, showToast, staff, staffName }) {
+function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates }) {
   const [tab, setTab] = useState('status');
   const [newItem, setNewItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
   const [newPayment, setNewPayment] = useState({ amount: '', note: '' });
@@ -3636,7 +3977,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName }) {
         )}
 
         {tab === 'estimate' && (
-          <AdminEstimateTab job={job} newItem={newItem} setNewItem={setNewItem} addItem={addItem} updateItem={updateItem} removeItem={removeItem} total={total} />
+          <AdminEstimateTab job={job} newItem={newItem} setNewItem={setNewItem} addItem={addItem} updateItem={updateItem} removeItem={removeItem} total={total} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} showToast={showToast} />
         )}
 
         {tab === 'extrawork' && (
@@ -3729,6 +4070,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName }) {
                   <div style={styles.itemDesc}>{currency(p.amount)}</div>
                   <div style={styles.itemSub}>{formatDate(p.date)} {p.note && ('- ' + p.note)}</div>
                 </div>
+                <button style={styles.iconBtnSmall} onClick={() => generateReceiptPdf(job, p)}><FileText size={14} color='#3D6B66' /></button>
                 <button style={styles.iconBtnSmall} onClick={() => removePayment(p.id)}><Trash2 size={14} color='#C7CCDC' /></button>
               </div>
             ))}
@@ -4263,7 +4605,7 @@ function ReviewEditForm({ job, onSave, onCancel }) {
 /* ---- Admin: Karigar (worker) payments & company expenses - kept
    separate from customer job revenue. Company earning (from jobs) minus
    these expenses gives real net profit. ---- */
-function AdminExpenses({ expenses, setExpenses, jobs, showToast }) {
+function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob }) {
   const [type, setType] = useState(EXPENSE_TYPES[0]);
   const [payee, setPayee] = useState('');
   const [amount, setAmount] = useState('');
@@ -4273,6 +4615,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast }) {
   const [activePayee, setActivePayee] = useState(null);
   const [showProfitReport, setShowProfitReport] = useState(false);
   const [showMonthlyReport, setShowMonthlyReport] = useState(false);
+  const [showDueList, setShowDueList] = useState(false);
 
   if (showProfitReport) {
     return (
@@ -4292,6 +4635,17 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast }) {
           <button style={styles.backLink} onClick={() => setShowMonthlyReport(false)}><ArrowLeft size={13} /> Expenses</button>
         </div>
         <AdminMonthlyReport jobs={jobs} expenses={expenses} />
+      </div>
+    );
+  }
+
+  if (showDueList) {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowDueList(false)}><ArrowLeft size={13} /> Expenses</button>
+        </div>
+        <AdminDuePaymentsList jobs={jobs} expenses={expenses} onOpenJob={onOpenJob} />
       </div>
     );
   }
@@ -4363,7 +4717,8 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast }) {
     <div style={{ padding: '12px 16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
         <div style={styles.sectionTitle}>Karigar &amp; Company Expenses</div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button style={styles.linkBtn2} onClick={() => setShowDueList(true)}>Due Payments</button>
           <button style={styles.linkBtn2} onClick={() => setShowMonthlyReport(true)}>Monthly Report</button>
           <button style={styles.linkBtn2} onClick={() => setShowProfitReport(true)}>Project Profit Report</button>
         </div>
@@ -4404,7 +4759,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast }) {
         <input style={{ ...styles.input, marginTop: 8 }} placeholder='Note (optional)' value={note} onChange={(e) => setNote(e.target.value)} />
         <select style={{ ...styles.input, marginTop: 8 }} value={linkedJobId} onChange={(e) => setLinkedJobId(e.target.value)}>
           <option value=''>Kisi project se link nahi (general expense)</option>
-          {jobs.map((j) => <option key={j.id} value={j.id}>{j.customerName}</option>)}
+          {jobs.filter((j) => j.status === 'in_progress').map((j) => <option key={j.id} value={j.id}>{j.customerName}</option>)}
         </select>
         <button style={styles.addBtn} onClick={addExpense}><Plus size={14} /> Add expense</button>
       </div>
@@ -4440,6 +4795,7 @@ function AdminMonthlyReport({ jobs, expenses }) {
   const monthlyData = useMemo(() => {
     const monthKey = (dateStr) => {
       const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return null; // skip entries with a missing/malformed date rather than corrupt a bucket with NaN-NaN
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
     };
     const monthLabel = (key) => {
@@ -4452,11 +4808,13 @@ function AdminMonthlyReport({ jobs, expenses }) {
     for (const j of jobs) {
       for (const p of (j.payments || [])) {
         const key = monthKey(p.date);
+        if (!key) continue;
         revenueByMonth[key] = (revenueByMonth[key] || 0) + (Number(p.amount) || 0);
       }
     }
     for (const e of expenses) {
       const key = monthKey(e.date);
+      if (!key) continue;
       expenseByMonth[key] = (expenseByMonth[key] || 0) + (Number(e.amount) || 0);
     }
     const now = new Date();
@@ -4511,6 +4869,51 @@ function AdminMonthlyReport({ jobs, expenses }) {
   );
 }
 
+/* ---- Due payments list: every customer/project with money still owed
+   (only counting jobs whose work has actually started - same rule as
+   the Total Due dashboard cards - an unapproved estimate isn't a debt),
+   sorted by amount so the biggest outstanding balances surface first.
+   Alongside each customer's due amount, shows any expenses specifically
+   linked to their project, so admin can see both sides (what's owed to
+   us, what we've spent on them) in one place. ---- */
+function AdminDuePaymentsList({ jobs, expenses, onOpenJob }) {
+  const rows = useMemo(() => {
+    return jobs
+      .filter((j) => (j.status === 'in_progress' || j.status === 'delivered' || j.status === 'paid') && jobDue(j) > 0)
+      .map((j) => ({
+        job: j,
+        due: jobDue(j),
+        linkedExpense: expenses.filter((e) => e.jobId === j.id).reduce((s, e) => s + (Number(e.amount) || 0), 0),
+      }))
+      .sort((a, b) => b.due - a.due);
+  }, [jobs, expenses]);
+
+  const totalDue = rows.reduce((s, r) => s + r.due, 0);
+
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>Due Payments</div>
+      <div style={styles.plainTextMuted}>Jin projects mein kaam shuru ho chuka hai aur payment abhi bhi baaki hai.</div>
+
+      <div style={styles.statRow2}>
+        <StatCard icon={<AlertCircle size={16} />} label='Total Due' value={currency(totalDue)} accent />
+        <StatCard icon={<User size={16} />} label='Customers' value={rows.length} />
+      </div>
+
+      {rows.length === 0 && <div style={styles.emptySmall}>Koi payment due nahi hai.</div>}
+      {rows.map((r) => (
+        <button key={r.job.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob && onOpenJob(r.job.id)}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={styles.cardName}>{r.job.customerName}</div>
+            <span style={{ ...styles.badge, background: '#FFEBEE', color: '#C62828' }}>{currency(r.due)} due</span>
+          </div>
+          <div style={styles.itemSub}>{STATUS[r.job.status]?.label || r.job.status}{r.linkedExpense > 0 && (' - ' + currency(r.linkedExpense) + ' expense is project mein')}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function AdminProfitReport({ jobs, expenses }) {
   const rows = useMemo(() => {
     return jobs
@@ -4559,7 +4962,7 @@ function AdminProfitReport({ jobs, expenses }) {
 }
 
 /* ---- Admin settings ---- */
-function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, brochures, addBrochure, removeBrochure, allData, onLogout, showToast }) {
+function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, brochures, addBrochure, removeBrochure, allData, jobs, attendance, onLogout, showToast }) {
   const [current, setCurrent] = useState('');
   const [next1, setNext1] = useState('');
   const [next2, setNext2] = useState('');
@@ -4570,6 +4973,18 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
   const [staffError, setStaffError] = useState('');
   const [newPartnerPin, setNewPartnerPin] = useState('');
   const [partnerPinError, setPartnerPinError] = useState('');
+  const [showKarigarPerformance, setShowKarigarPerformance] = useState(false);
+
+  if (showKarigarPerformance) {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowKarigarPerformance(false)}><ArrowLeft size={13} /> Settings</button>
+        </div>
+        <AdminKarigarPerformance staff={staff} jobs={jobs || []} attendance={attendance || []} />
+      </div>
+    );
+  }
 
   const change = () => {
     if (current !== adminPin) { setError('Current PIN galat hai'); return; }
@@ -4712,9 +5127,14 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
       </div>
 
       <div style={{ ...styles.card, marginTop: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <Users size={16} color={BRAND.gold} />
-          <div style={{ fontWeight: 800, fontSize: 14 }}>Staff Logins</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Users size={16} color={BRAND.gold} />
+            <div style={{ fontWeight: 800, fontSize: 14 }}>Staff Logins</div>
+          </div>
+          {staff.some((s) => s.role === 'karigar') && (
+            <button style={styles.linkBtn2} onClick={() => setShowKarigarPerformance(true)}>Karigar Performance</button>
+          )}
         </div>
         <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Team members ko alag PIN dein taaki wo bhi access kar sakein.</div>
 
@@ -5071,6 +5491,7 @@ const styles = {
   reqPreview: { marginTop: 10, paddingTop: 8, borderTop: '1px dashed ' + BRAND.line, fontSize: 11.5, color: '#3D6B66', fontWeight: 700 },
   miniRow: { display: 'flex', alignItems: 'center', gap: 8, background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 10, padding: '6px 8px 6px 12px', fontFamily: 'inherit' },
   miniRowClickArea: { display: 'flex', alignItems: 'center', gap: 10, flex: 1, background: 'none', border: 'none', padding: '4px 0', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', minWidth: 0 },
+  attendanceCard: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: '12px 14px', marginBottom: 16 },
   miniCallBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 15, background: '#DFF0E4', flexShrink: 0, textDecoration: 'none' },
 
   tabRow: { display: 'flex', padding: '10px 16px 0', gap: 5, overflowX: 'auto', position: 'sticky', top: 62, background: BRAND.cream, zIndex: 20 },
