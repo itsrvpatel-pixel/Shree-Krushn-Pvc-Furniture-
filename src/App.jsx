@@ -238,13 +238,24 @@ function buildEstimateWhatsAppText(job) {
   const lines = [];
   lines.push('*' + BUSINESS.name + '*');
   lines.push('Estimate for ' + job.customerName);
+  if (job.materialCompany || job.sheetWeightKg) {
+    lines.push('Material: ' + [job.materialCompany, job.sheetWeightKg && (job.sheetWeightKg + ' kg sheet')].filter(Boolean).join(' - '));
+  }
   lines.push('');
   (job.items || []).forEach((it, i) => {
     const sqft = estimateItemSqft(it);
     const dims = sqft !== null ? (' (' + it.length + "'x" + it.height + "' = " + sqft.toFixed(2) + ' sqft)') : '';
     lines.push((i + 1) + '. ' + it.desc + dims + ' - ' + currency(estimateItemAmount(it)));
   });
+  (job.extraWork || []).filter((e) => e.status === 'approved').forEach((e, i) => {
+    lines.push(((job.items || []).length + i + 1) + '. ' + e.desc + ' (Extra Work) - ' + currency(e.amount));
+  });
   lines.push('');
+  if (Number(job.discount) > 0) {
+    const subtotal = (job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0) + (job.extraWork || []).filter((e) => e.status === 'approved').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    lines.push('Subtotal: ' + currency(subtotal));
+    lines.push('Discount: -' + currency(job.discount));
+  }
   lines.push('*Grand Total: ' + currency(jobTotal(job)) + '*');
   const due = jobDue(job);
   if (due > 0) lines.push('Due: ' + currency(due));
@@ -3839,6 +3850,14 @@ function QuotationPreview({ job, onClose }) {
                 <span style={styles.quoteCustSub}>{job.address}</span>
               </div>
             )}
+            {(job.materialCompany || job.sheetWeightKg) && (
+              <div style={styles.quoteAddressRow}>
+                <span style={styles.quoteLabel}>Material&nbsp;</span>
+                <span style={styles.quoteCustSub}>
+                  {job.materialCompany}{job.materialCompany && job.sheetWeightKg && ' - '}{job.sheetWeightKg && (job.sheetWeightKg + ' kg sheet')}
+                </span>
+              </div>
+            )}
 
             <div style={styles.quoteTableWrap}>
               <table style={styles.quoteTable}>
@@ -3868,10 +3887,35 @@ function QuotationPreview({ job, onClose }) {
                       </tr>
                     );
                   })}
+                  {(job.extraWork || []).filter((e) => e.status === 'approved').map((e, i) => (
+                    <tr key={e.id}>
+                      <td style={styles.qtd}>{(job.items || []).length + i + 1}</td>
+                      <td style={{ ...styles.qtd, textAlign: 'left' }}>{e.desc} (Extra Work)</td>
+                      <td style={styles.qtd}>-</td>
+                      <td style={styles.qtd}>-</td>
+                      <td style={styles.qtd}>-</td>
+                      <td style={styles.qtd}>-</td>
+                      <td style={{ ...styles.qtd, fontWeight: 800 }}>{currency(e.amount)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
 
+            {Number(job.discount) > 0 && (
+              <>
+                <div style={styles.quoteTotalRow}>
+                  <span>Subtotal</span>
+                  <span style={styles.quoteTotalAmt}>
+                    {currency((job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0) + (job.extraWork || []).filter((e) => e.status === 'approved').reduce((s, e) => s + (Number(e.amount) || 0), 0))}
+                  </span>
+                </div>
+                <div style={styles.quoteTotalRow}>
+                  <span>Discount</span>
+                  <span style={styles.quoteTotalAmt}>- {currency(job.discount)}</span>
+                </div>
+              </>
+            )}
             <div style={styles.quoteTotalRow}>
               <span>Grand Total</span>
               <span style={styles.quoteTotalAmt}>{currency(total)}</span>
