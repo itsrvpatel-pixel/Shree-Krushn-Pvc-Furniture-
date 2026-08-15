@@ -183,7 +183,14 @@ function jobProfit(job, allExpenses) {
 const PAYMENT_MILESTONES = [
   { key: 'material', label: 'Material Advance (50%)', percent: 0.5, atStatus: 'in_progress' },
   { key: 'during_work', label: 'During Work (40%)', percent: 0.4, atStatus: 'delivered' },
-  { key: 'completion', label: 'On Completion (10%)', percent: 0.1, atStatus: 'paid' },
+  // atStatus is 'delivered', NOT 'paid' - a job's status auto-becomes
+  // 'paid' the instant jobDue reaches 0 (see addPayment below), so if
+  // this milestone waited for status==='paid' to count as "reached", it
+  // could never show a nonzero due amount: by the time it's reached,
+  // the job is already fully paid by definition. Tying it to 'delivered'
+  // instead means the final 10% correctly shows as outstanding once
+  // delivery happens, for as long as payment is still pending.
+  { key: 'completion', label: 'On Completion (10%)', percent: 0.1, atStatus: 'delivered' },
 ];
 // Returns each milestone's amount, whether it's been "reached" (job status
 // has progressed far enough to owe it), and how much of it remains
@@ -918,7 +925,7 @@ export default function App() {
             setSession({ role: 'customer', customerId: cust.id });
             showToast('Registered! Welcome ' + cust.name);
           }}
-          onAdminLogin={(staffName, role) => setSession({ role: role || 'admin', staffName })}
+          onAdminLogin={(staffName, role, staffId) => setSession({ role: role || 'admin', staffName, staffId })}
         />
         <ToastEl toast={toast} />
       </div>
@@ -954,7 +961,18 @@ export default function App() {
   }
 
   if (session.role === 'karigar') {
-    const myStaffId = staff.find((s) => s.name === session.staffName)?.id;
+    // Looked up by the ID captured at login (session.staffId), not by
+    // name - matching on name would break if two karigars share a name
+    // (common with everyday names), or silently lock a karigar out of
+    // their own assigned jobs the moment admin edits their name in the
+    // staff list, since the session's remembered name would then no
+    // longer match the updated staff record until the karigar logs back
+    // in. The ID never changes once a staff entry is created, so it
+    // stays correct across name edits and duplicate-name scenarios. The
+    // name-based fallback only matters for a session persisted to
+    // localStorage before this fix shipped (no staffId saved yet) -
+    // once that session ends, every future login carries staffId.
+    const myStaffId = session.staffId || staff.find((s) => s.name === session.staffName)?.id;
     const myJobs = jobs.filter((j) => j.assignedStaffId === myStaffId);
     return (
       <div style={styles.app}>
@@ -968,6 +986,7 @@ export default function App() {
           }}
           onLogout={() => setSession(null)}
           showToast={showToast}
+          pushNotification={pushNotification}
         />
         <ToastEl toast={toast} />
       </div>
@@ -1234,10 +1253,10 @@ function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, 
   };
 
   const doAdmin = () => {
-    if (pin === adminPin) { onAdminLogin('Admin', 'admin'); return; }
-    if (partnerPin && pin === partnerPin) { onAdminLogin('Partner', 'partner'); return; }
+    if (pin === adminPin) { onAdminLogin('Admin', 'admin', null); return; }
+    if (partnerPin && pin === partnerPin) { onAdminLogin('Partner', 'partner', null); return; }
     const staffMatch = (staff || []).find((s) => s.pin === pin);
-    if (staffMatch) { onAdminLogin(staffMatch.name, staffMatch.role === 'karigar' ? 'karigar' : 'admin'); return; }
+    if (staffMatch) { onAdminLogin(staffMatch.name, staffMatch.role === 'karigar' ? 'karigar' : 'admin', staffMatch.id); return; }
     setError('Galat PIN');
   };
 
@@ -1353,6 +1372,8 @@ const NOTIFICATION_META = {
   extra_work_rejected: { icon: 'XCircle', label: 'Extra Work Rejected' },
   follow_up_needed: { icon: 'AlertCircle', label: 'Follow-up Needed' },
   customer_birthday: { icon: 'Star', label: 'Birthday Today' },
+  karigar_message: { icon: 'MessageSquare', label: 'Karigar Message' },
+  work_completed_by_karigar: { icon: 'CheckCircle2', label: 'Karigar Marked Complete' },
 };
 const NOTIFICATION_ICONS = { Calendar, CheckCircle2, ThumbsUp, MessageSquare, XCircle, IndianRupee, AlertCircle, Hammer, Star };
 
@@ -1641,6 +1662,13 @@ function CustomerHome({ job, customer, setTab, onLogout }) {
           ))}
         </div>
       </div>
+
+      {job.expectedCompletionDate && (job.status === 'in_progress' || job.status === 'delivered') && (
+        <div style={styles.deliveryDateBanner}>
+          <Calendar size={15} color={BRAND.gold} />
+          <span>Expected completion: <b>{formatDate(job.expectedCompletionDate)}</b></span>
+        </div>
+      )}
 
       {total > 0 && (
         <button style={styles.payStripBtn} onClick={() => setTab('progress')}>
@@ -2425,7 +2453,18 @@ function ProgressView({ job, onSave, showToast }) {
   };
 
   const respondToExtraWork = (item, approve) => {
-    const next = { ...job, extraWork: extraWork.map((e) => (e.id === item.id ? { ...e, status: approve ? 'approved' : 'rejected', respondedAt: new Date().toISOString() } : e)) };
+    let next = { ...job, extraWork: extraWork.map((e) => (e.id === item.id ? { ...e, status: approve ? 'approved' : 'rejected', respondedAt: new Date().toISOString() } : e)) };
+    // Approving extra work raises jobTotal (see jobTotal's own comment),
+    // which can leave a job that was already marked 'paid' owing money
+    // again - status is a plain stored field, not derived, so without
+    // this check it would keep reading "Paid" while jobDue() is actually
+    // positive. Stepping it back to 'delivered' (rather than clearing it
+    // further) reflects that the work itself is still complete - only
+    // the payment total changed - and lets the existing 'paid' auto-set
+    // in addPayment naturally re-apply once the new balance is settled.
+    if (approve && next.status === 'paid' && jobDue(next) > 0) {
+      next = { ...next, status: 'delivered' };
+    }
     onSave(logActivity(next, 'Customer ne extra kaam ' + (approve ? 'approve' : 'reject') + ' kiya: ' + item.desc));
     showToast(approve ? 'Extra kaam approve ho gaya' : 'Extra kaam reject kar diya gaya');
   };
@@ -2591,9 +2630,10 @@ function ReviewPanel({ job, onSave, showToast }) {
    No customer contact details, no pricing, no payments - none of that is
    this role's business, so it's never passed in at all rather than
    merely hidden in the UI. ---- */
-function KarigarApp({ jobs, staffName, onSaveJob, onLogout, showToast }) {
+function KarigarApp({ jobs, staffName, onSaveJob, onLogout, showToast, pushNotification }) {
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
+  const [msgText, setMsgText] = useState('');
 
   const addPhotos = (job, photos) => {
     const newPhotos = photos.map((p) => ({ id: uid(), url: p.url, origUrl: p.origUrl, caption: p.caption, date: new Date().toISOString() }));
@@ -2606,12 +2646,38 @@ function KarigarApp({ jobs, staffName, onSaveJob, onLogout, showToast }) {
     onSaveJob({ ...job, progressPhotos: (job.progressPhotos || []).filter((p) => p.id !== photoId) });
   };
 
+  // Two-way thread so a karigar can ask admin a mid-work question (e.g.
+  // "is measurement sahi hai?") from inside the app instead of always
+  // needing a phone call - admin gets a notification the moment a
+  // message lands, and can reply from the same thread in AdminJobDetail.
+  const sendKarigarMessage = (job) => {
+    if (!msgText.trim()) return;
+    const entry = { id: uid(), text: msgText.trim(), from: 'karigar', authorName: staffName, createdAt: new Date().toISOString() };
+    const next = { ...job, karigarMessages: [...(job.karigarMessages || []), entry] };
+    onSaveJob(next);
+    pushNotification('karigar_message', staffName + ' (' + job.customerName + ' ka kaam): ' + msgText.trim(), job.id);
+    setMsgText('');
+    showToast('Message bhej diya');
+  };
+
+  const markWorkComplete = (job) => {
+    pushNotification('work_completed_by_karigar', staffName + ' ne ' + job.customerName + ' ka kaam complete bataya hai', job.id);
+    showToast('Admin ko bata diya gaya - wo confirm karke status update karenge');
+  };
+
   if (activeJob) {
     const notes = activeJob.projectNotes || [];
+    const messages = activeJob.karigarMessages || [];
     return (
       <div style={{ paddingBottom: 20 }}>
         <TopBar title={activeJob.customerName} subtitle={STATUS[activeJob.status]?.label || activeJob.status} onBack={() => setActiveJobId(null)} hideLogout />
         <div style={{ padding: '12px 16px' }}>
+          {activeJob.status === 'in_progress' && (
+            <button style={{ ...styles.addBtn, marginBottom: 16 }} onClick={() => markWorkComplete(activeJob)}>
+              <CheckCircle2 size={14} /> Kaam Complete - Admin ko Batayein
+            </button>
+          )}
+
           <div style={styles.sectionTitle}>Progress Photos</div>
           <div style={styles.photoGrid}>
             {(activeJob.progressPhotos || []).map((p) => (
@@ -2640,6 +2706,34 @@ function KarigarApp({ jobs, staffName, onSaveJob, onLogout, showToast }) {
                 {n.photo && <img src={n.photo.url} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140, marginTop: 8 }} />}
               </div>
             ))}
+          </div>
+
+          {(activeJob.materials || []).length > 0 && (
+            <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid ' + BRAND.line }}>
+              <div style={styles.sectionTitle}>Material &amp; Hardware</div>
+              {(activeJob.materials || []).map((m) => (
+                <div key={m.id} style={styles.extraWorkCard}>
+                  <div style={styles.itemDesc}>{m.desc} <span style={styles.reqCatBadge}>{m.category === 'hardware' ? 'Hardware' : 'Material'}</span></div>
+                  <div style={styles.itemSub}>Status: {m.status === 'pending' ? 'Pending' : m.status === 'ordered' ? 'Order ho gaya' : 'Aa gaya'}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid ' + BRAND.line }}>
+            <div style={styles.sectionTitle}>Admin se Sawal/Message</div>
+            <div style={styles.plainTextMuted}>Kaam ke beech kuch confirm karna ho to yahan puchein, call karne ki zaroorat nahi.</div>
+            {messages.length === 0 && <div style={styles.emptySmall}>Abhi koi message nahi hai.</div>}
+            {messages.map((m) => (
+              <div key={m.id} style={{ ...styles.extraWorkCard, ...(m.from === 'admin' ? { background: '#E1EDEA' } : {}) }}>
+                <div style={styles.itemSub}>{m.from === 'admin' ? 'Admin' : staffName} - {formatDate(m.createdAt)}</div>
+                <div style={{ ...styles.itemDesc, marginTop: 4 }}>{m.text}</div>
+              </div>
+            ))}
+            <div style={{ marginTop: 10 }}>
+              <textarea style={{ ...styles.input, minHeight: 60 }} placeholder='Apna sawal likhein...' value={msgText} onChange={(e) => setMsgText(e.target.value)} />
+              <button style={styles.addBtn} onClick={() => sendKarigarMessage(activeJob)}><Send size={14} /> Bhejein</button>
+            </div>
           </div>
         </div>
       </div>
@@ -2744,7 +2838,12 @@ function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs,
 }
 
 function AdminHome({ customers, jobs, gallery, categories, pendingEstimates, overdue, pendingAppointments, onOpenJob, setTab, isPartner }) {
-  const dueTotal = jobs.reduce((s, j) => s + jobDue(j), 0);
+  // Total Due should only reflect work that's actually started - an
+  // estimate sitting unapproved (status still 'appointment' or
+  // 'estimate') isn't money owed yet, it's a quote the customer hasn't
+  // committed to. Counting it here would make "how much is outstanding
+  // right now" misleadingly include work nobody has agreed to pay for.
+  const dueTotal = jobs.filter((j) => j.status === 'in_progress' || j.status === 'delivered' || j.status === 'paid').reduce((s, j) => s + jobDue(j), 0);
   const totalPhotos = categories.reduce((s, c) => s + (gallery[c] || []).length, 0);
   const recentJobs = [...jobs].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
 
@@ -2919,7 +3018,10 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, onOpenJob, sho
     return r;
   }, [customers, jobs, query, filter, branchFilter, sort]);
 
-  const dueTotal = jobs.reduce((s, j) => s + jobDue(j), 0);
+  // Same rule as AdminHome's dueTotal: only work that's actually
+  // started (in_progress/delivered/paid) counts as money owed - an
+  // unapproved estimate isn't due yet.
+  const dueTotal = jobs.filter((j) => j.status === 'in_progress' || j.status === 'delivered' || j.status === 'paid').reduce((s, j) => s + jobDue(j), 0);
 
   const saveEditedCustomer = (updated) => {
     const normalized = normalizeIndianPhone(updated.phone);
@@ -3374,11 +3476,36 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName }) {
   const [newExtraWork, setNewExtraWork] = useState({ desc: '', amount: '' });
   const [pricingId, setPricingId] = useState(null);
   const [priceInput, setPriceInput] = useState('');
+  const [replyText, setReplyText] = useState('');
+  const [newMaterial, setNewMaterial] = useState({ desc: '', category: 'material' });
 
   const total = jobTotal(job);
   const paid = jobPaid(job);
   const due = jobDue(job);
   const extraWork = job.extraWork || [];
+  const karigarMessages = job.karigarMessages || [];
+  const materials = job.materials || [];
+
+  const addMaterial = () => {
+    if (!newMaterial.desc.trim()) return;
+    const entry = { id: uid(), desc: newMaterial.desc.trim(), category: newMaterial.category, status: 'pending', createdAt: new Date().toISOString() };
+    onSave(logActivity({ ...job, materials: [entry, ...materials] }, (newMaterial.category === 'hardware' ? 'Hardware' : 'Material') + ' added: ' + entry.desc));
+    setNewMaterial({ desc: '', category: newMaterial.category });
+    showToast('Add ho gaya');
+  };
+  const setMaterialStatus = (id, status) => {
+    const next = materials.map((m) => (m.id === id ? { ...m, status, [status + 'At']: new Date().toISOString() } : m));
+    onSave({ ...job, materials: next });
+  };
+  const removeMaterial = (id) => onSave({ ...job, materials: materials.filter((m) => m.id !== id) });
+
+  const sendAdminReply = () => {
+    if (!replyText.trim()) return;
+    const entry = { id: uid(), text: replyText.trim(), from: 'admin', authorName: staffName || 'Admin', createdAt: new Date().toISOString() };
+    onSave({ ...job, karigarMessages: [...karigarMessages, entry] });
+    setReplyText('');
+    showToast('Reply bhej diya');
+  };
 
   const updateStatus = (status) => {
     let next = { ...job, status };
@@ -3465,6 +3592,8 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName }) {
         <TabBtn active={tab === 'photos'} onClick={() => setTab('photos')} label='Progress' />
         <TabBtn active={tab === 'activity'} onClick={() => setTab('activity')} label='Activity' />
         <TabBtn active={tab === 'notes'} onClick={() => setTab('notes')} label='Notes' />
+        <TabBtn active={tab === 'karigar'} onClick={() => setTab('karigar')} label='Karigar' />
+        <TabBtn active={tab === 'materials'} onClick={() => setTab('materials')} label='Material' />
       </div>
 
       <div style={{ padding: '14px 16px' }}>
@@ -3497,6 +3626,12 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName }) {
                 </select>
               </div>
             )}
+
+            <div style={{ marginTop: 16 }}>
+              <div style={styles.fieldLabel}>Expected Completion Date</div>
+              <div style={styles.plainTextMuted}>Customer ko Home screen par dikhega.</div>
+              <input type='date' style={styles.input} value={job.expectedCompletionDate || ''} onChange={(e) => onSave({ ...job, expectedCompletionDate: e.target.value || null })} />
+            </div>
           </div>
         )}
 
@@ -3669,6 +3804,56 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName }) {
 
         {tab === 'notes' && (
           <ProjectNotesPanel job={job} onSave={onSave} showToast={showToast} authorRole='admin' authorName={staffName || 'Admin'} />
+        )}
+
+        {tab === 'karigar' && (
+          <div>
+            <div style={styles.fieldLabel}>Karigar se Messages</div>
+            <div style={styles.plainTextMuted}>Assigned karigar ke sawal yahan aayenge, reply karein.</div>
+            {karigarMessages.length === 0 && <div style={styles.emptySmall}>Abhi koi message nahi hai.</div>}
+            {karigarMessages.map((m) => (
+              <div key={m.id} style={{ ...styles.extraWorkCard, ...(m.from === 'admin' ? { background: '#E1EDEA' } : {}) }}>
+                <div style={styles.itemSub}>{m.authorName} - {formatDate(m.createdAt)}</div>
+                <div style={{ ...styles.itemDesc, marginTop: 4 }}>{m.text}</div>
+              </div>
+            ))}
+            <div style={{ marginTop: 10 }}>
+              <textarea style={{ ...styles.input, minHeight: 60 }} placeholder='Reply likhein...' value={replyText} onChange={(e) => setReplyText(e.target.value)} />
+              <button style={styles.addBtn} onClick={sendAdminReply}><Send size={14} /> Reply bhejein</button>
+            </div>
+          </div>
+        )}
+
+        {tab === 'materials' && (
+          <div>
+            <div style={styles.fieldLabel}>Material &amp; Hardware</div>
+            <div style={styles.plainTextMuted}>Kya order karna hai, kya customer ne handle/glass select kiya - sab yahan track karein.</div>
+
+            <div style={styles.formCard}>
+              <input style={styles.input} placeholder='Kya chahiye (jaise "Rose gold handle" ya "Kaka PVC sheet 18mm")' value={newMaterial.desc} onChange={(e) => setNewMaterial((n) => ({ ...n, desc: e.target.value }))} />
+              <div style={styles.chipRow}>
+                <button onClick={() => setNewMaterial((n) => ({ ...n, category: 'material' }))} style={{ ...styles.chip, ...(newMaterial.category === 'material' ? styles.chipActive : {}) }}>Material</button>
+                <button onClick={() => setNewMaterial((n) => ({ ...n, category: 'hardware' }))} style={{ ...styles.chip, ...(newMaterial.category === 'hardware' ? styles.chipActive : {}) }}>Hardware/Fitting</button>
+              </div>
+              <button style={styles.addBtn} onClick={addMaterial}><Plus size={14} /> Add karein</button>
+            </div>
+
+            {materials.length === 0 && <div style={styles.emptySmall}>Abhi koi material/hardware add nahi kiya.</div>}
+            {materials.map((m) => (
+              <div key={m.id} style={styles.extraWorkCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={styles.itemDesc}>{m.desc} <span style={styles.reqCatBadge}>{m.category === 'hardware' ? 'Hardware' : 'Material'}</span></div>
+                  <button style={styles.iconBtnSmall} onClick={() => removeMaterial(m.id)}><Trash2 size={13} color='#C7CCDC' /></button>
+                </div>
+                <div style={styles.itemSub}>Status: {m.status === 'pending' ? 'Pending' : m.status === 'ordered' ? 'Order ho gaya' : 'Aa gaya'}</div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <button style={{ ...styles.chip, ...(m.status === 'pending' ? styles.chipActive : {}) }} onClick={() => setMaterialStatus(m.id, 'pending')}>Pending</button>
+                  <button style={{ ...styles.chip, ...(m.status === 'ordered' ? styles.chipActive : {}) }} onClick={() => setMaterialStatus(m.id, 'ordered')}>Ordered</button>
+                  <button style={{ ...styles.chip, ...(m.status === 'arrived' ? styles.chipActive : {}) }} onClick={() => setMaterialStatus(m.id, 'arrived')}>Arrived</button>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -4913,6 +5098,7 @@ const styles = {
   totalAmt: { fontSize: 16, fontWeight: 800, fontFamily: "'DM Mono', monospace" },
   payStrip: { display: 'flex', justifyContent: 'space-around', background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: '12px 8px' },
   payStripBtn: { display: 'block', width: '100%', background: 'none', border: 'none', padding: 0, marginTop: 10, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' },
+  deliveryDateBanner: { display: 'flex', alignItems: 'center', gap: 8, background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 10, padding: '10px 12px', marginTop: 10, fontSize: 12.5 },
   homeEstimatePreview: { background: BRAND.paper, border: '1px solid ' + BRAND.line, borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '8px 12px 10px' },
   homeEstimateRow: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12 },
   homeEstimateDesc: { color: BRAND.textMuted, fontWeight: 600 },
