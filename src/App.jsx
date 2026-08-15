@@ -1104,6 +1104,7 @@ export default function App() {
           notifications={notifications} markNotificationRead={markNotificationRead} markAllNotificationsRead={markAllNotificationsRead}
           itemTemplates={itemTemplates} setItemTemplates={setItemTemplates}
           attendance={attendance}
+          pushNotification={pushNotification}
           allData={{ customers, jobs, gallery, staff, expenses }}
           staffName={session.staffName}
           isPartner={isPartner}
@@ -1525,7 +1526,7 @@ const NOTIFICATION_META = {
   payment_received: { icon: 'IndianRupee', label: 'Payment Received' },
   payment_due: { icon: 'AlertCircle', label: 'Payment Due' },
   extra_work_requested: { icon: 'Hammer', label: 'Extra Work Requested' },
-  extra_work_needs_price: { icon: 'Hammer', label: 'Extra Work Needs Price' },
+  extra_work_needs_price: { icon: 'Hammer', label: 'Extra Work Price Set' },
   extra_work_approved: { icon: 'ThumbsUp', label: 'Extra Work Approved' },
   extra_work_rejected: { icon: 'XCircle', label: 'Extra Work Rejected' },
   follow_up_needed: { icon: 'AlertCircle', label: 'Follow-up Needed' },
@@ -1770,7 +1771,19 @@ function CustomerApp({ customer, gallery, job, appointmentItemOptions, categorie
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <FavoritesButton job={job} onSaveJob={onSaveJob} showToast={showToast} categories={categories} gallery={gallery} />
             <NotificationBell
-              notifications={notifications || []}
+              // Only customer-facing types (things admin/karigar did that
+              // the customer needs to know about) - the shared feed also
+              // carries admin-facing operational alerts (new_appointment,
+              // estimate_approved, extra_work_requested, etc.), which are
+              // all worded in third person about the customer's OWN
+              // actions ("Ramesh ne estimate approve kiya") - showing
+              // those back to the customer who just did them is confusing
+              // noise, not a notification. Restricting to a small
+              // allowlist here (rather than excluding admin-only types by
+              // name) means any new admin-facing type added later is
+              // safe-by-default and won't leak into the customer's bell
+              // unless explicitly added to this list.
+              notifications={(notifications || []).filter((n) => n.type === 'appointment_confirmed' || n.type === 'extra_work_needs_price')}
               viewerKey={'customer_' + (customer?.id || 'unknown')}
               onOpenJob={null}
               onMarkRead={markNotificationRead}
@@ -1799,7 +1812,6 @@ function CustomerApp({ customer, gallery, job, appointmentItemOptions, categorie
           { key: 'home', label: 'Home', icon: <Home size={18} /> },
           { key: 'appointment', label: 'Visit', icon: <Calendar size={18} /> },
           { key: 'gallery', label: 'Designs', icon: <Grid3x3 size={18} /> },
-          { key: 'requirements', label: 'Needs', icon: <Edit3 size={18} /> },
           { key: 'estimate', label: 'Estimate', icon: <FileText size={18} /> },
           { key: 'progress', label: 'Progress', icon: <Hammer size={18} /> },
           { key: 'review', label: 'Review', icon: <Star size={18} /> },
@@ -1874,20 +1886,9 @@ function CustomerHome({ job, customer, setTab, onLogout }) {
         <QuickTile icon={<Grid3x3 size={20} color={BRAND.navy} />} label='Browse Designs' onClick={() => setTab('gallery')} />
         <QuickTile icon={<Edit3 size={20} color={BRAND.navy} />} label='Add Requirement' onClick={() => setTab('requirements')} />
         <QuickTile icon={<Hammer size={20} color={BRAND.navy} />} label='Work Progress' onClick={() => setTab('progress')} />
-      </div>
-
-      <div style={styles.fieldLabel}>Recent activity</div>
-      {(job.activity || []).length === 0 && <div style={styles.emptySmall}>Koi activity abhi tak nahi.</div>}
-      <div style={styles.activityList}>
-        {(job.activity || []).slice(0, 6).map((a) => (
-          <div key={a.id} style={styles.activityRow}>
-            <div style={styles.activityDot} />
-            <div style={{ flex: 1 }}>
-              <div style={styles.activityText}>{a.text}</div>
-              <div style={styles.itemSub}>{timeAgo(a.date)}</div>
-            </div>
-          </div>
-        ))}
+        {(job.status === 'delivered' || job.status === 'paid') && (
+          <QuickTile icon={<Star size={20} color={BRAND.navy} />} label={job.review ? 'Aapka Review' : 'Review Dein'} onClick={() => setTab('review')} />
+        )}
       </div>
 
       <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
@@ -3046,7 +3047,7 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
   );
 }
 
-function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, staffName, isPartner, onLogout, showToast }) {
+function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, staffName, isPartner, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
@@ -3059,7 +3060,7 @@ function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs,
     return (
       <div style={{ paddingBottom: 20 }}>
         <TopBar title={activeJob.customerName} subtitle={isPartner ? 'Partner - Job detail' : 'Admin - Job detail'} onBack={() => setActiveJobId(null)} hideLogout />
-        <AdminJobDetail job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} />
+        <AdminJobDetail job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} pushNotification={pushNotification} />
       </div>
     );
   }
@@ -3496,7 +3497,7 @@ function FilterChip({ active, onClick, label, color }) {
 }
 
 /* ---- Admin: view appointment request, confirm/reschedule with a date+time ---- */
-function AdminAppointmentTab({ job, onSave, showToast }) {
+function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
   const appt = job.appointment;
   const [confirmDate, setConfirmDate] = useState(appt?.confirmedDate || appt?.preferredDate || '');
   const [confirmTime, setConfirmTime] = useState(appt?.confirmedTime || appt?.preferredTime || '');
@@ -3513,6 +3514,9 @@ function AdminAppointmentTab({ job, onSave, showToast }) {
     let next = { ...job, appointment: nextAppt };
     next = logActivity(next, 'Appointment ' + (asReschedule ? 'rescheduled' : 'confirmed') + ': ' + formatDate(confirmDate) + (confirmTime ? ', ' + confirmTime : ''));
     onSave(next);
+    if (pushNotification) {
+      pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(confirmDate) + (confirmTime ? (' - ' + confirmTime) : '') + ' ke liye confirm ho gayi hai', job.id);
+    }
     showToast(asReschedule ? 'Appointment reschedule ki gayi' : 'Appointment confirm ho gayi');
   };
 
@@ -3810,7 +3814,7 @@ function QuotationPreview({ job, onClose }) {
   );
 }
 
-function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates }) {
+function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates, pushNotification }) {
   const [tab, setTab] = useState('status');
   const [newItem, setNewItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
   const [newPayment, setNewPayment] = useState({ amount: '', note: '' });
@@ -3902,6 +3906,9 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     if (!priceInput) return;
     const next = { ...job, extraWork: extraWork.map((e) => (e.id === item.id ? { ...e, amount: priceInput, status: 'pending_customer_approval' } : e)) };
     onSave(logActivity(next, 'Extra work priced: ' + item.desc + ' (' + currency(priceInput) + ')'));
+    if (pushNotification) {
+      pushNotification('extra_work_needs_price', 'Aapke extra kaam "' + item.desc + '" ka price ' + currency(priceInput) + ' set ho gaya hai - approve karein', job.id);
+    }
     setPricingId(null);
     setPriceInput('');
     showToast('Price set, customer approval ke liye bheja gaya');
@@ -3939,7 +3946,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
 
       <div style={{ padding: '14px 16px' }}>
         {tab === 'appointment' && (
-          <AdminAppointmentTab job={job} onSave={onSave} showToast={showToast} />
+          <AdminAppointmentTab job={job} onSave={onSave} showToast={showToast} pushNotification={pushNotification} />
         )}
 
         {tab === 'status' && (
