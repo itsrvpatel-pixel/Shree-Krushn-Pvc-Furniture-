@@ -444,14 +444,18 @@ function SmartImg({ src, origUrl, alt, style, onError: onErrorProp }) {
    separate fetch step needed. ---- */
 function openOrDownloadPdf(url, filename) {
   try {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename.endsWith('.pdf') ? filename : (filename + '.pdf');
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    // window.open is far more reliable than a synthetic <a> click for
+    // cross-origin URLs (Firebase Storage) on mobile browsers, which
+    // sometimes silently swallow the click on a programmatically-created,
+    // download-attributed anchor without any visible error - the tab
+    // just never opens. window.open triggers the browser's normal
+    // new-tab/download handling directly.
+    const win = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!win) {
+      // Popup blocked (rare, since this fires from a direct tap) - fall
+      // back to in-place navigation so the PDF still opens somewhere.
+      window.location.href = url;
+    }
     return true;
   } catch (e) {
     return false;
@@ -471,7 +475,7 @@ function BrochureList({ brochures, showToast, canManage, onDelete }) {
   }, [brochures]);
 
   const openBrochure = (b) => {
-    if (!b.url) { showToast('Brochure link nahi mila', true); return; }
+    if (!b.url) { showToast(b.name + ' ka link missing hai - purani entry ho sakti hai, dobara upload karein', true); return; }
     setLoadingId(b.id);
     const ok = openOrDownloadPdf(b.url, b.name);
     if (!ok) showToast('Brochure open nahi ho payi', true);
@@ -493,7 +497,10 @@ function BrochureList({ brochures, showToast, canManage, onDelete }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={styles.itemDesc}>{b.name}</div>
 
-                <div style={styles.itemSub}>{b.sizeKb ? (b.sizeKb + ' KB') : ''}</div>
+                <div style={styles.itemSub}>
+                  {b.sizeKb ? (b.sizeKb + ' KB') : ''}
+                  {!b.url && <span style={{ color: '#C62828', fontWeight: 700 }}> - Link missing, dobara upload karein</span>}
+                </div>
               </div>
               <button style={styles.brochureOpenBtn} onClick={() => openBrochure(b)} disabled={loadingId === b.id}>
                 {loadingId === b.id ? '...' : <Download size={13} />}
@@ -1357,6 +1364,90 @@ const NOTIFICATION_META = {
 };
 const NOTIFICATION_ICONS = { Calendar, CheckCircle2, ThumbsUp, MessageSquare, XCircle, IndianRupee, AlertCircle, Hammer, Star };
 
+function FavoritesButton({ job, onSaveJob, showToast, categories }) {
+  const [open, setOpen] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+  const [addingId, setAddingId] = useState(null);
+  const [addCategory, setAddCategory] = useState(categories[0]);
+  const savedDesigns = job.savedDesigns || [];
+
+  const removeSavedDesign = (photoId) => {
+    onSaveJob({ ...job, savedDesigns: savedDesigns.filter((d) => d.photoId !== photoId) });
+    showToast('Favorites se hataya gaya');
+  };
+
+  // Adds a favorited photo to the customer's project requirements, using
+  // the exact same requirement shape (photoRef, category, text) that
+  // RequirementsPanel's own "Add to Project" button produces, so a
+  // design added from either place shows up identically to admin -
+  // one requirement list, not two divergent formats depending on where
+  // the customer started from.
+  const addToProject = (d) => {
+    const req = {
+      id: uid(),
+      category: addCategory,
+      text: 'Saved design reference' + (d.caption ? ': ' + d.caption : ''),
+      dimensions: '',
+      priority: 'normal',
+      photoRef: { url: d.url, origUrl: d.origUrl },
+      createdAt: new Date().toISOString(),
+    };
+    let next = { ...job, requirements: [req, ...(job.requirements || [])] };
+    next = logActivity(next, 'Requirement added: ' + addCategory + ' (saved design)');
+    onSaveJob(next);
+    setAddingId(null);
+    showToast('Project mein add ho gaya');
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button style={styles.iconBtn} onClick={() => setOpen((o) => !o)}>
+        <Star size={19} color={BRAND.navy} fill={savedDesigns.length > 0 ? BRAND.gold : 'none'} />
+        {savedDesigns.length > 0 && <div style={styles.notifBadge}>{savedDesigns.length > 9 ? '9+' : savedDesigns.length}</div>}
+      </button>
+      {open && (
+        <>
+          <div style={styles.notifBackdrop} onClick={() => { setOpen(false); setAddingId(null); }} />
+          <div style={styles.notifPanel}>
+            <div style={styles.notifPanelHeader}>
+              <span>Favorites</span>
+            </div>
+            <div style={{ ...styles.notifList, padding: savedDesigns.length > 0 ? 10 : 0 }}>
+              {savedDesigns.length === 0 && <div style={styles.emptySmall}>Gallery mein photo ke star icon se favorite add karein.</div>}
+              {savedDesigns.length > 0 && (
+                <div style={styles.savedDesignGrid}>
+                  {savedDesigns.map((d, i) => (
+                    <div key={d.photoId} style={styles.savedDesignCard}>
+                      <button style={{ border: 'none', padding: 0, width: '100%', height: '100%', background: 'none', cursor: 'pointer' }} onClick={() => setLightbox({ photos: savedDesigns.map((sd) => ({ id: sd.photoId, url: sd.url, origUrl: sd.origUrl, caption: sd.caption })), index: i })}>
+                        <SmartImg src={d.url} origUrl={d.origUrl} alt={d.caption} style={styles.savedDesignImg} />
+                      </button>
+                      <button style={styles.multiPhotoPreviewRemove} onClick={() => removeSavedDesign(d.photoId)}><X size={12} color='#FFF' /></button>
+                      {addingId === d.photoId ? (
+                        <div style={styles.favAddCategoryBar}>
+                          <select style={styles.favAddCategorySelect} value={addCategory} onChange={(e) => setAddCategory(e.target.value)}>
+                            {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                          <button style={styles.favAddConfirmBtn} onClick={() => addToProject(d)}><Check size={12} color='#FFF' /></button>
+                        </div>
+                      ) : (
+                        <button style={{ ...styles.savedDesignActions, border: 'none', cursor: 'pointer', width: '100%' }} onClick={() => { setAddingId(d.photoId); setAddCategory(categories[0]); }}>
+                          <span style={styles.savedDesignAddBtn}>Add to Project</span>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+      {lightbox && <Lightbox data={lightbox} onClose={() => setLightbox(null)} setLightbox={setLightbox} />}
+    </div>
+  );
+}
+
+
 function NotificationBell({ notifications, viewerKey, onOpenJob, onMarkRead, onMarkAllRead }) {
   const [open, setOpen] = useState(false);
   const unread = notifications.filter((n) => !n.readBy.includes(viewerKey));
@@ -1488,13 +1579,16 @@ function CustomerApp({ customer, gallery, job, appointmentItemOptions, categorie
         subtitle='Shree Krushn PVC Furniture'
         hideLogout
         right={
-          <NotificationBell
-            notifications={notifications || []}
-            viewerKey={'customer_' + (customer?.id || 'unknown')}
-            onOpenJob={null}
-            onMarkRead={markNotificationRead}
-            onMarkAllRead={markAllNotificationsRead}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <FavoritesButton job={job} onSaveJob={onSaveJob} showToast={showToast} categories={categories} />
+            <NotificationBell
+              notifications={notifications || []}
+              viewerKey={'customer_' + (customer?.id || 'unknown')}
+              onOpenJob={null}
+              onMarkRead={markNotificationRead}
+              onMarkAllRead={markAllNotificationsRead}
+            />
+          </div>
         }
       />
 
@@ -2147,63 +2241,6 @@ function ProgressView({ job, onSave, showToast }) {
         })}
       </div>
 
-      {(job.status === 'in_progress' || job.status === 'delivered' || extraWork.length > 0) && (
-        <div style={{ marginTop: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={styles.fieldLabel}>Extra Kaam (Original estimate se alag)</div>
-            {job.status === 'in_progress' && !showExtraWorkForm && (
-              <button style={styles.linkBtn2} onClick={() => setShowExtraWorkForm(true)}>+ Request Extra Work</button>
-            )}
-          </div>
-
-          {showExtraWorkForm && (
-            <div style={styles.formCard}>
-              <textarea style={{ ...styles.input, minHeight: 60 }} placeholder='Kya extra kaam chahiye, likhein...' value={extraWorkDesc} onChange={(e) => setExtraWorkDesc(e.target.value)} />
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={requestExtraWork}>Bhejein</button>
-                <button style={styles.cancelBtn} onClick={() => setShowExtraWorkForm(false)}>Cancel</button>
-              </div>
-            </div>
-          )}
-
-          {extraWork.length === 0 && !showExtraWorkForm && (
-            <div style={styles.emptySmall}>Koi extra kaam nahi hai abhi.</div>
-          )}
-          {extraWork.map((e) => (
-            <div key={e.id} style={styles.extraWorkCard}>
-              <div style={styles.itemDesc}>{e.desc}</div>
-              <div style={styles.itemSub}>
-                {e.addedBy === 'admin' ? 'Admin ne add kiya' : 'Aapne request kiya'} - {formatDate(e.createdAt)}
-              </div>
-              {e.status === 'pending_admin_price' && (
-                <div style={{ ...styles.estimateStatusBanner, background: '#FFF3E0', color: '#E65100', marginTop: 8 }}>
-                  <AlertCircle size={14} /> Admin price set karega, phir approval ke liye aayega.
-                </div>
-              )}
-              {e.status === 'pending_customer_approval' && (
-                <>
-                  <div style={styles.itemAmount}>{currency(e.amount)}</div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                    <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => respondToExtraWork(e, true)}><ThumbsUp size={13} /> Approve</button>
-                    <button style={{ ...styles.cancelBtn, flex: 1, background: '#FFEBEE', color: '#C62828' }} onClick={() => respondToExtraWork(e, false)}><XCircle size={13} /> Reject</button>
-                  </div>
-                </>
-              )}
-              {e.status === 'approved' && (
-                <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
-                  <ThumbsUp size={14} /> Approved - {currency(e.amount)}
-                </div>
-              )}
-              {e.status === 'rejected' && (
-                <div style={{ ...styles.estimateStatusBanner, background: '#FFEBEE', color: '#C62828', marginTop: 8 }}>
-                  <XCircle size={14} /> Reject kar diya gaya
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
       {total > 0 && (
         <div style={{ ...styles.payStrip, marginTop: 10 }}>
           <MoneyBit label='Total' value={currency(total)} />
@@ -2303,6 +2340,63 @@ function ProgressView({ job, onSave, showToast }) {
         </div>
       )}
       {showQuote && <QuotationPreview job={job} onClose={() => setShowQuote(false)} />}
+
+      {(job.status === 'in_progress' || job.status === 'delivered' || extraWork.length > 0) && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={styles.fieldLabel}>Extra Kaam (Original estimate se alag)</div>
+            {job.status === 'in_progress' && !showExtraWorkForm && (
+              <button style={styles.linkBtn2} onClick={() => setShowExtraWorkForm(true)}>+ Request Extra Work</button>
+            )}
+          </div>
+
+          {showExtraWorkForm && (
+            <div style={styles.formCard}>
+              <textarea style={{ ...styles.input, minHeight: 60 }} placeholder='Kya extra kaam chahiye, likhein...' value={extraWorkDesc} onChange={(e) => setExtraWorkDesc(e.target.value)} />
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={requestExtraWork}>Bhejein</button>
+                <button style={styles.cancelBtn} onClick={() => setShowExtraWorkForm(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
+
+          {extraWork.length === 0 && !showExtraWorkForm && (
+            <div style={styles.emptySmall}>Koi extra kaam nahi hai abhi.</div>
+          )}
+          {extraWork.map((e) => (
+            <div key={e.id} style={styles.extraWorkCard}>
+              <div style={styles.itemDesc}>{e.desc}</div>
+              <div style={styles.itemSub}>
+                {e.addedBy === 'admin' ? 'Admin ne add kiya' : 'Aapne request kiya'} - {formatDate(e.createdAt)}
+              </div>
+              {e.status === 'pending_admin_price' && (
+                <div style={{ ...styles.estimateStatusBanner, background: '#FFF3E0', color: '#E65100', marginTop: 8 }}>
+                  <AlertCircle size={14} /> Admin price set karega, phir approval ke liye aayega.
+                </div>
+              )}
+              {e.status === 'pending_customer_approval' && (
+                <>
+                  <div style={styles.itemAmount}>{currency(e.amount)}</div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => respondToExtraWork(e, true)}><ThumbsUp size={13} /> Approve</button>
+                    <button style={{ ...styles.cancelBtn, flex: 1, background: '#FFEBEE', color: '#C62828' }} onClick={() => respondToExtraWork(e, false)}><XCircle size={13} /> Reject</button>
+                  </div>
+                </>
+              )}
+              {e.status === 'approved' && (
+                <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
+                  <ThumbsUp size={14} /> Approved - {currency(e.amount)}
+                </div>
+              )}
+              {e.status === 'rejected' && (
+                <div style={{ ...styles.estimateStatusBanner, background: '#FFEBEE', color: '#C62828', marginTop: 8 }}>
+                  <XCircle size={14} /> Reject kar diya gaya
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ ...styles.fieldLabel, marginTop: 20 }}>Progress Photos ({photos.length})</div>
       {photos.length === 0 && <div style={styles.emptySmall}>Kaam shuru hone ke baad yahan progress photos dikhengi.</div>}
@@ -4699,6 +4793,9 @@ const styles = {
   savedDesignImg: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
   savedDesignActions: { position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', background: 'rgba(15,27,61,0.75)', padding: '5px 6px' },
   savedDesignAddBtn: { flex: 1, background: 'none', border: 'none', color: '#FFF', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', padding: '3px 0' },
+  favAddCategoryBar: { position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(15,27,61,0.9)', padding: '4px 5px' },
+  favAddCategorySelect: { flex: 1, fontSize: 10, padding: '3px 4px', borderRadius: 5, border: 'none' },
+  favAddConfirmBtn: { background: BRAND.gold, border: 'none', borderRadius: 5, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },
   savedDesignRemoveBtn: { background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' },
   reqCatBadge: { fontSize: 9.5, fontWeight: 800, background: '#F3EFE3', color: BRAND.gold, borderRadius: 6, padding: '3px 7px', flexShrink: 0, marginTop: 1 },
   reqText: { fontSize: 13, color: '#333B57', lineHeight: 1.4 },
