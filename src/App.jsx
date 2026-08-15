@@ -2544,6 +2544,29 @@ function EstimateView({ job, onSave, showToast }) {
   const [changeRequestText, setChangeRequestText] = useState('');
   const [showChangeRequestBox, setShowChangeRequestBox] = useState(false);
   const estimateStatus = job.estimateStatus || null;
+  const estimateDrafts = job.estimateDrafts || [];
+  const draftTotal = (d) => (d.items || []).reduce((s, it) => s + estimateItemAmount(it), 0);
+
+  // Customer picking one of admin's material options (e.g. Laminate vs
+  // Without Laminate) turns that draft into the job's real estimate -
+  // copying its items/material straight into the normal fields the rest
+  // of the app already reads (jobTotal, EstimateView's own table below,
+  // payment milestones, PDF/WhatsApp). The other drafts are discarded
+  // (estimateDrafts cleared) once one is chosen, since only one estimate
+  // can be active per job - keeping a stale comparison around after the
+  // decision is made would just be confusing leftover state.
+  const chooseDraft = (d) => {
+    let next = {
+      ...job,
+      items: d.items,
+      materialCompany: d.materialCompany || '',
+      sheetWeightKg: d.sheetWeightKg || '',
+      estimateDrafts: [],
+    };
+    next = logActivity(next, 'Customer ne "' + d.label + '" option choose kiya - final estimate ban gaya');
+    onSave(next);
+    showToast(d.label + ' option select ho gaya');
+  };
 
   const respondToEstimate = (status, note) => {
     let next = { ...job, estimateStatus: status, estimateResponseNote: note || null, estimateRespondedAt: new Date().toISOString() };
@@ -2565,6 +2588,26 @@ function EstimateView({ job, onSave, showToast }) {
 
   return (
     <>
+      {(job.items || []).length === 0 && estimateDrafts.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={styles.sectionTitle}>Material Options Compare Karein</div>
+          <div style={styles.plainTextMuted}>Jo aapke budget mein aaye, wo option choose karein - wahi aapka final estimate ban jayega.</div>
+          {estimateDrafts.map((d) => (
+            <div key={d.id} style={styles.reviewCard}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={styles.cardName}>{d.label}</div>
+                <span style={styles.itemAmount}>{currency(draftTotal(d))}</span>
+              </div>
+              {(d.materialCompany || d.sheetWeightKg) && (
+                <div style={styles.itemSub}>{[d.materialCompany, d.sheetWeightKg && (d.sheetWeightKg + ' kg')].filter(Boolean).join(' - ')}</div>
+              )}
+              <div style={styles.itemSub}>{d.items.length} item{d.items.length !== 1 ? 's' : ''}</div>
+              <button style={{ ...styles.primaryBtn2, marginTop: 8 }} onClick={() => chooseDraft(d)}><Check size={14} /> Ye Option Choose Karein</button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {Number(job.discount) > 0 && (
         <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 10 }}>
           <ThumbsUp size={14} /> {currency(job.discount)} discount mila hai is estimate par.
@@ -3675,6 +3718,8 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
 
   return (
     <div>
+      {(job.items || []).length === 0 && <AdminEstimateDraftsPanel job={job} onSave={onSave} showToast={showToast} />}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={styles.fieldLabel}>Estimate items</div>
         {(job.items || []).length > 0 && (
@@ -3758,6 +3803,134 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
       <div style={styles.totalBar}><span>Estimate Total</span><span style={styles.totalAmt}>{currency(total)}</span></div>
 
       {showPreview && <QuotationPreview job={job} onClose={() => setShowPreview(false)} />}
+    </div>
+  );
+}
+
+/* ---- Estimate draft options: lets admin build 2+ complete estimate
+   variants (e.g. "Laminate" vs "Without Laminate"), each with its own
+   material, items, and total, so the customer can compare budgets
+   before committing. Only relevant BEFORE the real estimate exists
+   (job.items is empty) - once a draft is finalized, its items/material/
+   discount get copied straight into the job's normal fields, and
+   estimateDrafts is cleared. From that point on, the job behaves
+   exactly like any other job with an estimate - approve/reject,
+   payment milestones, PDF/WhatsApp sharing all work completely
+   unchanged, since they only ever look at job.items/materialCompany/
+   etc, never at estimateDrafts. This keeps the whole rest of the app's
+   estimate logic untouched by this feature. ---- */
+function AdminEstimateDraftsPanel({ job, onSave, showToast }) {
+  const drafts = job.estimateDrafts || [];
+  const [editingDraftId, setEditingDraftId] = useState(null);
+  const [draftForm, setDraftForm] = useState(null);
+  const [newDraftItem, setNewDraftItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
+
+  const draftTotal = (d) => (d.items || []).reduce((s, it) => s + estimateItemAmount(it), 0);
+
+  const startNewDraft = () => {
+    setEditingDraftId('new');
+    setDraftForm({ label: '', materialCompany: '', sheetWeightKg: '', items: [] });
+    setNewDraftItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
+  };
+  const startEditDraft = (d) => {
+    setEditingDraftId(d.id);
+    setDraftForm({ ...d });
+    setNewDraftItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
+  };
+  const addItemToDraft = () => {
+    if (!newDraftItem.desc.trim()) return;
+    const item = { id: uid(), desc: newDraftItem.desc.trim(), length: newDraftItem.length || '', height: newDraftItem.height || '', qty: newDraftItem.qty || '1', rate: newDraftItem.rate || '0' };
+    setDraftForm((f) => ({ ...f, items: [...f.items, item] }));
+    setNewDraftItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
+  };
+  const removeItemFromDraft = (id) => setDraftForm((f) => ({ ...f, items: f.items.filter((it) => it.id !== id) }));
+  const saveDraft = () => {
+    if (!draftForm.label.trim()) { showToast('Option ka naam bharein (jaise Laminate)', true); return; }
+    if (draftForm.items.length === 0) { showToast('Kam se kam ek item add karein', true); return; }
+    const savedDraft = { ...draftForm, label: draftForm.label.trim(), id: editingDraftId === 'new' ? uid() : editingDraftId };
+    const nextDrafts = editingDraftId === 'new' ? [...drafts, savedDraft] : drafts.map((d) => (d.id === editingDraftId ? savedDraft : d));
+    onSave({ ...job, estimateDrafts: nextDrafts });
+    setEditingDraftId(null);
+    setDraftForm(null);
+    showToast('Estimate option save ho gaya');
+  };
+  const deleteDraft = (id) => onSave({ ...job, estimateDrafts: drafts.filter((d) => d.id !== id) });
+
+  if (editingDraftId) {
+    return (
+      <div style={styles.formCard}>
+        <div style={styles.fieldLabel}>{editingDraftId === 'new' ? 'Naya Estimate Option' : 'Option Edit Karein'}</div>
+        <input style={styles.input} placeholder="Option ka naam (jaise 'Laminate')" value={draftForm.label} onChange={(e) => setDraftForm((f) => ({ ...f, label: e.target.value }))} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <input style={styles.input} placeholder='Company (jaise Kaka)' value={draftForm.materialCompany} onChange={(e) => setDraftForm((f) => ({ ...f, materialCompany: e.target.value }))} />
+          <input style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={draftForm.sheetWeightKg} onChange={(e) => setDraftForm((f) => ({ ...f, sheetWeightKg: e.target.value }))} />
+        </div>
+
+        <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Items ({draftForm.items.length})</div>
+        {draftForm.items.map((it, i) => {
+          const sqft = estimateItemSqft(it);
+          return (
+            <div key={it.id} style={styles.estItemRow}>
+              <div style={styles.estItemNo}>{i + 1}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={styles.itemDesc}>{it.desc}</div>
+                <div style={styles.itemSub}>{sqft !== null ? (it.length + "' x " + it.height + "' = " + sqft.toFixed(2) + ' sq ft x ' + currency(it.rate)) : ((it.qty || 1) + ' x ' + currency(it.rate))}</div>
+              </div>
+              <div style={styles.itemAmount}>{currency(estimateItemAmount(it))}</div>
+              <button style={styles.iconBtnSmall} onClick={() => removeItemFromDraft(it.id)}><Trash2 size={14} color='#C7CCDC' /></button>
+            </div>
+          );
+        })}
+
+        <div style={{ marginTop: 10 }}>
+          <input style={styles.input} placeholder='Item description' value={newDraftItem.desc} onChange={(e) => setNewDraftItem((n) => ({ ...n, desc: e.target.value }))} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <input style={styles.input} placeholder='Length (inch)' inputMode='decimal' value={newDraftItem.length} onChange={(e) => setNewDraftItem((n) => ({ ...n, length: e.target.value }))} />
+            <input style={styles.input} placeholder='Height (inch)' inputMode='decimal' value={newDraftItem.height} onChange={(e) => setNewDraftItem((n) => ({ ...n, height: e.target.value }))} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <input style={styles.input} placeholder='Qty (agar naap nahi)' inputMode='numeric' value={newDraftItem.qty} onChange={(e) => setNewDraftItem((n) => ({ ...n, qty: e.target.value }))} />
+            <input style={styles.input} placeholder='Rate ₹' inputMode='decimal' value={newDraftItem.rate} onChange={(e) => setNewDraftItem((n) => ({ ...n, rate: e.target.value }))} />
+          </div>
+          <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={addItemToDraft}><Plus size={13} /> Item add karein</button>
+        </div>
+
+        <div style={styles.totalBar}><span>Option Total</span><span style={styles.totalAmt}>{currency(draftTotal(draftForm))}</span></div>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={saveDraft}><Check size={14} /> Option Save Karein</button>
+          <button style={styles.cancelBtn} onClick={() => { setEditingDraftId(null); setDraftForm(null); }}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={styles.fieldLabel}>Compare Materials (optional)</div>
+        <button style={styles.linkBtn2} onClick={startNewDraft}>+ Add Option</button>
+      </div>
+      <div style={styles.plainTextMuted}>Customer ko 2+ material options dikha ke compare karwayein - jo pasand aaye wahi final estimate ban jayega.</div>
+
+      {drafts.length === 0 && <div style={styles.emptySmall}>Abhi koi option nahi bana. Customer ko sirf ek hi estimate ban ke dikhega jab tak options na banayein.</div>}
+      {drafts.map((d) => (
+        <div key={d.id} style={styles.extraWorkCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={styles.itemDesc}>{d.label}</div>
+            <span style={styles.itemAmount}>{currency(draftTotal(d))}</span>
+          </div>
+          <div style={styles.itemSub}>
+            {[d.materialCompany, d.sheetWeightKg && (d.sheetWeightKg + ' kg')].filter(Boolean).join(' - ')}
+            {(d.materialCompany || d.sheetWeightKg) && ' - '}
+            {d.items.length} item{d.items.length !== 1 ? 's' : ''}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={styles.cardActionBtn} onClick={() => startEditDraft(d)}><Edit3 size={12} /> Edit</button>
+            <button style={{ ...styles.cardActionBtn, color: '#C62828' }} onClick={() => deleteDraft(d.id)}><Trash2 size={12} /> Delete</button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
