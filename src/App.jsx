@@ -154,7 +154,12 @@ function jobTotal(job) {
   // request still awaiting a price, awaiting the customer's decision, or
   // one they turned down.
   const approvedExtraWork = (job.extraWork || []).filter((e) => e.status === 'approved').reduce((s, e) => s + (Number(e.amount) || 0), 0);
-  return itemsTotal + approvedExtraWork;
+  // Discount is a flat rupee amount admin can apply to the whole
+  // estimate (e.g. a negotiated final price) - subtracted last, after
+  // items and approved extra work, and never allowed to push the total
+  // below zero even if someone enters a discount larger than the total.
+  const discount = Number(job.discount) || 0;
+  return Math.max(0, itemsTotal + approvedExtraWork - discount);
 }
 function jobPaid(job) {
   return (job.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
@@ -2549,6 +2554,11 @@ function EstimateView({ job, onSave, showToast }) {
 
   return (
     <>
+      {Number(job.discount) > 0 && (
+        <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 10 }}>
+          <ThumbsUp size={14} /> {currency(job.discount)} discount mila hai is estimate par.
+        </div>
+      )}
       {total > 0 && (
         <div style={{ ...styles.payStrip, marginTop: 10 }}>
           <MoneyBit label='Total' value={currency(total)} />
@@ -2575,6 +2585,11 @@ function EstimateView({ job, onSave, showToast }) {
       {((job.items || []).length > 0 || (job.extraWork || []).some((e) => e.status === 'approved')) && (
         <div style={{ marginTop: 18 }}>
           <div style={styles.sectionTitle}>Estimate Details</div>
+          {(job.materialCompany || job.sheetWeightKg) && (
+            <div style={styles.plainTextMuted}>
+              Material: {job.materialCompany}{job.materialCompany && job.sheetWeightKg && ' - '}{job.sheetWeightKg && (job.sheetWeightKg + ' kg')}
+            </div>
+          )}
           <div style={styles.quoteTableWrap}>
             <table style={styles.quoteTable}>
               <thead>
@@ -2594,14 +2609,7 @@ function EstimateView({ job, onSave, showToast }) {
                   return (
                     <tr key={it.id}>
                       <td style={styles.qtd}>{i + 1}</td>
-                      <td style={{ ...styles.qtd, textAlign: 'left' }}>
-                        {it.desc}
-                        {(it.materialCompany || it.sheetWeightKg) && (
-                          <div style={{ fontSize: 10, color: BRAND.textMuted, fontWeight: 400, marginTop: 2 }}>
-                            {it.materialCompany}{it.materialCompany && it.sheetWeightKg && ' - '}{it.sheetWeightKg && (it.sheetWeightKg + ' kg')} ({it.materialType === 'without_laminate' ? 'Without Laminate' : 'Laminate'})
-                          </div>
-                        )}
-                      </td>
+                      <td style={{ ...styles.qtd, textAlign: 'left' }}>{it.desc}</td>
                       <td style={styles.qtd}>{sqft !== null ? it.length : '-'}</td>
                       <td style={styles.qtd}>{sqft !== null ? it.height : '-'}</td>
                       <td style={styles.qtd}>{sqft !== null ? sqft.toFixed(2) : (it.qty || 1)}</td>
@@ -3586,16 +3594,16 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
 /* ---- Admin: Estimate builder - matches the real quotation sheet:
    item, length, height (inches), auto sq-ft, rate/sqft, amount. Editable
    inline. 'Preview Quotation' opens the formal customer-facing document. ---- */
-function AdminEstimateTab({ job, newItem, setNewItem, addItem, updateItem, removeItem, total, itemTemplates, setItemTemplates, showToast }) {
+function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateItem, removeItem, total, itemTemplates, setItemTemplates, showToast }) {
   const [showPreview, setShowPreview] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
   const applyTemplate = (t) => {
-    setNewItem({ desc: t.desc, length: t.length || '', height: t.height || '', qty: t.qty || '1', rate: t.rate || '', materialCompany: t.materialCompany || '', sheetWeightKg: t.sheetWeightKg || '', materialType: t.materialType || 'laminate' });
+    setNewItem({ desc: t.desc, length: t.length || '', height: t.height || '', qty: t.qty || '1', rate: t.rate || '' });
   };
   const saveCurrentAsTemplate = () => {
     if (!newItem.desc.trim()) { showToast('Pehle description bharein', true); return; }
-    const t = { id: uid(), desc: newItem.desc.trim(), length: newItem.length || '', height: newItem.height || '', qty: newItem.qty || '1', rate: newItem.rate || '', materialCompany: newItem.materialCompany || '', sheetWeightKg: newItem.sheetWeightKg || '', materialType: newItem.materialType || 'laminate' };
+    const t = { id: uid(), desc: newItem.desc.trim(), length: newItem.length || '', height: newItem.height || '', qty: newItem.qty || '1', rate: newItem.rate || '' };
     setItemTemplates([...itemTemplates, t]);
     showToast('Template save ho gaya - ab har naye customer ke liye use kar sakte ho');
   };
@@ -3616,14 +3624,9 @@ function AdminEstimateTab({ job, newItem, setNewItem, addItem, updateItem, remov
           <div style={{ marginBottom: 10 }}>
             <div style={styles.hintText}>Saved templates - tap to fill:</div>
             <div style={styles.chipRow}>
-              {itemTemplates.map((t) => {
-                const materialBits = [t.materialCompany, t.sheetWeightKg && (t.sheetWeightKg + 'kg')].filter(Boolean).join(' - ');
-                return (
-                  <button key={t.id} onClick={() => applyTemplate(t)} style={styles.chip}>
-                    {t.desc}{materialBits && (' (' + materialBits + ')')}
-                  </button>
-                );
-              })}
+              {itemTemplates.map((t) => (
+                <button key={t.id} onClick={() => applyTemplate(t)} style={styles.chip}>{t.desc}</button>
+              ))}
             </div>
           </div>
         )}
@@ -3636,15 +3639,6 @@ function AdminEstimateTab({ job, newItem, setNewItem, addItem, updateItem, remov
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
           <input style={styles.input} placeholder='Qty (agar naap nahi)' inputMode='numeric' value={newItem.qty} onChange={(e) => setNewItem((n) => ({ ...n, qty: e.target.value }))} />
           <input style={styles.input} placeholder='Rate ₹' inputMode='decimal' value={newItem.rate} onChange={(e) => setNewItem((n) => ({ ...n, rate: e.target.value }))} />
-        </div>
-        <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Material Details (optional)</div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-          <input style={styles.input} placeholder='Company (jaise Kaka)' value={newItem.materialCompany} onChange={(e) => setNewItem((n) => ({ ...n, materialCompany: e.target.value }))} />
-          <input style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={newItem.sheetWeightKg} onChange={(e) => setNewItem((n) => ({ ...n, sheetWeightKg: e.target.value }))} />
-        </div>
-        <div style={styles.chipRow}>
-          <button onClick={() => setNewItem((n) => ({ ...n, materialType: 'laminate' }))} style={{ ...styles.chip, ...(newItem.materialType === 'laminate' ? styles.chipActive : {}) }}>Laminate</button>
-          <button onClick={() => setNewItem((n) => ({ ...n, materialType: 'without_laminate' }))} style={{ ...styles.chip, ...(newItem.materialType === 'without_laminate' ? styles.chipActive : {}) }}>Without Laminate</button>
         </div>
         {estimateItemSqft(newItem) !== null && (
           <div style={styles.liveCalcBox}>
@@ -3676,20 +3670,25 @@ function AdminEstimateTab({ job, newItem, setNewItem, addItem, updateItem, remov
                   ? (it.length + "' x " + it.height + "' = " + estimateItemSqft(it).toFixed(2) + ' sq ft x ' + currency(it.rate))
                   : ((it.qty || 1) + ' x ' + currency(it.rate))}
               </div>
-              {(it.materialCompany || it.sheetWeightKg) && (
-                <div style={styles.itemSub}>
-                  {it.materialCompany && it.materialCompany}
-                  {it.materialCompany && it.sheetWeightKg && ' - '}
-                  {it.sheetWeightKg && (it.sheetWeightKg + ' kg')}
-                  {' (' + (it.materialType === 'without_laminate' ? 'Without Laminate' : 'Laminate') + ')'}
-                </div>
-              )}
             </div>
             <div style={styles.itemAmount}>{currency(estimateItemAmount(it))}</div>
             <button style={styles.iconBtnSmall} onClick={() => setEditingId(it.id)}><Edit3 size={13} color='#B3B8C6' /></button>
             <button style={styles.iconBtnSmall} onClick={() => removeItem(it.id)}><Trash2 size={14} color='#C7CCDC' /></button>
           </div>
         )
+      )}
+
+      {(job.items || []).length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={styles.fieldLabel}>Discount (optional)</div>
+          <div style={styles.plainTextMuted}>Poore estimate par flat discount - jitne mein estimate final hua hai.</div>
+          <input style={styles.input} placeholder='Discount ₹' inputMode='decimal' value={job.discount || ''} onChange={(e) => onSave({ ...job, discount: e.target.value })} />
+          {Number(job.discount) > 0 && (
+            <div style={styles.hintText}>
+              Subtotal: {currency((job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0) + (job.extraWork || []).filter((e) => e.status === 'approved').reduce((s, e) => s + (Number(e.amount) || 0), 0))} - Discount: {currency(job.discount)}
+            </div>
+          )}
+        </div>
       )}
 
       <div style={styles.totalBar}><span>Estimate Total</span><span style={styles.totalAmt}>{currency(total)}</span></div>
@@ -3700,7 +3699,7 @@ function AdminEstimateTab({ job, newItem, setNewItem, addItem, updateItem, remov
 }
 
 function EstimateItemEditRow({ item, onSave, onCancel }) {
-  const [form, setForm] = useState({ desc: item.desc, length: item.length || '', height: item.height || '', qty: item.qty || '1', rate: item.rate || '', materialCompany: item.materialCompany || '', sheetWeightKg: item.sheetWeightKg || '', materialType: item.materialType || 'laminate' });
+  const [form, setForm] = useState({ desc: item.desc, length: item.length || '', height: item.height || '', qty: item.qty || '1', rate: item.rate || '' });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   return (
     <div style={styles.formCard}>
@@ -3712,15 +3711,6 @@ function EstimateItemEditRow({ item, onSave, onCancel }) {
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
         <input style={styles.input} placeholder='Qty' inputMode='numeric' value={form.qty} onChange={(e) => set('qty', e.target.value)} />
         <input style={styles.input} placeholder='Rate ₹' inputMode='decimal' value={form.rate} onChange={(e) => set('rate', e.target.value)} />
-      </div>
-      <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Material Details (optional)</div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-        <input style={styles.input} placeholder='Company (jaise Kaka)' value={form.materialCompany} onChange={(e) => set('materialCompany', e.target.value)} />
-        <input style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={form.sheetWeightKg} onChange={(e) => set('sheetWeightKg', e.target.value)} />
-      </div>
-      <div style={styles.chipRow}>
-        <button onClick={() => set('materialType', 'laminate')} style={{ ...styles.chip, ...(form.materialType === 'laminate' ? styles.chipActive : {}) }}>Laminate</button>
-        <button onClick={() => set('materialType', 'without_laminate')} style={{ ...styles.chip, ...(form.materialType === 'without_laminate' ? styles.chipActive : {}) }}>Without Laminate</button>
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => onSave(form)}><Check size={14} /> Save</button>
@@ -3854,7 +3844,7 @@ function QuotationPreview({ job, onClose }) {
 
 function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates, pushNotification }) {
   const [tab, setTab] = useState('status');
-  const [newItem, setNewItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '', materialCompany: '', sheetWeightKg: '', materialType: 'laminate' });
+  const [newItem, setNewItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
   const [newPayment, setNewPayment] = useState({ amount: '', note: '' });
   const [newExtraWork, setNewExtraWork] = useState({ desc: '', amount: '' });
   const [pricingId, setPricingId] = useState(null);
@@ -3906,14 +3896,11 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
       height: newItem.height || '',
       qty: newItem.qty || '1',
       rate: newItem.rate || '0',
-      materialCompany: newItem.materialCompany || '',
-      sheetWeightKg: newItem.sheetWeightKg || '',
-      materialType: newItem.materialType || 'laminate',
     };
     let next = { ...job, items: [...(job.items || []), item] };
     next = logActivity(next, 'Estimate item added: ' + newItem.desc.trim());
     onSave(next);
-    setNewItem({ desc: '', length: '', height: '', qty: '1', rate: '', materialCompany: newItem.materialCompany, sheetWeightKg: '', materialType: newItem.materialType });
+    setNewItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
   };
   const updateItem = (id, patch) => {
     onSave({ ...job, items: job.items.map((it) => (it.id === id ? { ...it, ...patch } : it)) });
@@ -4021,11 +4008,20 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
               <div style={styles.plainTextMuted}>Customer ko Home screen par dikhega.</div>
               <input type='date' style={styles.input} value={job.expectedCompletionDate || ''} onChange={(e) => onSave({ ...job, expectedCompletionDate: e.target.value || null })} />
             </div>
+
+            <div style={{ marginTop: 16 }}>
+              <div style={styles.fieldLabel}>Material (poore estimate ke liye)</div>
+              <div style={styles.plainTextMuted}>Kaunsi company ki sheet, kitni kg - poore estimate mein ek hi material use hota hai.</div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <input style={styles.input} placeholder='Company (jaise Kaka)' value={job.materialCompany || ''} onChange={(e) => onSave({ ...job, materialCompany: e.target.value })} />
+                <input style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={job.sheetWeightKg || ''} onChange={(e) => onSave({ ...job, sheetWeightKg: e.target.value })} />
+              </div>
+            </div>
           </div>
         )}
 
         {tab === 'estimate' && (
-          <AdminEstimateTab job={job} newItem={newItem} setNewItem={setNewItem} addItem={addItem} updateItem={updateItem} removeItem={removeItem} total={total} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} showToast={showToast} />
+          <AdminEstimateTab job={job} onSave={onSave} newItem={newItem} setNewItem={setNewItem} addItem={addItem} updateItem={updateItem} removeItem={removeItem} total={total} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} showToast={showToast} />
         )}
 
         {tab === 'extrawork' && (
