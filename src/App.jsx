@@ -1587,7 +1587,13 @@ function CustomerApp({ customer, gallery, job, appointmentItemOptions, categorie
       {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} onLogout={onLogout} />}
       {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
       {tab === 'gallery' && <GalleryBrowser gallery={gallery} brochures={brochures} categories={categories} testimonials={testimonials} job={job} onSaveJob={onSaveJob} showToast={showToast} />}
-      {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} />}
+      {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} customer={customer} />}
+      {tab === 'estimate' && (
+        <div style={{ padding: '12px 16px' }}>
+          <div style={styles.sectionTitle}>Estimate</div>
+          <EstimateView job={job} onSave={onSaveJob} showToast={showToast} />
+        </div>
+      )}
       {tab === 'progress' && <ProgressView job={job} onSave={onSaveJob} showToast={showToast} />}
       {tab === 'review' && <ReviewPanel job={job} onSave={onSaveJob} showToast={showToast} />}
 
@@ -1598,6 +1604,7 @@ function CustomerApp({ customer, gallery, job, appointmentItemOptions, categorie
           { key: 'appointment', label: 'Visit', icon: <Calendar size={18} /> },
           { key: 'gallery', label: 'Designs', icon: <Grid3x3 size={18} /> },
           { key: 'requirements', label: 'Needs', icon: <Edit3 size={18} /> },
+          { key: 'estimate', label: 'Estimate', icon: <FileText size={18} /> },
           { key: 'progress', label: 'Progress', icon: <Hammer size={18} /> },
           { key: 'review', label: 'Review', icon: <Star size={18} /> },
         ]}
@@ -2016,7 +2023,101 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
 /* ---- Requirements: simplified single-step flow ---- */
 const REQ_PRIORITY = { high: { label: 'Urgent', color: '#B5562E', bg: '#F7E3D8' }, normal: { label: 'Normal', color: '#A8975F', bg: '#F3EFE3' }, low: { label: 'Flexible', color: '#3D6B66', bg: '#E1EDEA' } };
 
-function RequirementsPanel({ job, onSave, showToast, categories }) {
+/* ---- Project Notes: a shared running log both admin and customer can
+   add to - free-form planning notes, with an optional photo attached to
+   each entry (e.g. a customer photographing their existing space, or
+   admin noting a measurement with a reference picture). Unlike
+   requirements (structured: category + text) or extra work (needs
+   approval), notes are just informal, timestamped, author-attributed
+   entries - nothing here needs anyone's approval, it's a planning log,
+   not a request. Used identically from both AdminJobDetail and the
+   customer's Requirements tab. ---- */
+function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName }) {
+  const [text, setText] = useState('');
+  const [pendingPhoto, setPendingPhoto] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = React.useRef(null);
+  const notes = job.projectNotes || [];
+
+  const handleFilePicked = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('Sirf image file select karein', true); return; }
+    setUploading(true);
+    try {
+      const dataUri = await prepareImageForUpload(file);
+      if (dataUriByteSize(dataUri) > MAX_PHOTO_BYTES) {
+        showToast('Photo bahut badi hai, chhoti photo try karein', true);
+        return;
+      }
+      setPendingPhoto(dataUri);
+    } catch (err) {
+      showToast('Photo process nahi ho payi', true);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const addNote = () => {
+    if (!text.trim() && !pendingPhoto) return;
+    const entry = {
+      id: uid(),
+      text: text.trim(),
+      photo: pendingPhoto ? { url: pendingPhoto, origUrl: null } : null,
+      addedBy: authorRole,
+      authorName,
+      createdAt: new Date().toISOString(),
+    };
+    onSave({ ...job, projectNotes: [entry, ...notes] });
+    setText('');
+    setPendingPhoto(null);
+    showToast('Note add ho gaya');
+  };
+
+  const removeNote = (id) => {
+    onSave({ ...job, projectNotes: notes.filter((n) => n.id !== id) });
+  };
+
+  return (
+    <div>
+      <div style={styles.fieldLabel}>Project Notes</div>
+      <div style={styles.plainTextMuted}>Planning, measurements, ya reference photos yahan save karein.</div>
+
+      <div style={styles.formCard}>
+        <textarea style={{ ...styles.input, minHeight: 60 }} placeholder='Note likhein...' value={text} onChange={(e) => setText(e.target.value)} />
+        {pendingPhoto ? (
+          <div style={{ ...styles.previewWrap, marginTop: 8 }}>
+            <img src={pendingPhoto} alt='attachment preview' style={styles.previewImg} />
+            <button style={styles.cardActionBtn} onClick={() => setPendingPhoto(null)}>Photo hataein</button>
+          </div>
+        ) : (
+          <>
+            <input ref={fileInputRef} type='file' accept='image/*' style={{ display: 'none' }} onChange={handleFilePicked} />
+            <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
+              <Camera size={13} /> {uploading ? 'Processing...' : 'Photo attach karein (optional)'}
+            </button>
+          </>
+        )}
+        <button style={styles.addBtn} onClick={addNote}><Plus size={14} /> Add note</button>
+      </div>
+
+      {notes.length === 0 && <div style={styles.emptySmall}>Abhi koi note nahi hai.</div>}
+      {notes.map((n) => (
+        <div key={n.id} style={styles.extraWorkCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={styles.itemSub}>{n.authorName || (n.addedBy === 'admin' ? 'Admin' : 'Customer')} - {formatDate(n.createdAt)}</div>
+            <button style={styles.iconBtnSmall} onClick={() => removeNote(n.id)}><Trash2 size={13} color='#C7CCDC' /></button>
+          </div>
+          {n.text && <div style={{ ...styles.itemDesc, marginTop: 4 }}>{n.text}</div>}
+          {n.photo && <img src={n.photo.url} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140, marginTop: 8 }} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RequirementsPanel({ job, onSave, showToast, categories, customer }) {
   const [category, setCategory] = useState(categories[0]);
   const [text, setText] = useState('');
   const [dimensions, setDimensions] = useState('');
@@ -2150,20 +2251,28 @@ function RequirementsPanel({ job, onSave, showToast, categories }) {
           ))}
         </div>
       ))}
+
+      <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${BRAND.line}` }}>
+        <ProjectNotesPanel job={job} onSave={onSave} showToast={showToast} authorRole='customer' authorName={customer?.name || 'Customer'} />
+      </div>
     </div>
   );
 }
 
 /* ---- Progress view ---- */
-function ProgressView({ job, onSave, showToast }) {
+/* ---- Customer-facing estimate view: pulled out of ProgressView into its
+   own component so it can be reached two ways - as its own bottom-nav
+   tab (quick, direct access) and inline within Progress (where it sits
+   right after the status stages). Both call sites render the identical
+   estimate table, approval buttons, and status banner - one component,
+   not two copies that could drift apart. ---- */
+function EstimateView({ job, onSave, showToast }) {
   const total = jobTotal(job);
   const paid = jobPaid(job);
   const due = jobDue(job);
-  const [lightbox, setLightbox] = useState(null);
   const [showQuote, setShowQuote] = useState(false);
   const [changeRequestText, setChangeRequestText] = useState('');
   const [showChangeRequestBox, setShowChangeRequestBox] = useState(false);
-  const photos = job.progressPhotos || [];
   const estimateStatus = job.estimateStatus || null;
 
   const respondToEstimate = (status, note) => {
@@ -2184,55 +2293,8 @@ function ProgressView({ job, onSave, showToast }) {
     );
   };
 
-  // Extra work: mid-project additions not in the original estimate.
-  // Customer-initiated requests carry no price (admin sets it), so they
-  // start in 'pending_admin_price'; once priced, or when admin adds one
-  // directly with an amount already set, it moves to
-  // 'pending_customer_approval' - the customer must explicitly approve
-  // before it's treated as agreed extra cost, same principle as the
-  // main estimate approval flow above.
-  const [showExtraWorkForm, setShowExtraWorkForm] = useState(false);
-  const [extraWorkDesc, setExtraWorkDesc] = useState('');
-  const extraWork = job.extraWork || [];
-
-  const requestExtraWork = () => {
-    if (!extraWorkDesc.trim()) return;
-    const entry = { id: uid(), desc: extraWorkDesc.trim(), amount: null, addedBy: 'customer', status: 'pending_admin_price', createdAt: new Date().toISOString() };
-    let next = { ...job, extraWork: [entry, ...extraWork] };
-    next = logActivity(next, 'Customer ne extra kaam request kiya: ' + entry.desc);
-    onSave(next);
-    setExtraWorkDesc('');
-    setShowExtraWorkForm(false);
-    showToast('Extra kaam request bhej di gayi - admin price set karega');
-  };
-
-  const respondToExtraWork = (item, approve) => {
-    const next = { ...job, extraWork: extraWork.map((e) => (e.id === item.id ? { ...e, status: approve ? 'approved' : 'rejected', respondedAt: new Date().toISOString() } : e)) };
-    onSave(logActivity(next, 'Customer ne extra kaam ' + (approve ? 'approve' : 'reject') + ' kiya: ' + item.desc));
-    showToast(approve ? 'Extra kaam approve ho gaya' : 'Extra kaam reject kar diya gaya');
-  };
-
   return (
-    <div style={{ padding: '12px 16px' }}>
-      <div style={styles.sectionTitle}>Work Progress</div>
-      <div style={styles.stageGridRead}>
-        {STATUS_ORDER.map((s) => {
-          const idx = STATUS_ORDER.indexOf(s);
-          const curIdx = STATUS_ORDER.indexOf(job.status);
-          const done = idx <= curIdx;
-          const Icon = STATUS[s].icon;
-          return (
-            <div key={s} style={{ ...styles.progressStep, opacity: done ? 1 : 0.45 }}>
-              <div style={{ ...styles.progressDot, background: done ? STATUS[s].color : '#D7DAE5' }}>
-                <Icon size={12} color='#FFF' />
-              </div>
-              <span style={{ fontWeight: done ? 800 : 600 }}>{STATUS[s].label}</span>
-              {done && idx === curIdx && <span style={styles.currentTag}>current</span>}
-            </div>
-          );
-        })}
-      </div>
-
+    <>
       {total > 0 && (
         <div style={{ ...styles.payStrip, marginTop: 10 }}>
           <MoneyBit label='Total' value={currency(total)} />
@@ -2332,6 +2394,64 @@ function ProgressView({ job, onSave, showToast }) {
         </div>
       )}
       {showQuote && <QuotationPreview job={job} onClose={() => setShowQuote(false)} />}
+    </>
+  );
+}
+
+function ProgressView({ job, onSave, showToast }) {
+  const [lightbox, setLightbox] = useState(null);
+  const photos = job.progressPhotos || [];
+
+  // Extra work: mid-project additions not in the original estimate.
+  // Customer-initiated requests carry no price (admin sets it), so they
+  // start in 'pending_admin_price'; once priced, or when admin adds one
+  // directly with an amount already set, it moves to
+  // 'pending_customer_approval' - the customer must explicitly approve
+  // before it's treated as agreed extra cost, same principle as the
+  // main estimate approval flow above.
+  const [showExtraWorkForm, setShowExtraWorkForm] = useState(false);
+  const [extraWorkDesc, setExtraWorkDesc] = useState('');
+  const extraWork = job.extraWork || [];
+
+  const requestExtraWork = () => {
+    if (!extraWorkDesc.trim()) return;
+    const entry = { id: uid(), desc: extraWorkDesc.trim(), amount: null, addedBy: 'customer', status: 'pending_admin_price', createdAt: new Date().toISOString() };
+    let next = { ...job, extraWork: [entry, ...extraWork] };
+    next = logActivity(next, 'Customer ne extra kaam request kiya: ' + entry.desc);
+    onSave(next);
+    setExtraWorkDesc('');
+    setShowExtraWorkForm(false);
+    showToast('Extra kaam request bhej di gayi - admin price set karega');
+  };
+
+  const respondToExtraWork = (item, approve) => {
+    const next = { ...job, extraWork: extraWork.map((e) => (e.id === item.id ? { ...e, status: approve ? 'approved' : 'rejected', respondedAt: new Date().toISOString() } : e)) };
+    onSave(logActivity(next, 'Customer ne extra kaam ' + (approve ? 'approve' : 'reject') + ' kiya: ' + item.desc));
+    showToast(approve ? 'Extra kaam approve ho gaya' : 'Extra kaam reject kar diya gaya');
+  };
+
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>Work Progress</div>
+      <div style={styles.stageGridRead}>
+        {STATUS_ORDER.map((s) => {
+          const idx = STATUS_ORDER.indexOf(s);
+          const curIdx = STATUS_ORDER.indexOf(job.status);
+          const done = idx <= curIdx;
+          const Icon = STATUS[s].icon;
+          return (
+            <div key={s} style={{ ...styles.progressStep, opacity: done ? 1 : 0.45 }}>
+              <div style={{ ...styles.progressDot, background: done ? STATUS[s].color : '#D7DAE5' }}>
+                <Icon size={12} color='#FFF' />
+              </div>
+              <span style={{ fontWeight: done ? 800 : 600 }}>{STATUS[s].label}</span>
+              {done && idx === curIdx && <span style={styles.currentTag}>current</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      <EstimateView job={job} onSave={onSave} showToast={showToast} />
 
       {(job.status === 'in_progress' || job.status === 'delivered' || extraWork.length > 0) && (
         <div style={{ marginTop: 16 }}>
@@ -2487,6 +2607,7 @@ function KarigarApp({ jobs, staffName, onSaveJob, onLogout, showToast }) {
   };
 
   if (activeJob) {
+    const notes = activeJob.projectNotes || [];
     return (
       <div style={{ paddingBottom: 20 }}>
         <TopBar title={activeJob.customerName} subtitle={STATUS[activeJob.status]?.label || activeJob.status} onBack={() => setActiveJobId(null)} hideLogout />
@@ -2502,6 +2623,23 @@ function KarigarApp({ jobs, staffName, onSaveJob, onLogout, showToast }) {
           </div>
           <div style={{ marginTop: 10 }}>
             <PhotoAddPanel addLabel='Add progress photo' showToast={showToast} onAdd={(photos) => addPhotos(activeJob, photos)} />
+          </div>
+
+          {/* Read-only: karigar sees what's finalized/planned so they know
+              what to build, but can't add or edit notes themselves - only
+              admin and the customer set project direction; the karigar's
+              job here is photos, not planning decisions. */}
+          <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid ' + BRAND.line }}>
+            <div style={styles.sectionTitle}>Project Notes</div>
+            <div style={styles.plainTextMuted}>Admin/customer ne jo final kiya hai, yahan dikhega.</div>
+            {notes.length === 0 && <div style={styles.emptySmall}>Abhi koi note nahi hai.</div>}
+            {notes.map((n) => (
+              <div key={n.id} style={styles.extraWorkCard}>
+                <div style={styles.itemSub}>{n.authorName || (n.addedBy === 'admin' ? 'Admin' : 'Customer')} - {formatDate(n.createdAt)}</div>
+                {n.text && <div style={{ ...styles.itemDesc, marginTop: 4 }}>{n.text}</div>}
+                {n.photo && <img src={n.photo.url} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140, marginTop: 8 }} />}
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -2542,7 +2680,7 @@ function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs,
     return (
       <div style={{ paddingBottom: 20 }}>
         <TopBar title={activeJob.customerName} subtitle={isPartner ? 'Partner - Job detail' : 'Admin - Job detail'} onBack={() => setActiveJobId(null)} hideLogout />
-        <AdminJobDetail job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} />
+        <AdminJobDetail job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} />
       </div>
     );
   }
@@ -3229,7 +3367,7 @@ function QuotationPreview({ job, onClose }) {
   );
 }
 
-function AdminJobDetail({ job, onSave, showToast, staff }) {
+function AdminJobDetail({ job, onSave, showToast, staff, staffName }) {
   const [tab, setTab] = useState('status');
   const [newItem, setNewItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
   const [newPayment, setNewPayment] = useState({ amount: '', note: '' });
@@ -3326,6 +3464,7 @@ function AdminJobDetail({ job, onSave, showToast, staff }) {
         <TabBtn active={tab === 'req'} onClick={() => setTab('req')} label='Requirements' />
         <TabBtn active={tab === 'photos'} onClick={() => setTab('photos')} label='Progress' />
         <TabBtn active={tab === 'activity'} onClick={() => setTab('activity')} label='Activity' />
+        <TabBtn active={tab === 'notes'} onClick={() => setTab('notes')} label='Notes' />
       </div>
 
       <div style={{ padding: '14px 16px' }}>
@@ -3526,6 +3665,10 @@ function AdminJobDetail({ job, onSave, showToast, staff }) {
               ))}
             </div>
           </div>
+        )}
+
+        {tab === 'notes' && (
+          <ProjectNotesPanel job={job} onSave={onSave} showToast={showToast} authorRole='admin' authorName={staffName || 'Admin'} />
         )}
       </div>
     </div>
@@ -4601,9 +4744,9 @@ const styles = {
   notifDot: { width: 7, height: 7, borderRadius: 4, background: BRAND.gold, flexShrink: 0, marginTop: 5 },
   iconBtnSmall: { background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0 },
 
-  bottomNav: { position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: BRAND.paper, borderTop: '1px solid ' + BRAND.line, display: 'flex', padding: '8px 4px', zIndex: 30 },
-  navBtn: { position: 'relative', flex: 1, background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, cursor: 'pointer', padding: '4px 0' },
-  navLabel: { fontSize: 9.5 },
+  bottomNav: { position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: BRAND.paper, borderTop: '1px solid ' + BRAND.line, display: 'flex', padding: '8px 4px', zIndex: 30, overflowX: 'auto' },
+  navBtn: { position: 'relative', flex: '1 0 62px', minWidth: 62, background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, cursor: 'pointer', padding: '4px 2px' },
+  navLabel: { fontSize: 9.5, whiteSpace: 'nowrap' },
   navIndicator: { position: 'absolute', top: -8, left: '50%', transform: 'translateX(-50%)', width: 4, height: 4, borderRadius: 2, background: BRAND.gold },
 
   heroCard: { background: BRAND.navy, borderRadius: 16, padding: 16, color: '#FDFCF8' },
