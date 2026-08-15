@@ -3315,6 +3315,46 @@ function AdminReferralReport({ customers }) {
   );
 }
 
+/* ---- All Estimates: every job that has at least one estimate item, in
+   one scrollable list - lets admin browse everyone's estimate total,
+   status, and due amount without opening each customer individually.
+   Tapping a row jumps straight into that job's detail. Sorted by most
+   recently created first, since that's most often what admin wants to
+   check on. ---- */
+function AdminAllEstimatesList({ jobs, onOpenJob }) {
+  const rows = useMemo(() => {
+    return jobs
+      .filter((j) => (j.items || []).length > 0)
+      .map((j) => ({ job: j, total: jobTotal(j), due: jobDue(j) }))
+      .sort((a, b) => new Date(b.job.createdAt) - new Date(a.job.createdAt));
+  }, [jobs]);
+
+  const grandTotal = rows.reduce((s, r) => s + r.total, 0);
+
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>All Estimates</div>
+      <div style={styles.plainTextMuted}>Sabhi customers ke estimates ek jagah.</div>
+
+      <div style={styles.statRow2}>
+        <StatCard icon={<FileText size={16} />} label='Total Estimates' value={rows.length} />
+        <StatCard icon={<IndianRupee size={16} />} label='Combined Value' value={currency(grandTotal)} accent />
+      </div>
+
+      {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi estimate nahi bana.</div>}
+      {rows.map((r) => (
+        <button key={r.job.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(r.job.id)}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={styles.cardName}>{r.job.customerName}</div>
+            <span style={styles.badge}>{STATUS[r.job.status]?.label || r.job.status}</span>
+          </div>
+          <div style={styles.itemSub}>{(r.job.items || []).length} item{(r.job.items || []).length !== 1 ? 's' : ''} - {currency(r.total)}{r.due > 0 && (' - ' + currency(r.due) + ' due')}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function AdminCustomers({ customers, setCustomers, jobs, setJobs, onOpenJob, showToast }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
@@ -3323,6 +3363,18 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, onOpenJob, sho
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [deletingCustomer, setDeletingCustomer] = useState(null);
   const [showReferralReport, setShowReferralReport] = useState(false);
+  const [showAllEstimates, setShowAllEstimates] = useState(false);
+
+  if (showAllEstimates) {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowAllEstimates(false)}><ArrowLeft size={13} /> Customers</button>
+        </div>
+        <AdminAllEstimatesList jobs={jobs} onOpenJob={onOpenJob} />
+      </div>
+    );
+  }
 
   if (showReferralReport) {
     return (
@@ -3382,7 +3434,8 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, onOpenJob, sho
 
   return (
     <div style={{ padding: '12px 16px' }}>
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+        <button style={styles.linkBtn2} onClick={() => setShowAllEstimates(true)}>All Estimates</button>
         <button style={styles.linkBtn2} onClick={() => setShowReferralReport(true)}>Referral Report</button>
       </div>
       <div style={styles.statRow2}>
