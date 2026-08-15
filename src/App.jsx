@@ -3610,6 +3610,52 @@ function AdminEstimateTab({ job, newItem, setNewItem, addItem, updateItem, remov
         )}
       </div>
 
+      <div style={styles.formCard}>
+        <div style={styles.fieldLabel}>Add item</div>
+        {itemTemplates && itemTemplates.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={styles.hintText}>Saved templates - tap to fill:</div>
+            <div style={styles.chipRow}>
+              {itemTemplates.map((t) => {
+                const materialBits = [t.materialCompany, t.sheetWeightKg && (t.sheetWeightKg + 'kg')].filter(Boolean).join(' - ');
+                return (
+                  <button key={t.id} onClick={() => applyTemplate(t)} style={styles.chip}>
+                    {t.desc}{materialBits && (' (' + materialBits + ')')}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <input style={styles.input} placeholder='Item / work description (e.g. Wardrobe box)' value={newItem.desc} onChange={(e) => setNewItem((n) => ({ ...n, desc: e.target.value }))} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <input style={styles.input} placeholder='Length (inch)' inputMode='decimal' value={newItem.length} onChange={(e) => setNewItem((n) => ({ ...n, length: e.target.value }))} />
+          <input style={styles.input} placeholder='Height (inch)' inputMode='decimal' value={newItem.height} onChange={(e) => setNewItem((n) => ({ ...n, height: e.target.value }))} />
+        </div>
+        <div style={styles.hintText}>Length x Height se sq ft auto-calculate hoga (inch to sq ft: LxH/144). Bina naap ke item (jaise tandem basket) ho to yeh khaali chhod ke neeche Qty use karein.</div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <input style={styles.input} placeholder='Qty (agar naap nahi)' inputMode='numeric' value={newItem.qty} onChange={(e) => setNewItem((n) => ({ ...n, qty: e.target.value }))} />
+          <input style={styles.input} placeholder='Rate ₹' inputMode='decimal' value={newItem.rate} onChange={(e) => setNewItem((n) => ({ ...n, rate: e.target.value }))} />
+        </div>
+        <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Material Details (optional)</div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <input style={styles.input} placeholder='Company (jaise Kaka)' value={newItem.materialCompany} onChange={(e) => setNewItem((n) => ({ ...n, materialCompany: e.target.value }))} />
+          <input style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={newItem.sheetWeightKg} onChange={(e) => setNewItem((n) => ({ ...n, sheetWeightKg: e.target.value }))} />
+        </div>
+        <div style={styles.chipRow}>
+          <button onClick={() => setNewItem((n) => ({ ...n, materialType: 'laminate' }))} style={{ ...styles.chip, ...(newItem.materialType === 'laminate' ? styles.chipActive : {}) }}>Laminate</button>
+          <button onClick={() => setNewItem((n) => ({ ...n, materialType: 'without_laminate' }))} style={{ ...styles.chip, ...(newItem.materialType === 'without_laminate' ? styles.chipActive : {}) }}>Without Laminate</button>
+        </div>
+        {estimateItemSqft(newItem) !== null && (
+          <div style={styles.liveCalcBox}>
+            <span>{newItem.length}' x {newItem.height}' = <b>{estimateItemSqft(newItem).toFixed(2)} sq ft</b></span>
+            {newItem.rate && <span>x {currency(newItem.rate)} = <b>{currency(estimateItemAmount(newItem))}</b></span>}
+          </div>
+        )}
+        <button style={styles.addBtn} onClick={addItem}><Plus size={14} /> Add item</button>
+        {itemTemplates && <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={saveCurrentAsTemplate}>Save as template</button>}
+      </div>
+
       {(job.items || []).length === 0 && <div style={styles.emptySmall}>No items added yet.</div>}
 
       {(job.items || []).map((it, idx) =>
@@ -3645,47 +3691,6 @@ function AdminEstimateTab({ job, newItem, setNewItem, addItem, updateItem, remov
           </div>
         )
       )}
-
-      <div style={styles.formCard}>
-        <div style={styles.fieldLabel}>Add item</div>
-        {itemTemplates && itemTemplates.length > 0 && (
-          <div style={{ marginBottom: 10 }}>
-            <div style={styles.hintText}>Saved templates - tap to fill:</div>
-            <div style={styles.chipRow}>
-              {itemTemplates.map((t) => (
-                <button key={t.id} onClick={() => applyTemplate(t)} style={styles.chip}>{t.desc}</button>
-              ))}
-            </div>
-          </div>
-        )}
-        <input style={styles.input} placeholder='Item / work description (e.g. Wardrobe box)' value={newItem.desc} onChange={(e) => setNewItem((n) => ({ ...n, desc: e.target.value }))} />
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <input style={styles.input} placeholder='Length (inch)' inputMode='decimal' value={newItem.length} onChange={(e) => setNewItem((n) => ({ ...n, length: e.target.value }))} />
-          <input style={styles.input} placeholder='Height (inch)' inputMode='decimal' value={newItem.height} onChange={(e) => setNewItem((n) => ({ ...n, height: e.target.value }))} />
-        </div>
-        <div style={styles.hintText}>Length x Height se sq ft auto-calculate hoga (inch to sq ft: LxH/144). Bina naap ke item (jaise tandem basket) ho to yeh khaali chhod ke neeche Qty use karein.</div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <input style={styles.input} placeholder='Qty (agar naap nahi)' inputMode='numeric' value={newItem.qty} onChange={(e) => setNewItem((n) => ({ ...n, qty: e.target.value }))} />
-          <input style={styles.input} placeholder='Rate ₹' inputMode='decimal' value={newItem.rate} onChange={(e) => setNewItem((n) => ({ ...n, rate: e.target.value }))} />
-        </div>
-        <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Material Details (optional)</div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-          <input style={styles.input} placeholder='Company (jaise Kaka)' value={newItem.materialCompany} onChange={(e) => setNewItem((n) => ({ ...n, materialCompany: e.target.value }))} />
-          <input style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={newItem.sheetWeightKg} onChange={(e) => setNewItem((n) => ({ ...n, sheetWeightKg: e.target.value }))} />
-        </div>
-        <div style={styles.chipRow}>
-          <button onClick={() => setNewItem((n) => ({ ...n, materialType: 'laminate' }))} style={{ ...styles.chip, ...(newItem.materialType === 'laminate' ? styles.chipActive : {}) }}>Laminate</button>
-          <button onClick={() => setNewItem((n) => ({ ...n, materialType: 'without_laminate' }))} style={{ ...styles.chip, ...(newItem.materialType === 'without_laminate' ? styles.chipActive : {}) }}>Without Laminate</button>
-        </div>
-        {estimateItemSqft(newItem) !== null && (
-          <div style={styles.liveCalcBox}>
-            <span>{newItem.length}' x {newItem.height}' = <b>{estimateItemSqft(newItem).toFixed(2)} sq ft</b></span>
-            {newItem.rate && <span>x {currency(newItem.rate)} = <b>{currency(estimateItemAmount(newItem))}</b></span>}
-          </div>
-        )}
-        <button style={styles.addBtn} onClick={addItem}><Plus size={14} /> Add item</button>
-        {itemTemplates && <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={saveCurrentAsTemplate}>Save as template</button>}
-      </div>
 
       <div style={styles.totalBar}><span>Estimate Total</span><span style={styles.totalAmt}>{currency(total)}</span></div>
 
