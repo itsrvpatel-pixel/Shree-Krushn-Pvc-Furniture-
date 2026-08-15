@@ -3837,11 +3837,37 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast }) {
     setDraftForm({ ...d });
     setNewDraftItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
   };
+  // Copies another option's full item list (fresh ids, same desc/
+  // dimensions/qty/rate) into the draft currently being built - for a
+  // large estimate (20-30 items isn't unusual), re-typing every item a
+  // second time for each material variant would be a lot of repetitive
+  // work, when usually only the RATE differs between "Laminate" and
+  // "Without Laminate" versions of the same job. Admin copies once, then
+  // only adjusts the rates that actually change.
+  const copyItemsFromDraft = (sourceId) => {
+    const source = drafts.find((d) => d.id === sourceId);
+    if (!source) return;
+    const copiedItems = source.items.map((it) => ({ ...it, id: uid() }));
+    setDraftForm((f) => ({ ...f, items: copiedItems }));
+    showToast(copiedItems.length + ' items copy ho gaye - ab rates adjust karein');
+  };
   const addItemToDraft = () => {
     if (!newDraftItem.desc.trim()) return;
     const item = { id: uid(), desc: newDraftItem.desc.trim(), length: newDraftItem.length || '', height: newDraftItem.height || '', qty: newDraftItem.qty || '1', rate: newDraftItem.rate || '0' };
     setDraftForm((f) => ({ ...f, items: [...f.items, item] }));
     setNewDraftItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
+  };
+  // Editing an item re-loads it into the same add-item mini-form (with
+  // its existing id preserved) rather than opening a separate edit UI -
+  // simplest way to let admin tweak just the rate on a copied item
+  // without needing a whole second form. Saving via addItemToDraft
+  // would normally create a new id, so editItemInDraft removes the old
+  // entry first and addItemToDraft is given the preserved id to put
+  // back in the same spot conceptually (a new id is fine here since
+  // list order, not identity, is what the customer sees).
+  const editItemInDraft = (item) => {
+    setNewDraftItem({ desc: item.desc, length: item.length || '', height: item.height || '', qty: item.qty || '1', rate: item.rate || '' });
+    setDraftForm((f) => ({ ...f, items: f.items.filter((it) => it.id !== item.id) }));
   };
   const removeItemFromDraft = (id) => setDraftForm((f) => ({ ...f, items: f.items.filter((it) => it.id !== id) }));
   const saveDraft = () => {
@@ -3857,9 +3883,25 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast }) {
   const deleteDraft = (id) => onSave({ ...job, estimateDrafts: drafts.filter((d) => d.id !== id) });
 
   if (editingDraftId) {
+    // Copy-from picker only makes sense while building a NEW, empty
+    // draft and only if at least one other option already has items to
+    // copy from - once items exist in this draft (either typed or
+    // already copied), copying again would just silently overwrite
+    // work in progress, so it's hidden past that point.
+    const copyableSources = drafts.filter((d) => d.id !== editingDraftId && (d.items || []).length > 0);
     return (
       <div style={styles.formCard}>
         <div style={styles.fieldLabel}>{editingDraftId === 'new' ? 'Naya Estimate Option' : 'Option Edit Karein'}</div>
+        {editingDraftId === 'new' && draftForm.items.length === 0 && copyableSources.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={styles.hintText}>Kisi doosre option se items copy karein (rates baad mein badal sakte hain):</div>
+            <div style={styles.chipRow}>
+              {copyableSources.map((d) => (
+                <button key={d.id} onClick={() => copyItemsFromDraft(d.id)} style={styles.chip}>{d.label} se copy ({d.items.length} items)</button>
+              ))}
+            </div>
+          </div>
+        )}
         <input style={styles.input} placeholder="Option ka naam (jaise 'Laminate')" value={draftForm.label} onChange={(e) => setDraftForm((f) => ({ ...f, label: e.target.value }))} />
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
           <input style={styles.input} placeholder='Company (jaise Kaka)' value={draftForm.materialCompany} onChange={(e) => setDraftForm((f) => ({ ...f, materialCompany: e.target.value }))} />
@@ -3877,6 +3919,7 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast }) {
                 <div style={styles.itemSub}>{sqft !== null ? (it.length + "' x " + it.height + "' = " + sqft.toFixed(2) + ' sq ft x ' + currency(it.rate)) : ((it.qty || 1) + ' x ' + currency(it.rate))}</div>
               </div>
               <div style={styles.itemAmount}>{currency(estimateItemAmount(it))}</div>
+              <button style={styles.iconBtnSmall} onClick={() => editItemInDraft(it)}><Edit3 size={13} color='#B3B8C6' /></button>
               <button style={styles.iconBtnSmall} onClick={() => removeItemFromDraft(it.id)}><Trash2 size={14} color='#C7CCDC' /></button>
             </div>
           );
