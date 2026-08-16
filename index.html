@@ -8,9 +8,26 @@
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://shreekrushnpvcfurniture.site/" />
 
+    <!-- Favicon: shows the logo in the browser tab, bookmarks, and the
+         home-screen icon when someone adds this site to their phone's
+         home screen. logo.jpeg lives in /public, which Vite copies as-is
+         to the site root, so /logo.jpeg resolves correctly once deployed. -->
     <link rel="icon" type="image/jpeg" href="/logo.jpeg" />
     <link rel="apple-touch-icon" href="/logo.jpeg" />
 
+    <!-- App name for "Add to Home Screen" - without these, iOS/Android
+         fall back to using the page <title> (the long SEO title above)
+         as the name shown under the home-screen icon, which is far too
+         long and gets awkwardly truncated. These set a short, clean
+         name specifically for that icon label, separate from the SEO
+         title used for search results and browser tabs. -->
+    <meta name="apple-mobile-web-app-title" content="Shree Krushn PVC" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#0F1B3D" />
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Open Graph tags: control how the site looks when shared on WhatsApp, Facebook, etc. -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content="PVC Furniture Ahmedabad | PVC Modular Kitchen &amp; Wardrobe Design - Shree Krushn" />
     <meta property="og:description" content="PVC furniture design for full home: modular kitchen, wardrobe, TV unit, dressing table. Kaka PVC laminate furniture, waterproof and termite-proof, 5-year warranty. Nikol, Ahmedabad." />
@@ -18,6 +35,15 @@
     <meta property="og:url" content="https://shreekrushnpvcfurniture.site/" />
     <meta property="og:locale" content="en_IN" />
 
+    <!--
+      Structured data (Schema.org LocalBusiness): tells Google directly
+      what this business is, where it is, and how to contact it, in a
+      machine-readable format. This is what actually helps local search
+      results (e.g. "PVC furniture near me", "PVC furniture Ahmedabad")
+      show this business with its address/phone in Google's results and
+      Maps - far more effective for that than the old meta keywords tag,
+      which Google has not used for ranking since around 2009.
+    -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -51,6 +77,17 @@
     </script>
   </head>
   <body>
+    <!--
+      This app is a single-page React app: everything below normally
+      renders via JavaScript after the page loads, which means a search
+      engine that doesn't run JavaScript sees an almost-empty page - only
+      the <head> tags above, none of the actual gallery/design content.
+      This block is real, visible text (not hidden, not keyword-stuffed
+      nonsense - Google penalizes that) that renders immediately, so
+      search engines always have solid on-page content to index even
+      before React takes over. It's replaced the instant the app mounts,
+      so a real visitor never sees it flash.
+    -->
     <div id="root">
       <main>
         <h1>Shree Krushn PVC Furniture - PVC Furniture Design, Nikol, Ahmedabad</h1>
