@@ -2002,7 +2002,10 @@ function GalleryBrowser({ gallery, brochures, categories, testimonials, job, onS
   const [showTestimonials, setShowTestimonials] = useState(false);
 
   if (activeCat) {
-    const photos = gallery[activeCat] || [];
+    // Newest first - falls back to array position for older entries
+    // that predate the createdAt field (undefined dates sort as if
+    // very old, i.e. after anything with a real timestamp).
+    const photos = [...(gallery[activeCat] || [])].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
     return (
       <div style={{ padding: '12px 16px' }}>
         <button style={styles.backLink} onClick={() => setActiveCat(null)}><ArrowLeft size={13} /> All categories</button>
@@ -2266,6 +2269,10 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
             <Edit3 size={12} style={{ marginRight: 4 }} /> Request naya / edit karein
           </button>
         </div>
+
+        {(job.status === 'in_progress' || job.status === 'delivered') && (
+          <AdditionalVisitsPanel job={job} onSave={onSave} showToast={showToast} />
+        )}
       </div>
     );
   }
@@ -2338,6 +2345,65 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
           {appt && <button style={styles.cancelBtn} onClick={() => setEditing(false)}>Cancel</button>}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ---- Additional visit requests: separate from the original
+   job.appointment object entirely (never modifies it), so a customer
+   can ask for another site visit once work is already underway (e.g.
+   admin needs to come check a measurement, or customer wants to show
+   something in person) without disturbing the original visit's own
+   confirmed date/history. Each request is its own entry with its own
+   status, so several can exist over the life of a project. ---- */
+function AdditionalVisitsPanel({ job, onSave, showToast }) {
+  const [showForm, setShowForm] = useState(false);
+  const [reason, setReason] = useState('');
+  const [preferredDate, setPreferredDate] = useState('');
+  const [preferredTime, setPreferredTime] = useState('');
+  const visits = job.additionalVisits || [];
+
+  const requestVisit = () => {
+    if (!reason.trim() || !preferredDate) { showToast('Reason aur date zaroori hai', true); return; }
+    const entry = { id: uid(), reason: reason.trim(), preferredDate, preferredTime, status: 'requested', requestedAt: new Date().toISOString() };
+    let next = { ...job, additionalVisits: [entry, ...visits] };
+    next = logActivity(next, 'Customer ne naya visit request kiya: ' + entry.reason);
+    onSave(next);
+    setReason(''); setPreferredDate(''); setPreferredTime('');
+    setShowForm(false);
+    showToast('Visit request bhej di gayi');
+  };
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={styles.fieldLabel}>Aur Visit Chahiye?</div>
+        {!showForm && (
+          <button style={styles.linkBtn2} onClick={() => setShowForm(true)}>+ Naya Visit Request</button>
+        )}
+      </div>
+      {showForm && (
+        <div style={styles.formCard}>
+          <textarea style={{ ...styles.input, minHeight: 50 }} placeholder='Kis liye visit chahiye...' value={reason} onChange={(e) => setReason(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <input style={styles.input} type='date' value={preferredDate} onChange={(e) => setPreferredDate(e.target.value)} />
+            <input style={styles.input} type='time' value={preferredTime} onChange={(e) => setPreferredTime(e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={requestVisit}>Bhejein</button>
+            <button style={styles.cancelBtn} onClick={() => setShowForm(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {visits.map((v) => (
+        <div key={v.id} style={styles.extraWorkCard}>
+          <div style={styles.itemDesc}>{v.reason}</div>
+          <div style={styles.itemSub}>{formatDate(v.status === 'confirmed' ? v.confirmedDate : v.preferredDate)} {(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime) && ('- ' + (v.status === 'confirmed' ? v.confirmedTime : v.preferredTime))}</div>
+          <div style={{ ...styles.estimateStatusBanner, marginTop: 8, background: v.status === 'confirmed' ? '#E8F5E9' : '#FFF3E0', color: v.status === 'confirmed' ? '#2E7D32' : '#E65100' }}>
+            {v.status === 'confirmed' ? <ThumbsUp size={14} /> : <AlertCircle size={14} />} {v.status === 'confirmed' ? 'Confirm ho gaya' : 'Admin confirm karega'}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -3493,7 +3559,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
       </div>
       <div style={styles.statRow2}>
         <StatCard icon={<Calendar size={16} />} label="Aaj ki Visits" value={todaysVisits.length} onClick={() => setShowList('todaysVisits')} />
-        <StatCard icon={<UserPlus size={16} />} label='Naye Leads' value={newLeadsToday} onClick={() => setTab('customers')} />
+        <StatCard icon={<FileText size={16} />} label='Estimates Given' value={jobs.filter((j) => (j.items || []).length > 0).length} onClick={() => setShowList('allEstimates')} />
         <StatCard icon={<Edit3 size={16} />} label='Estimate Pending' value={pendingEstimates} />
       </div>
 
@@ -3896,6 +3962,21 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
   const appt = job.appointment;
   const [confirmDate, setConfirmDate] = useState(appt?.confirmedDate || appt?.preferredDate || '');
   const [confirmTime, setConfirmTime] = useState(appt?.confirmedTime || appt?.preferredTime || '');
+  const [confirmingVisitId, setConfirmingVisitId] = useState(null);
+  const [visitConfirmDate, setVisitConfirmDate] = useState('');
+  const [visitConfirmTime, setVisitConfirmTime] = useState('');
+  const additionalVisits = job.additionalVisits || [];
+
+  const confirmAdditionalVisit = (visit) => {
+    if (!visitConfirmDate) { showToast('Date select karein', true); return; }
+    const next = { ...job, additionalVisits: additionalVisits.map((v) => (v.id === visit.id ? { ...v, status: 'confirmed', confirmedDate: visitConfirmDate, confirmedTime: visitConfirmTime } : v)) };
+    onSave(logActivity(next, 'Additional visit confirm ki: ' + visit.reason));
+    if (pushNotification) {
+      pushNotification('appointment_confirmed', 'Aapki extra visit ' + formatDate(visitConfirmDate) + (visitConfirmTime ? (' - ' + visitConfirmTime) : '') + ' ke liye confirm ho gayi hai', job.id);
+    }
+    setConfirmingVisitId(null);
+    showToast('Visit confirm ho gayi');
+  };
 
   if (!appt) {
     return <div style={styles.emptySmall}>Customer ne abhi tak koi appointment request nahi ki.</div>;
@@ -3965,6 +4046,38 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
       </div>
       {(appt.status === 'confirmed' || appt.status === 'rescheduled') && (
         <button style={styles.addBtn} onClick={markCompleted}><CheckCircle2 size={14} /> Mark visit completed</button>
+      )}
+
+      {additionalVisits.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={styles.fieldLabel}>Extra Visit Requests</div>
+          {additionalVisits.map((v) => (
+            <div key={v.id} style={styles.extraWorkCard}>
+              <div style={styles.itemDesc}>{v.reason}</div>
+              <div style={styles.itemSub}>
+                {v.status === 'confirmed' ? 'Confirmed: ' : 'Requested: '}
+                {formatDate(v.status === 'confirmed' ? v.confirmedDate : v.preferredDate)} {(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime) && ('- ' + (v.status === 'confirmed' ? v.confirmedTime : v.preferredTime))}
+              </div>
+              {v.status === 'requested' && confirmingVisitId !== v.id && (
+                <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => { setConfirmingVisitId(v.id); setVisitConfirmDate(v.preferredDate); setVisitConfirmTime(v.preferredTime); }}>Confirm karein</button>
+              )}
+              {confirmingVisitId === v.id && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input style={styles.input} type='date' value={visitConfirmDate} onChange={(e) => setVisitConfirmDate(e.target.value)} />
+                    <input style={styles.input} type='time' value={visitConfirmTime} onChange={(e) => setVisitConfirmTime(e.target.value)} />
+                  </div>
+                  <button style={{ ...styles.primaryBtn2, marginTop: 8 }} onClick={() => confirmAdditionalVisit(v)}>Save</button>
+                </div>
+              )}
+              {v.status === 'confirmed' && (
+                <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
+                  <ThumbsUp size={14} /> Confirm ho gayi
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -5170,7 +5283,7 @@ function AdminGallery({ gallery, setGallery, categories, setCategories, showToas
   const [query, setQuery] = useState('');
   const [editingPhoto, setEditingPhoto] = useState(null);
 
-  const allPhotos = gallery[activeCat] || [];
+  const allPhotos = [...(gallery[activeCat] || [])].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   const photos = allPhotos.filter((p) => !query.trim() || (p.caption || '').toLowerCase().includes(query.toLowerCase()));
 
   const addPhotosFromPanel = (photos) => {
@@ -5179,7 +5292,7 @@ function AdminGallery({ gallery, setGallery, categories, setCategories, showToas
     // `allPhotos` is a single fresh snapshot for the whole batch, so
     // every photo in `photos` lands correctly instead of only the last
     // one surviving.
-    const newEntries = photos.map((p) => ({ id: uid(), url: p.url, origUrl: p.origUrl, caption: p.caption }));
+    const newEntries = photos.map((p) => ({ id: uid(), url: p.url, origUrl: p.origUrl, caption: p.caption, createdAt: new Date().toISOString() }));
     const next = { ...gallery, [activeCat]: [...newEntries, ...allPhotos] };
     setGallery(next);
     showToast(photos.length + ' photo' + (photos.length !== 1 ? 's' : '') + ' added to ' + activeCat);
@@ -5188,7 +5301,7 @@ function AdminGallery({ gallery, setGallery, categories, setCategories, showToas
   const addBulk = () => {
     const urls = bulkText.split(NEWLINE).map((l) => l.trim()).filter(Boolean);
     if (urls.length === 0) return;
-    const newPhotos = urls.map((u) => ({ id: uid(), url: toDirectImageUrl(u), origUrl: u, caption: '' }));
+    const newPhotos = urls.map((u) => ({ id: uid(), url: toDirectImageUrl(u), origUrl: u, caption: '', createdAt: new Date().toISOString() }));
     const next = { ...gallery, [activeCat]: [...newPhotos, ...allPhotos] };
     setGallery(next);
     setBulkText('');
