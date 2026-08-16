@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { jsPDF } from 'jspdf';
 import {
   Calendar, Hammer, IndianRupee, Plus, X, Phone, User,
@@ -700,8 +700,20 @@ export default function App() {
         const [g, j, br, cats, aio] = await Promise.all([
           safeGet('gallery'), safeGet('jobs'), safeGet('brochures'), safeGet('categories'), safeGet('appointment_item_options'),
         ]);
-        if (g) setGallery(await hydrateGalleryPhotos(JSON.parse(g)));
-        if (j) setJobs(await hydrateJobNotePhotos(JSON.parse(j)));
+        if (g && Date.now() - lastLocalGalleryWriteRef.current > 5000) {
+          setGallery(await hydrateGalleryPhotos(JSON.parse(g)));
+        }
+        // Skip applying this poll's jobs result if a local write (delete,
+        // edit, approval, etc.) happened within the last 5 seconds - see
+        // lastLocalJobsWriteRef above. That write's own Firestore call may
+        // not have propagated yet, so this poll's fetch could still be
+        // reading the pre-write data; applying it now would silently
+        // revert the local change. The next poll 20s later will have
+        // given the write plenty of time to settle and correctly reflect
+        // it (or any other changes made elsewhere in the meantime).
+        if (j && Date.now() - lastLocalJobsWriteRef.current > 5000) {
+          setJobs(await hydrateJobNotePhotos(JSON.parse(j)));
+        }
         if (br) setBrochures(JSON.parse(br));
         if (cats) setCategoriesRaw(JSON.parse(cats));
         if (aio) setAppointmentItemOptions(JSON.parse(aio));
@@ -938,7 +950,14 @@ export default function App() {
   // expects), so without this check every single photo add/edit would
   // needlessly rewrite every other photo's document too, burning through
   // Firestore's daily write quota fast on a gallery with many photos.
+  // Same stale-poll-overwrite guard as lastLocalJobsWriteRef above,
+  // applied to gallery writes - a photo add/remove is a multi-step write
+  // (per-photo documents, then the metadata document), so the window
+  // where a poll could race ahead and revert it with pre-write data is
+  // if anything wider here than for jobs.
+  const lastLocalGalleryWriteRef = useRef(0);
   const persistGallery = useCallback(async (next) => {
+    lastLocalGalleryWriteRef.current = Date.now();
     const prevPhotoById = {};
     for (const cat of Object.keys(gallery)) {
       for (const p of gallery[cat] || []) prevPhotoById[p.id] = p;
@@ -968,7 +987,19 @@ export default function App() {
     try { await window.storage.set('customers', JSON.stringify(next), true); }
     catch (e) { showToast('Save failed', true); }
   }, []);
+  // Tracks when the LOCAL app last wrote to `jobs` (a delete, an edit,
+  // approving something, etc.) so the background poll below can tell the
+  // difference between "Firestore genuinely has nothing new" and "our
+  // own recent write just hasn't finished propagating to Firestore yet".
+  // Without this, a poll firing in that narrow in-flight window would
+  // fetch the pre-write data and overwrite the local (correct, newer)
+  // state with it - which is exactly what made a just-deleted photo or
+  // extra-work item "come back a little while later": the delete
+  // happened locally instantly, but the poll raced the Firestore write
+  // and won, silently reverting it.
+  const lastLocalJobsWriteRef = useRef(0);
   const persistJobs = useCallback(async (next) => {
+    lastLocalJobsWriteRef.current = Date.now();
     setJobs(next);
     try { await window.storage.set('jobs', JSON.stringify(next), true); }
     catch (e) { showToast('Save failed', true); }
@@ -1799,6 +1830,24 @@ function CustomerApp({ customer, gallery, job, appointmentItemOptions, categorie
   // tab" step right after registration. Existing customers with an
   // appointment already on file still land on home as before.
   const [tab, setTab] = useState(job.appointment ? 'home' : 'appointment');
+  const [showProfile, setShowProfile] = useState(false);
+
+  if (showProfile) {
+    return (
+      <div style={{ paddingBottom: 20 }}>
+        <TopBar title='Mera Profile' onBack={() => setShowProfile(false)} hideLogout />
+        <div style={{ padding: '12px 16px' }}>
+          <div style={styles.formCard}>
+            <div style={styles.fieldLabel}>Naam</div>
+            <div style={styles.itemDesc}>{customer?.name || '-'}</div>
+            <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Mobile Number</div>
+            <div style={styles.itemDesc}>{customer?.phone ? formatPhoneDisplay(customer.phone) : '-'}</div>
+          </div>
+          <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ paddingBottom: 74 }}>
@@ -1828,6 +1877,7 @@ function CustomerApp({ customer, gallery, job, appointmentItemOptions, categorie
               onMarkRead={markNotificationRead}
               onMarkAllRead={markAllNotificationsRead}
             />
+            <button style={styles.iconBtn} onClick={() => setShowProfile(true)}><User size={19} color={BRAND.navy} /></button>
           </div>
         }
       />
