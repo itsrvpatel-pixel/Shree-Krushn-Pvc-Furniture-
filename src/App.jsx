@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { jsPDF } from 'jspdf';
 import {
   Calendar, Hammer, IndianRupee, Plus, X, Phone, User,
-  ChevronRight, ChevronLeft, Trash2, Edit3, Search, CheckCircle2,
+  ChevronRight, ChevronLeft, ChevronUp, ChevronDown, Trash2, Edit3, Search, CheckCircle2,
   Image as ImageIcon, Star, MessageSquare, Grid3x3, LogOut, ShieldCheck,
   Camera, Send, ArrowLeft, SlidersHorizontal, Lock,
   Home, Sparkles, AlertTriangle, Link2, Check, Package, FileText,
@@ -2172,7 +2172,21 @@ const APPT_PURPOSES = ['Site measurement', 'Design consultation', 'Showroom visi
 
 function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
   const appt = job.appointment;
-  const [editing, setEditing] = useState(!appt);
+  // manualEdit only tracks "the user explicitly tapped edit" - it does
+  // NOT decide on its own whether to show the form. Whether to show the
+  // booked-visit view or the form is recomputed fresh on every render
+  // from the CURRENT `appt` (see showForm below), not frozen at whatever
+  // `appt` happened to be when this component first mounted. That
+  // distinction matters because this panel unmounts and remounts every
+  // time the customer switches away from the Visit tab and back (it's
+  // only rendered while tab==='appointment') - with the old
+  // `useState(!appt)` pattern, each remount recomputed `editing` from
+  // whatever `appt` was AT THAT MOMENT, and if a poll or prop update
+  // briefly raced with the remount, it could flip to showing the
+  // booking form even though a confirmed appointment already existed -
+  // exactly what looked like "the booked visit disappeared".
+  const [manualEdit, setManualEdit] = useState(false);
+  const showForm = manualEdit || !appt;
   const [form, setForm] = useState({
     preferredDate: appt?.preferredDate || '',
     preferredTime: appt?.preferredTime || '',
@@ -2206,7 +2220,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
     const itemsNote = form.items.length ? (' - ' + form.items.join(', ')) : '';
     next = logActivity(next, 'Appointment requested: ' + formatDate(form.preferredDate) + (form.preferredTime ? ', ' + form.preferredTime : '') + itemsNote);
     onSave(next);
-    setEditing(false);
+    setManualEdit(false);
     showToast('Appointment request bhej di gayi');
   };
 
@@ -2226,7 +2240,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
 
   const st = appt ? (APPT_STATUS[appt.status] || APPT_STATUS.requested) : APPT_STATUS.none;
 
-  if (!editing && appt) {
+  if (!showForm && appt) {
     return (
       <div style={{ padding: '12px 16px' }}>
         <div style={styles.sectionTitle}>Appointment / Visit</div>
@@ -2265,7 +2279,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
           <div style={styles.apptRow}><span style={styles.apptRowLabel}>Address</span><span style={styles.apptRowValue}>{appt.address}</span></div>
           {appt.notes && <div style={styles.apptRow}><span style={styles.apptRowLabel}>Notes</span><span style={styles.apptRowValue}>{appt.notes}</span></div>}
 
-          <button style={styles.linkBtn2} onClick={() => setEditing(true)}>
+          <button style={styles.linkBtn2} onClick={() => setManualEdit(true)}>
             <Edit3 size={12} style={{ marginRight: 4 }} /> Request naya / edit karein
           </button>
         </div>
@@ -2342,7 +2356,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
 
         <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
           <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={submit}><Send size={14} /> Send Request</button>
-          {appt && <button style={styles.cancelBtn} onClick={() => setEditing(false)}>Cancel</button>}
+          {appt && <button style={styles.cancelBtn} onClick={() => setManualEdit(false)}>Cancel</button>}
         </div>
       </div>
     </div>
@@ -2427,6 +2441,16 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
   const fileInputRef = React.useRef(null);
   const notes = job.projectNotes || [];
   const isAdmin = authorRole === 'admin';
+  const [openFolder, setOpenFolder] = useState(null);
+
+  // Note types (Color/Design/Reference/Handle/Measurement/Other) let a
+  // note within an item's folder be labeled with WHAT KIND of detail it
+  // is, not just free text - so once inside "Wardrobe A", it's
+  // immediately clear which note is the color decision, which is the
+  // design reference, which is a measurement, etc, instead of scanning
+  // through a flat list of unlabeled entries to figure that out.
+  const NOTE_TYPES = ['Design', 'Color', 'Reference Photo', 'Handle', 'Measurement', 'Other'];
+  const [noteType, setNoteType] = useState(NOTE_TYPES[0]);
 
   // Item options come from THIS job's actual estimate line items (and
   // any approved extra work), not the generic app-wide furniture
@@ -2473,6 +2497,7 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
       text: text.trim(),
       photo: null,
       category: noteCategory,
+      noteType,
       locked: false,
       addedBy: authorRole,
       authorName,
@@ -2544,6 +2569,12 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
             <button key={c} onClick={() => setNoteCategory(c)} style={{ ...styles.chip, ...(noteCategory === c ? styles.chipActive : {}) }}>{c}</button>
           ))}
         </div>
+        <div style={{ ...styles.hintText, marginTop: 8 }}>Kya note karna hai:</div>
+        <div style={styles.chipRow}>
+          {NOTE_TYPES.map((t) => (
+            <button key={t} onClick={() => setNoteType(t)} style={{ ...styles.chip, ...(noteType === t ? styles.chipActive : {}) }}>{t}</button>
+          ))}
+        </div>
         <textarea style={{ ...styles.input, minHeight: 60, marginTop: 8 }} placeholder='Note likhein...' value={text} onChange={(e) => setText(e.target.value)} />
         {pendingPhoto ? (
           <div style={{ ...styles.previewWrap, marginTop: 8 }}>
@@ -2562,32 +2593,65 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
       </div>
 
       {notes.length === 0 && <div style={styles.emptySmall}>Abhi koi note nahi hai.</div>}
-      {categoryOrder.map((cat) => (
-        <div key={cat} style={{ marginTop: 14 }}>
-          <div style={styles.folderHeader}><ImageIcon size={13} /> {cat} ({grouped[cat].length})</div>
-          {grouped[cat].map((n) => (
-            <div key={n.id} style={styles.extraWorkCard}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={styles.itemSub}>{n.authorName || (n.addedBy === 'admin' ? 'Admin' : 'Customer')} - {formatDate(n.createdAt)}</div>
-                {(!n.locked || isAdmin) && (
-                  <button style={styles.iconBtnSmall} onClick={() => removeNote(n.id)}><Trash2 size={13} color='#C7CCDC' /></button>
-                )}
+      {categoryOrder.map((cat) => {
+        const isOpen = openFolder === cat;
+        // Quick per-type counts shown on the closed folder summary (e.g.
+        // "Design: 1, Color: 1") so admin/customer can see AT A GLANCE
+        // what kinds of decisions are captured for this item without
+        // opening it - then tapping the folder expands to the full
+        // breakdown, grouped by type, rather than one long flat list.
+        const typeCounts = {};
+        for (const n of grouped[cat]) {
+          const t = n.noteType || 'Other';
+          typeCounts[t] = (typeCounts[t] || 0) + 1;
+        }
+        const notesByType = {};
+        for (const n of grouped[cat]) {
+          const t = n.noteType || 'Other';
+          if (!notesByType[t]) notesByType[t] = [];
+          notesByType[t].push(n);
+        }
+        return (
+          <div key={cat} style={{ marginTop: 14 }}>
+            <button
+              style={{ ...styles.folderHeader, width: '100%', border: 'none', cursor: 'pointer', justifyContent: 'space-between' }}
+              onClick={() => setOpenFolder(isOpen ? null : cat)}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ImageIcon size={13} /> {cat} ({grouped[cat].length})</span>
+              {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+            {!isOpen && (
+              <div style={styles.plainTextMuted}>{Object.entries(typeCounts).map(([t, c]) => t + ': ' + c).join(' - ')}</div>
+            )}
+            {isOpen && Object.keys(notesByType).map((noteTypeKey) => (
+              <div key={noteTypeKey} style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: BRAND.gold, marginLeft: 4, marginBottom: 4 }}>{noteTypeKey}</div>
+                {notesByType[noteTypeKey].map((n) => (
+                  <div key={n.id} style={styles.extraWorkCard}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={styles.itemSub}>{n.authorName || (n.addedBy === 'admin' ? 'Admin' : 'Customer')} - {formatDate(n.createdAt)}</div>
+                      {(!n.locked || isAdmin) && (
+                        <button style={styles.iconBtnSmall} onClick={() => removeNote(n.id)}><Trash2 size={13} color='#C7CCDC' /></button>
+                      )}
+                    </div>
+                    {n.text && <div style={{ ...styles.itemDesc, marginTop: 4 }}>{n.text}</div>}
+                    {n.photo && <img src={n.photo.url} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140, marginTop: 8 }} />}
+                    {n.locked ? (
+                      <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
+                        <ThumbsUp size={14} /> Approved - sirf admin change kar sakta hai
+                      </div>
+                    ) : (
+                      isAdmin && (
+                        <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => approveNote(n.id)}><ThumbsUp size={12} /> Approve &amp; Lock</button>
+                      )
+                    )}
+                  </div>
+                ))}
               </div>
-              {n.text && <div style={{ ...styles.itemDesc, marginTop: 4 }}>{n.text}</div>}
-              {n.photo && <img src={n.photo.url} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140, marginTop: 8 }} />}
-              {n.locked ? (
-                <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
-                  <ThumbsUp size={14} /> Approved - sirf admin change kar sakta hai
-                </div>
-              ) : (
-                isAdmin && (
-                  <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => approveNote(n.id)}><ThumbsUp size={12} /> Approve &amp; Lock</button>
-                )
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -3310,7 +3374,10 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
                 <div style={styles.folderHeader}><ImageIcon size={13} /> {cat} ({catNotes.length})</div>
                 {catNotes.map((n) => (
                   <div key={n.id} style={styles.extraWorkCard}>
-                    <div style={styles.itemSub}>{n.authorName || (n.addedBy === 'admin' ? 'Admin' : 'Customer')} - {formatDate(n.createdAt)}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <div style={styles.itemSub}>{n.authorName || (n.addedBy === 'admin' ? 'Admin' : 'Customer')} - {formatDate(n.createdAt)}</div>
+                      {n.noteType && <span style={{ fontSize: 10, fontWeight: 800, color: BRAND.gold }}>{n.noteType}</span>}
+                    </div>
                     {n.text && <div style={{ ...styles.itemDesc, marginTop: 4 }}>{n.text}</div>}
                     {n.photo && <img src={n.photo.url} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140, marginTop: 8 }} />}
                     {n.locked && (
@@ -3550,12 +3617,35 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
       </div>
     );
   }
+  if (showList === 'newAppointments') {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
+        </div>
+        <AdminNewAppointmentsList jobs={jobs} onOpenJob={onOpenJob} />
+      </div>
+    );
+  }
+  if (showList === 'visitsByDate') {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
+        </div>
+        <AdminVisitsByDate jobs={jobs} onOpenJob={onOpenJob} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: '12px 16px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
         <div style={styles.sectionTitle}>Aaj ka Summary</div>
-        <button style={styles.linkBtn2} onClick={() => setShowList('allEstimates')}>All Estimates</button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button style={styles.linkBtn2} onClick={() => setShowList('visitsByDate')}>Visits by Date</button>
+          <button style={styles.linkBtn2} onClick={() => setShowList('allEstimates')}>All Estimates</button>
+        </div>
       </div>
       <div style={styles.statRow2}>
         <StatCard icon={<Calendar size={16} />} label="Aaj ki Visits" value={todaysVisits.length} onClick={() => setShowList('todaysVisits')} />
@@ -3590,7 +3680,11 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <div style={styles.alertBox}>
           <AlertTriangle size={16} color='#B5562E' />
           <div style={{ flex: 1 }}>
-            {pendingAppointments > 0 && <div style={styles.alertText}>{pendingAppointments} appointment request{pendingAppointments !== 1 ? 's' : ''} confirm karni hai</div>}
+            {pendingAppointments > 0 && (
+              <button style={{ ...styles.alertText, background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setShowList('newAppointments')}>
+                {pendingAppointments} appointment request{pendingAppointments !== 1 ? 's' : ''} confirm karni hai
+              </button>
+            )}
             {pendingEstimates > 0 && <div style={styles.alertText}>{pendingEstimates} customer{pendingEstimates !== 1 ? 's' : ''} ka estimate pending hai</div>}
             {overdue > 0 && <div style={styles.alertText}>{overdue} job{overdue !== 1 ? 's' : ''} mein payment due hai</div>}
             {pendingExtraWork > 0 && <div style={styles.alertText}>{pendingExtraWork} extra work item{pendingExtraWork !== 1 ? 's' : ''} pending hai (price/approval)</div>}
@@ -3714,6 +3808,99 @@ function AdminReferralReport({ customers }) {
    Tapping a row jumps straight into that job's detail. Sorted by most
    recently created first, since that's most often what admin wants to
    check on. ---- */
+/* ---- Visits by date: every confirmed visit (original appointment +
+   any confirmed additional visits), grouped by date, with completed/
+   pending counts at a glance - answers "kaunsi kaunsi date hai, kitni
+   ho gayi, kitni baaki hai" in one screen instead of hunting through
+   individual customer records. ---- */
+function AdminVisitsByDate({ jobs, onOpenJob }) {
+  const allVisits = [];
+  for (const j of jobs) {
+    if (j.appointment && (j.appointment.status === 'confirmed' || j.appointment.status === 'rescheduled' || j.appointment.status === 'completed')) {
+      allVisits.push({
+        jobId: j.id,
+        customerName: j.customerName,
+        date: j.appointment.confirmedDate,
+        time: j.appointment.confirmedTime,
+        completed: j.appointment.status === 'completed',
+        reason: null,
+      });
+    }
+    for (const v of (j.additionalVisits || [])) {
+      if (v.status === 'confirmed') {
+        allVisits.push({
+          jobId: j.id,
+          customerName: j.customerName,
+          date: v.confirmedDate,
+          time: v.confirmedTime,
+          completed: false,
+          reason: v.reason,
+        });
+      }
+    }
+  }
+  const completedCount = allVisits.filter((v) => v.completed).length;
+  const pendingCount = allVisits.length - completedCount;
+
+  const byDate = {};
+  for (const v of allVisits) {
+    const key = v.date || 'Date not set';
+    if (!byDate[key]) byDate[key] = [];
+    byDate[key].push(v);
+  }
+  const sortedDates = Object.keys(byDate).sort((a, b) => new Date(b) - new Date(a));
+
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>Visits by Date</div>
+      <div style={styles.statRow2}>
+        <StatCard icon={<Calendar size={16} />} label='Total Visits' value={allVisits.length} />
+        <StatCard icon={<CheckCircle2 size={16} />} label='Completed' value={completedCount} />
+      </div>
+      <div style={styles.statRow2}>
+        <StatCard icon={<AlertCircle size={16} />} label='Pending' value={pendingCount} />
+      </div>
+
+      {sortedDates.length === 0 && <div style={styles.emptySmall}>Koi visit nahi hai.</div>}
+      {sortedDates.map((dateKey) => (
+        <div key={dateKey} style={{ marginTop: 14 }}>
+          <div style={styles.folderHeader}>{dateKey === 'Date not set' ? dateKey : formatDate(dateKey)} ({byDate[dateKey].length})</div>
+          {byDate[dateKey].map((v, i) => (
+            <button key={i} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(v.jobId)}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={styles.cardName}>{v.customerName}</div>
+                <span style={{ ...styles.badge, background: v.completed ? '#DFF0E4' : '#F3EFE3', color: v.completed ? '#2F7D4F' : '#A8975F' }}>{v.completed ? 'Completed' : 'Pending'}</span>
+              </div>
+              <div style={styles.itemSub}>{v.time || 'Time set nahi hai'}{v.reason && (' - ' + v.reason)}</div>
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AdminNewAppointmentsList({ jobs, onOpenJob }) {
+  const rows = jobs
+    .filter((j) => j.appointment && j.appointment.status === 'requested')
+    .sort((a, b) => new Date(b.appointment.requestedAt || 0) - new Date(a.appointment.requestedAt || 0));
+
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>New Appointment Requests</div>
+      <div style={styles.plainTextMuted}>{rows.length} request{rows.length !== 1 ? 's' : ''} confirm karni hai</div>
+      {rows.length === 0 && <div style={styles.emptySmall}>Koi naya request nahi hai.</div>}
+      {rows.map((j) => (
+        <button key={j.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(j.id)}>
+          <div style={styles.cardName}>{j.customerName}</div>
+          <div style={styles.itemSub}>Chaha hua: {formatDate(j.appointment.preferredDate)} {j.appointment.preferredTime && ('- ' + j.appointment.preferredTime)}</div>
+          <div style={styles.itemSub}>{j.appointment.address}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function AdminAllEstimatesList({ jobs, onOpenJob }) {
   const rows = useMemo(() => {
     return jobs
