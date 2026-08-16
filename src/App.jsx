@@ -855,39 +855,62 @@ export default function App() {
     return hydrated;
   }
 
-  // Same split-storage pattern as hydrateGalleryPhotos, applied to Project
-  // Notes photo attachments across all jobs. A note's photo is a genuinely
-  // new upload (not sourced from the gallery, unlike favorited designs),
-  // so it needs its own small per-attachment document rather than a
-  // gallery reference - stored under 'job_note_photo_<id>' by
-  // ProjectNotesPanel's addNote, and resolved back here on every jobs
-  // load/poll. Without this, the photo's full base64 data would sit
-  // inline inside the single shared 'jobs' document (see persistJobs),
-  // risking the same silent-save-failure/vanishing-photo bug this was
-  // built to fix for the gallery.
+  // Same split-storage pattern as hydrateGalleryPhotos, applied to two
+  // kinds of job-attached photos across all jobs: Project Notes photo
+  // attachments AND progress photos. Both are genuinely new uploads (not
+  // sourced from the gallery, unlike favorited designs), so each needs
+  // its own small per-photo document rather than a gallery reference -
+  // notes under 'job_note_photo_<id>', progress photos under
+  // 'job_progress_photo_<id>' - resolved back here on every jobs
+  // load/poll. Without this, each photo's full base64 data would sit
+  // inline inside the single shared 'jobs' document (see persistJobs) -
+  // and progress photos in particular are uploaded often, several per
+  // job as work proceeds, making this the single biggest contributor to
+  // that document growing past Firestore's 1MiB limit and photos
+  // silently failing to save.
   async function hydrateJobNotePhotos(jobsArray) {
-    const allPhotoIds = [];
+    const noteIds = [];
+    const progressIds = [];
     for (const j of jobsArray) {
       for (const n of (j.projectNotes || [])) {
-        if (n.photo && n.photo.id) allPhotoIds.push(n.photo.id);
+        if (n.photo && n.photo.id) noteIds.push(n.photo.id);
+      }
+      for (const p of (j.progressPhotos || [])) {
+        if (p.id && !p.url) progressIds.push(p.id);
       }
     }
-    if (allPhotoIds.length === 0) return jobsArray;
-    const fetched = await Promise.all(allPhotoIds.map((id) => safeGet('job_note_photo_' + id)));
-    const photoDataById = {};
-    allPhotoIds.forEach((id, i) => {
-      if (fetched[i]) {
-        try { photoDataById[id] = JSON.parse(fetched[i]); } catch (e) { /* skip corrupt entry */ }
+    if (noteIds.length === 0 && progressIds.length === 0) return jobsArray;
+    const [noteFetched, progressFetched] = await Promise.all([
+      Promise.all(noteIds.map((id) => safeGet('job_note_photo_' + id))),
+      Promise.all(progressIds.map((id) => safeGet('job_progress_photo_' + id))),
+    ]);
+    const notePhotoById = {};
+    noteIds.forEach((id, i) => {
+      if (noteFetched[i]) {
+        try { notePhotoById[id] = JSON.parse(noteFetched[i]); } catch (e) { /* skip corrupt entry */ }
+      }
+    });
+    const progressPhotoById = {};
+    progressIds.forEach((id, i) => {
+      if (progressFetched[i]) {
+        try { progressPhotoById[id] = JSON.parse(progressFetched[i]); } catch (e) { /* skip corrupt entry */ }
       }
     });
     return jobsArray.map((j) => {
-      if (!(j.projectNotes || []).some((n) => n.photo && n.photo.id)) return j;
+      const hasNotePhoto = (j.projectNotes || []).some((n) => n.photo && n.photo.id);
+      const hasProgressRef = (j.progressPhotos || []).some((p) => p.id && !p.url);
+      if (!hasNotePhoto && !hasProgressRef) return j;
       return {
         ...j,
-        projectNotes: j.projectNotes.map((n) => (
+        projectNotes: !hasNotePhoto ? j.projectNotes : j.projectNotes.map((n) => (
           n.photo && n.photo.id
-            ? { ...n, photo: { url: photoDataById[n.photo.id]?.url || '', origUrl: photoDataById[n.photo.id]?.origUrl || null } }
+            ? { ...n, photo: { url: notePhotoById[n.photo.id]?.url || '', origUrl: notePhotoById[n.photo.id]?.origUrl || null } }
             : n
+        )),
+        progressPhotos: !hasProgressRef ? j.progressPhotos : (j.progressPhotos || []).map((p) => (
+          p.id && !p.url
+            ? { ...p, url: progressPhotoById[p.id]?.url || '', origUrl: progressPhotoById[p.id]?.origUrl || null }
+            : p
         )),
       };
     });
@@ -1819,7 +1842,7 @@ function CustomerApp({ customer, gallery, job, appointmentItemOptions, categorie
           <EstimateView job={job} onSave={onSaveJob} showToast={showToast} />
         </div>
       )}
-      {tab === 'progress' && <ProgressView job={job} onSave={onSaveJob} showToast={showToast} customer={customer} />}
+      {tab === 'progress' && <ProgressView job={job} onSave={onSaveJob} showToast={showToast} customer={customer} categories={categories} />}
       {tab === 'review' && <ReviewPanel job={job} onSave={onSaveJob} showToast={showToast} />}
 
       <BottomNav
@@ -2134,6 +2157,20 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
     showToast('Appointment request bhej di gayi');
   };
 
+  // Admin rescheduling shows the customer a new date/time, but until now
+  // there was no way for the customer to actually acknowledge it - the
+  // status just said "Rescheduled" with no action. This gives them an
+  // explicit accept, which flips status to 'confirmed' (so it reads the
+  // same as a normal confirmation from here on); if the new time doesn't
+  // work, "Request naya / edit karein" (already below) lets them submit
+  // a different preferred date/time instead of silently doing nothing.
+  const confirmReschedule = () => {
+    let next = { ...job, appointment: { ...appt, status: 'confirmed' } };
+    next = logActivity(next, 'Customer ne rescheduled time confirm kiya: ' + formatDate(appt.confirmedDate) + (appt.confirmedTime ? (', ' + appt.confirmedTime) : ''));
+    onSave(next);
+    showToast('Time confirm ho gaya');
+  };
+
   const st = appt ? (APPT_STATUS[appt.status] || APPT_STATUS.requested) : APPT_STATUS.none;
 
   if (!editing && appt) {
@@ -2151,7 +2188,10 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
               <Calendar size={16} color={BRAND.navy} />
               <div>
                 <div style={styles.apptConfirmedDate}>{formatDate(appt.confirmedDate)} {appt.confirmedTime && ('- ' + appt.confirmedTime)}</div>
-                <div style={styles.itemSub}>Admin ne confirm ki hai</div>
+                <div style={styles.itemSub}>{appt.status === 'rescheduled' ? 'Admin ne naya time diya hai' : 'Admin ne confirm ki hai'}</div>
+                {appt.status === 'rescheduled' && (
+                  <button style={{ ...styles.primaryBtn2, marginTop: 8 }} onClick={confirmReschedule}><Check size={14} /> Ye Time Theek Hai</button>
+                )}
               </div>
             </div>
           ) : (
@@ -2264,12 +2304,14 @@ const REQ_PRIORITY = { high: { label: 'Urgent', color: '#B5562E', bg: '#F7E3D8' 
    entries - nothing here needs anyone's approval, it's a planning log,
    not a request. Used identically from both AdminJobDetail and the
    customer's Requirements tab. ---- */
-function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName }) {
+function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, categories }) {
   const [text, setText] = useState('');
   const [pendingPhoto, setPendingPhoto] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [noteCategory, setNoteCategory] = useState((categories && categories[0]) || 'General');
   const fileInputRef = React.useRef(null);
   const notes = job.projectNotes || [];
+  const isAdmin = authorRole === 'admin';
 
   const handleFilePicked = async (e) => {
     const file = e.target.files && e.target.files[0];
@@ -2297,6 +2339,8 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName }) {
       id: uid(),
       text: text.trim(),
       photo: null,
+      category: noteCategory,
+      locked: false,
       addedBy: authorRole,
       authorName,
       createdAt: new Date().toISOString(),
@@ -2328,13 +2372,46 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName }) {
     onSave({ ...job, projectNotes: notes.filter((n) => n.id !== id) });
   };
 
+  // Once admin approves a note (e.g. "final design confirmed" or "this
+  // is the handle we're using"), it's locked - only admin can still
+  // remove or otherwise touch it from that point on. This exists so a
+  // finalized decision doesn't get accidentally deleted or contradicted
+  // by a later note once work has already moved forward based on it;
+  // the customer can still see it, just not modify it.
+  const approveNote = (id) => {
+    onSave({ ...job, projectNotes: notes.map((n) => (n.id === id ? { ...n, locked: true } : n)) });
+    showToast('Note approve ho gaya, ab locked hai');
+  };
+
+  // Notes are grouped by category (item) like separate folders, so a
+  // handle-reference photo and a wardrobe design photo never end up
+  // visually mixed in one long list - each category gets its own
+  // section header. Notes without a category (older data, or added
+  // before this existed) fall under "General".
+  const grouped = useMemo(() => {
+    const byCategory = {};
+    for (const n of notes) {
+      const cat = n.category || 'General';
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push(n);
+    }
+    return byCategory;
+  }, [notes]);
+  const categoryOrder = Object.keys(grouped);
+
   return (
     <div>
       <div style={styles.fieldLabel}>Project Notes</div>
-      <div style={styles.plainTextMuted}>Planning, measurements, ya reference photos yahan save karein.</div>
+      <div style={styles.plainTextMuted}>Planning, measurements, ya reference photos yahan save karein - item wise organize hoga.</div>
 
       <div style={styles.formCard}>
-        <textarea style={{ ...styles.input, minHeight: 60 }} placeholder='Note likhein...' value={text} onChange={(e) => setText(e.target.value)} />
+        <div style={styles.hintText}>Kis item ke liye hai:</div>
+        <div style={styles.chipRow}>
+          {(categories && categories.length > 0 ? categories : ['General']).map((c) => (
+            <button key={c} onClick={() => setNoteCategory(c)} style={{ ...styles.chip, ...(noteCategory === c ? styles.chipActive : {}) }}>{c}</button>
+          ))}
+        </div>
+        <textarea style={{ ...styles.input, minHeight: 60, marginTop: 8 }} placeholder='Note likhein...' value={text} onChange={(e) => setText(e.target.value)} />
         {pendingPhoto ? (
           <div style={{ ...styles.previewWrap, marginTop: 8 }}>
             <img src={pendingPhoto} alt='attachment preview' style={styles.previewImg} />
@@ -2352,14 +2429,30 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName }) {
       </div>
 
       {notes.length === 0 && <div style={styles.emptySmall}>Abhi koi note nahi hai.</div>}
-      {notes.map((n) => (
-        <div key={n.id} style={styles.extraWorkCard}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div style={styles.itemSub}>{n.authorName || (n.addedBy === 'admin' ? 'Admin' : 'Customer')} - {formatDate(n.createdAt)}</div>
-            <button style={styles.iconBtnSmall} onClick={() => removeNote(n.id)}><Trash2 size={13} color='#C7CCDC' /></button>
-          </div>
-          {n.text && <div style={{ ...styles.itemDesc, marginTop: 4 }}>{n.text}</div>}
-          {n.photo && <img src={n.photo.url} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140, marginTop: 8 }} />}
+      {categoryOrder.map((cat) => (
+        <div key={cat} style={{ marginTop: 14 }}>
+          <div style={styles.folderHeader}><ImageIcon size={13} /> {cat} ({grouped[cat].length})</div>
+          {grouped[cat].map((n) => (
+            <div key={n.id} style={styles.extraWorkCard}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={styles.itemSub}>{n.authorName || (n.addedBy === 'admin' ? 'Admin' : 'Customer')} - {formatDate(n.createdAt)}</div>
+                {(!n.locked || isAdmin) && (
+                  <button style={styles.iconBtnSmall} onClick={() => removeNote(n.id)}><Trash2 size={13} color='#C7CCDC' /></button>
+                )}
+              </div>
+              {n.text && <div style={{ ...styles.itemDesc, marginTop: 4 }}>{n.text}</div>}
+              {n.photo && <img src={n.photo.url} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140, marginTop: 8 }} />}
+              {n.locked ? (
+                <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
+                  <ThumbsUp size={14} /> Approved - sirf admin change kar sakta hai
+                </div>
+              ) : (
+                isAdmin && (
+                  <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => approveNote(n.id)}><ThumbsUp size={12} /> Approve &amp; Lock</button>
+                )
+              )}
+            </div>
+          ))}
         </div>
       ))}
     </div>
@@ -2523,7 +2616,7 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
       ))}
 
       <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${BRAND.line}` }}>
-        <ProjectNotesPanel job={job} onSave={onSave} showToast={showToast} authorRole='customer' authorName={customer?.name || 'Customer'} />
+        <ProjectNotesPanel job={job} onSave={onSave} showToast={showToast} authorRole='customer' authorName={customer?.name || 'Customer'} categories={categories} />
       </div>
     </div>
   );
@@ -2747,7 +2840,7 @@ function EstimateView({ job, onSave, showToast }) {
   );
 }
 
-function ProgressView({ job, onSave, showToast, customer }) {
+function ProgressView({ job, onSave, showToast, customer, categories }) {
   const [lightbox, setLightbox] = useState(null);
   const photos = job.progressPhotos || [];
 
@@ -2811,11 +2904,18 @@ function ProgressView({ job, onSave, showToast, customer }) {
         })}
       </div>
 
+      {(job.workPercent || 0) > 0 && (
+        <div style={styles.deliveryDateBanner}>
+          <Hammer size={15} color={BRAND.gold} />
+          <span>Kaam <b>{job.workPercent}%</b> complete ho gaya hai</span>
+        </div>
+      )}
+
       <EstimateView job={job} onSave={onSave} showToast={showToast} />
 
       {(job.status === 'in_progress' || job.status === 'delivered' || (job.projectNotes || []).length > 0) && (
         <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid ' + BRAND.line }}>
-          <ProjectNotesPanel job={job} onSave={onSave} showToast={showToast} authorRole='customer' authorName={customer?.name || 'Customer'} />
+          <ProjectNotesPanel job={job} onSave={onSave} showToast={showToast} authorRole='customer' authorName={customer?.name || 'Customer'} categories={categories} />
         </div>
       )}
 
@@ -2854,6 +2954,18 @@ function ProgressView({ job, onSave, showToast, customer }) {
               )}
               {e.status === 'pending_customer_approval' && (
                 <>
+                  {(e.items || []).length > 0 && (
+                    <div style={{ marginTop: 6 }}>
+                      {e.items.map((it) => {
+                        const sqft = estimateItemSqft(it);
+                        return (
+                          <div key={it.id} style={styles.itemSub}>
+                            {it.desc} - {sqft !== null ? (sqft.toFixed(2) + ' sq ft x ' + currency(it.rate)) : ((it.qty || 1) + ' x ' + currency(it.rate))} = {currency(estimateItemAmount(it))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                   <div style={styles.itemAmount}>{currency(e.amount)}</div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                     <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => respondToExtraWork(e, true)}><ThumbsUp size={13} /> Approve</button>
@@ -2978,12 +3090,30 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
     }
   };
 
-  const addPhotos = (job, photos) => {
-    const newPhotos = photos.map((p) => ({ id: uid(), url: p.url, origUrl: p.origUrl, caption: p.caption, date: new Date().toISOString() }));
+  const addPhotos = async (job, photos) => {
+    // Each photo's full image data is written to its own small
+    // 'job_progress_photo_<id>' document BEFORE the job is saved, so
+    // only a lightweight {id, caption, date} reference goes into
+    // job.progressPhotos - never the raw base64 - for the same reason
+    // ProjectNotesPanel's addNote does this (see hydrateJobNotePhotos):
+    // all jobs share one Firestore document, and inlining even a few
+    // photos' worth of base64 data risks pushing that document past the
+    // 1MiB limit, causing saves to fail silently and photos to vanish.
+    const newPhotos = [];
+    for (const p of photos) {
+      const id = uid();
+      try {
+        await window.storage.set('job_progress_photo_' + id, JSON.stringify({ url: p.url, origUrl: p.origUrl }), true);
+        newPhotos.push({ id, caption: p.caption, date: new Date().toISOString() });
+      } catch (e) {
+        showToast('Ek photo save nahi ho payi', true);
+      }
+    }
+    if (newPhotos.length === 0) return;
     let next = { ...job, progressPhotos: [...(job.progressPhotos || []), ...newPhotos] };
     next = logActivity(next, newPhotos.length + ' progress photo' + (newPhotos.length !== 1 ? 's' : '') + ' added by ' + staffName);
     onSaveJob(next);
-    showToast(photos.length + ' photo' + (photos.length !== 1 ? 's' : '') + ' add ho gayi');
+    showToast(newPhotos.length + ' photo' + (newPhotos.length !== 1 ? 's' : '') + ' add ho gayi');
   };
   const removePhoto = (job, photoId) => {
     onSaveJob({ ...job, progressPhotos: (job.progressPhotos || []).filter((p) => p.id !== photoId) });
@@ -3042,11 +3172,21 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
             <div style={styles.sectionTitle}>Project Notes</div>
             <div style={styles.plainTextMuted}>Admin/customer ne jo final kiya hai, yahan dikhega.</div>
             {notes.length === 0 && <div style={styles.emptySmall}>Abhi koi note nahi hai.</div>}
-            {notes.map((n) => (
-              <div key={n.id} style={styles.extraWorkCard}>
-                <div style={styles.itemSub}>{n.authorName || (n.addedBy === 'admin' ? 'Admin' : 'Customer')} - {formatDate(n.createdAt)}</div>
-                {n.text && <div style={{ ...styles.itemDesc, marginTop: 4 }}>{n.text}</div>}
-                {n.photo && <img src={n.photo.url} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140, marginTop: 8 }} />}
+            {Object.entries(notes.reduce((acc, n) => { const cat = n.category || 'General'; (acc[cat] = acc[cat] || []).push(n); return acc; }, {})).map(([cat, catNotes]) => (
+              <div key={cat} style={{ marginTop: 10 }}>
+                <div style={styles.folderHeader}><ImageIcon size={13} /> {cat} ({catNotes.length})</div>
+                {catNotes.map((n) => (
+                  <div key={n.id} style={styles.extraWorkCard}>
+                    <div style={styles.itemSub}>{n.authorName || (n.addedBy === 'admin' ? 'Admin' : 'Customer')} - {formatDate(n.createdAt)}</div>
+                    {n.text && <div style={{ ...styles.itemDesc, marginTop: 4 }}>{n.text}</div>}
+                    {n.photo && <img src={n.photo.url} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140, marginTop: 8 }} />}
+                    {n.locked && (
+                      <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
+                        <ThumbsUp size={14} /> Approved
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             ))}
           </div>
@@ -3129,7 +3269,7 @@ function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs,
     return (
       <div style={{ paddingBottom: 20 }}>
         <TopBar title={activeJob.customerName} subtitle={isPartner ? 'Partner - Job detail' : 'Admin - Job detail'} onBack={() => setActiveJobId(null)} hideLogout />
-        <AdminJobDetail job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} pushNotification={pushNotification} />
+        <AdminJobDetail key={activeJob.id} job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} pushNotification={pushNotification} categories={categories} />
       </div>
     );
   }
@@ -4155,11 +4295,14 @@ function QuotationPreview({ job, onClose }) {
   );
 }
 
-function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates, pushNotification }) {
+function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates, pushNotification, categories }) {
   const [tab, setTab] = useState('status');
   const [newItem, setNewItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
   const [newPayment, setNewPayment] = useState({ amount: '', note: '' });
-  const [newExtraWork, setNewExtraWork] = useState({ desc: '', amount: '' });
+  const [newExtraWork, setNewExtraWork] = useState({ title: '', items: [] });
+  const [newExtraWorkItem, setNewExtraWorkItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
+  const [pricingItems, setPricingItems] = useState([]);
+  const [newPricingItem, setNewPricingItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
   const [pricingId, setPricingId] = useState(null);
   const [priceInput, setPriceInput] = useState('');
   const [replyText, setReplyText] = useState('');
@@ -4231,41 +4374,88 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
   };
   const removePayment = (id) => onSave({ ...job, payments: job.payments.filter((p) => p.id !== id) });
 
-  // Admin adding extra work directly (with a price already known) skips
+  // Admin adding extra work directly (with items already known) skips
   // straight to pending_customer_approval, since there's no price gap to
   // fill - unlike a customer-initiated request, which starts priceless.
+  // Extra work is now itemized (desc/length/height/qty/rate per line,
+  // same shape as the main estimate) instead of a single typed amount -
+  // so admin, and the customer reviewing it, can see exactly what size
+  // and rate make up the total, not just a lump-sum number with no way
+  // to verify it. `amount` is still kept as a plain computed sum
+  // alongside `items`, since a lot of existing code (jobTotal, the
+  // estimate table, WhatsApp/PDF text, notifications) reads `amount`
+  // directly - keeping it in sync means none of that had to change,
+  // while anything that wants to show the itemized breakdown now can.
+  const addItemToNewExtraWork = () => {
+    if (!newExtraWorkItem.desc.trim()) return;
+    const item = { id: uid(), desc: newExtraWorkItem.desc.trim(), length: newExtraWorkItem.length || '', height: newExtraWorkItem.height || '', qty: newExtraWorkItem.qty || '1', rate: newExtraWorkItem.rate || '0' };
+    setNewExtraWork((f) => ({ ...f, items: [...f.items, item] }));
+    setNewExtraWorkItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
+  };
+  const removeItemFromNewExtraWork = (id) => setNewExtraWork((f) => ({ ...f, items: f.items.filter((it) => it.id !== id) }));
   const addExtraWork = () => {
-    if (!newExtraWork.desc.trim() || !newExtraWork.amount) { showToast('Description aur amount daalein', true); return; }
-    const entry = { id: uid(), desc: newExtraWork.desc.trim(), amount: newExtraWork.amount, addedBy: 'admin', status: 'pending_customer_approval', createdAt: new Date().toISOString() };
+    if (newExtraWork.items.length === 0) { showToast('Kam se kam ek item add karein', true); return; }
+    const amount = newExtraWork.items.reduce((s, it) => s + estimateItemAmount(it), 0);
+    const desc = newExtraWork.title.trim() || newExtraWork.items.map((it) => it.desc).join(', ');
+    const entry = { id: uid(), desc, items: newExtraWork.items, amount, addedBy: 'admin', status: 'pending_customer_approval', createdAt: new Date().toISOString() };
     let next = { ...job, extraWork: [entry, ...extraWork] };
     next = logActivity(next, 'Extra work added: ' + entry.desc + ' (' + currency(entry.amount) + ')');
     onSave(next);
-    setNewExtraWork({ desc: '', amount: '' });
+    setNewExtraWork({ title: '', items: [] });
     showToast('Extra work added, customer approval ke liye bheja gaya');
   };
+  // Pricing a customer-requested item (which arrives with only a text
+  // description, no amount) works the same itemized way - admin builds
+  // out the sizes/rates that make up the price rather than typing one
+  // flat number, giving the customer the same visibility into what
+  // they're being charged for as a normal estimate line would.
+  const startPricingItem = (item) => {
+    setPricingId(item.id);
+    setPricingItems([]);
+    setNewPricingItem({ desc: item.desc, length: '', height: '', qty: '1', rate: '' });
+  };
+  const addItemToPricing = () => {
+    if (!newPricingItem.desc.trim()) return;
+    const item = { id: uid(), desc: newPricingItem.desc.trim(), length: newPricingItem.length || '', height: newPricingItem.height || '', qty: newPricingItem.qty || '1', rate: newPricingItem.rate || '0' };
+    setPricingItems((items) => [...items, item]);
+    setNewPricingItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
+  };
+  const removeItemFromPricing = (id) => setPricingItems((items) => items.filter((it) => it.id !== id));
   const setExtraWorkPrice = (item) => {
-    if (!priceInput) return;
-    const next = { ...job, extraWork: extraWork.map((e) => (e.id === item.id ? { ...e, amount: priceInput, status: 'pending_customer_approval' } : e)) };
-    onSave(logActivity(next, 'Extra work priced: ' + item.desc + ' (' + currency(priceInput) + ')'));
+    if (pricingItems.length === 0) { showToast('Kam se kam ek item add karein', true); return; }
+    const amount = pricingItems.reduce((s, it) => s + estimateItemAmount(it), 0);
+    const next = { ...job, extraWork: extraWork.map((e) => (e.id === item.id ? { ...e, items: pricingItems, amount, status: 'pending_customer_approval' } : e)) };
+    onSave(logActivity(next, 'Extra work priced: ' + item.desc + ' (' + currency(amount) + ')'));
     if (pushNotification) {
-      pushNotification('extra_work_needs_price', 'Aapke extra kaam "' + item.desc + '" ka price ' + currency(priceInput) + ' set ho gaya hai - approve karein', job.id);
+      pushNotification('extra_work_needs_price', 'Aapke extra kaam "' + item.desc + '" ka price ' + currency(amount) + ' set ho gaya hai - approve karein', job.id);
     }
     setPricingId(null);
-    setPriceInput('');
+    setPricingItems([]);
     showToast('Price set, customer approval ke liye bheja gaya');
   };
   const removeExtraWork = (id) => onSave({ ...job, extraWork: extraWork.filter((e) => e.id !== id) });
 
-  const addPhotosFromPanel = (photos) => {
-    // Same batching fix as AdminGallery's addPhotosFromPanel: one onSave
-    // call with the whole batch, built from a single fresh `job`
-    // snapshot, instead of one onSave per photo (which would only keep
-    // the last photo due to each call closing over the same stale job).
-    const newPhotos = photos.map((p) => ({ id: uid(), url: p.url, origUrl: p.origUrl, caption: p.caption, date: new Date().toISOString() }));
+  const addPhotosFromPanel = async (photos) => {
+    // Same fix as KarigarApp's addPhotos: each photo's full image data
+    // goes into its own small 'job_progress_photo_<id>' document first,
+    // and only a lightweight reference is kept in job.progressPhotos -
+    // never the raw base64 - to avoid overflowing the single shared
+    // 'jobs' Firestore document (see persistJobs / hydrateJobNotePhotos).
+    const newPhotos = [];
+    for (const p of photos) {
+      const id = uid();
+      try {
+        await window.storage.set('job_progress_photo_' + id, JSON.stringify({ url: p.url, origUrl: p.origUrl }), true);
+        newPhotos.push({ id, caption: p.caption, date: new Date().toISOString() });
+      } catch (e) {
+        showToast('Ek photo save nahi ho payi', true);
+      }
+    }
+    if (newPhotos.length === 0) return;
     let next = { ...job, progressPhotos: [...(job.progressPhotos || []), ...newPhotos] };
     next = logActivity(next, newPhotos.length + ' new progress photo' + (newPhotos.length !== 1 ? 's' : '') + ' added');
     onSave(next);
-    showToast(photos.length + ' progress photo' + (photos.length !== 1 ? 's' : '') + ' added');
+    showToast(newPhotos.length + ' progress photo' + (newPhotos.length !== 1 ? 's' : '') + ' added');
   };
   const removePhoto = (id) => onSave({ ...job, progressPhotos: job.progressPhotos.filter((p) => p.id !== id) });
 
@@ -4330,6 +4520,30 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                 <input style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={job.sheetWeightKg || ''} onChange={(e) => onSave({ ...job, sheetWeightKg: e.target.value })} />
               </div>
             </div>
+
+            <div style={{ marginTop: 16 }}>
+              <div style={styles.fieldLabel}>Work % Complete</div>
+              <div style={styles.plainTextMuted}>Kaam kitna hua hai - payment lena ho to yaad dilata hai.</div>
+              <div style={styles.chipRow}>
+                {[0, 25, 50, 75, 100].map((pct) => (
+                  <button key={pct} onClick={() => onSave({ ...job, workPercent: pct })} style={{ ...styles.chip, ...((job.workPercent || 0) === pct ? styles.chipActive : {}) }}>{pct}%</button>
+                ))}
+              </div>
+              {(job.workPercent || 0) > 0 && jobDue(job) > 0 && (
+                <div style={styles.milestoneRow}>
+                  <div style={{ flex: 1 }}>
+                    <div style={styles.itemDesc}>Kaam {job.workPercent}% hua hai</div>
+                    <div style={styles.itemSub}>{currency(jobDue(job))} abhi bhi due hai</div>
+                  </div>
+                  <a
+                    href={whatsAppShareUrl(job.phone, 'Namaste ' + job.customerName + ', aapka kaam ' + job.workPercent + '% ho gaya hai. Payment due hai: ' + currency(jobDue(job)) + '. Shree Krushn PVC Furniture.')}
+                    target='_blank' rel='noopener noreferrer' style={styles.waReminderBtn}
+                  >
+                    <Send size={13} /> Remind
+                  </a>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -4341,9 +4555,39 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
           <div>
             <div style={styles.fieldLabel}>Naya extra work add karein</div>
             <div style={styles.formCard}>
-              <input style={styles.input} placeholder='Kya kaam hai' value={newExtraWork.desc} onChange={(e) => setNewExtraWork((n) => ({ ...n, desc: e.target.value }))} />
-              <input style={{ ...styles.input, marginTop: 8 }} placeholder='Amount ₹' inputMode='decimal' value={newExtraWork.amount} onChange={(e) => setNewExtraWork((n) => ({ ...n, amount: e.target.value }))} />
-              <button style={styles.addBtn} onClick={addExtraWork}><Plus size={14} /> Add extra work</button>
+              <input style={styles.input} placeholder='Title (optional - jaise "Extra shelving")' value={newExtraWork.title} onChange={(e) => setNewExtraWork((n) => ({ ...n, title: e.target.value }))} />
+
+              <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Items ({newExtraWork.items.length})</div>
+              {newExtraWork.items.map((it, i) => {
+                const sqft = estimateItemSqft(it);
+                return (
+                  <div key={it.id} style={styles.estItemRow}>
+                    <div style={styles.estItemNo}>{i + 1}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={styles.itemDesc}>{it.desc}</div>
+                      <div style={styles.itemSub}>{sqft !== null ? (it.length + "' x " + it.height + "' = " + sqft.toFixed(2) + ' sq ft x ' + currency(it.rate)) : ((it.qty || 1) + ' x ' + currency(it.rate))}</div>
+                    </div>
+                    <div style={styles.itemAmount}>{currency(estimateItemAmount(it))}</div>
+                    <button style={styles.iconBtnSmall} onClick={() => removeItemFromNewExtraWork(it.id)}><Trash2 size={14} color='#C7CCDC' /></button>
+                  </div>
+                );
+              })}
+
+              <input style={{ ...styles.input, marginTop: 8 }} placeholder='Item description' value={newExtraWorkItem.desc} onChange={(e) => setNewExtraWorkItem((n) => ({ ...n, desc: e.target.value }))} />
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input style={styles.input} placeholder='Length (inch)' inputMode='decimal' value={newExtraWorkItem.length} onChange={(e) => setNewExtraWorkItem((n) => ({ ...n, length: e.target.value }))} />
+                <input style={styles.input} placeholder='Height (inch)' inputMode='decimal' value={newExtraWorkItem.height} onChange={(e) => setNewExtraWorkItem((n) => ({ ...n, height: e.target.value }))} />
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input style={styles.input} placeholder='Qty (agar naap nahi)' inputMode='numeric' value={newExtraWorkItem.qty} onChange={(e) => setNewExtraWorkItem((n) => ({ ...n, qty: e.target.value }))} />
+                <input style={styles.input} placeholder='Rate ₹' inputMode='decimal' value={newExtraWorkItem.rate} onChange={(e) => setNewExtraWorkItem((n) => ({ ...n, rate: e.target.value }))} />
+              </div>
+              <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={addItemToNewExtraWork}><Plus size={13} /> Item add karein</button>
+
+              {newExtraWork.items.length > 0 && (
+                <div style={styles.totalBar}><span>Extra Work Total</span><span style={styles.totalAmt}>{currency(newExtraWork.items.reduce((s, it) => s + estimateItemAmount(it), 0))}</span></div>
+              )}
+              <button style={styles.addBtn} onClick={addExtraWork}><Plus size={14} /> Extra work add karein</button>
             </div>
 
             <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Extra work history ({extraWork.length})</div>
@@ -4353,13 +4597,55 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                 <div style={styles.itemDesc}>{e.desc}</div>
                 <div style={styles.itemSub}>{e.addedBy === 'admin' ? 'Aapne add kiya' : 'Customer ne request kiya'} - {formatDate(e.createdAt)}</div>
 
+                {(e.items || []).length > 0 && (
+                  <div style={{ marginTop: 6 }}>
+                    {e.items.map((it) => {
+                      const sqft = estimateItemSqft(it);
+                      return (
+                        <div key={it.id} style={styles.itemSub}>
+                          {it.desc} - {sqft !== null ? (sqft.toFixed(2) + ' sq ft x ' + currency(it.rate)) : ((it.qty || 1) + ' x ' + currency(it.rate))} = {currency(estimateItemAmount(it))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {e.status === 'pending_admin_price' && pricingId !== e.id && (
-                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => { setPricingId(e.id); setPriceInput(''); }}>Price set karein</button>
+                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => startPricingItem(e)}>Price set karein</button>
                 )}
                 {pricingId === e.id && (
-                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                    <input style={{ ...styles.input, flex: 1 }} placeholder='Amount ₹' inputMode='decimal' value={priceInput} onChange={(ev) => setPriceInput(ev.target.value)} />
-                    <button style={{ ...styles.primaryBtn2, marginTop: 0 }} onClick={() => setExtraWorkPrice(e)}>Save</button>
+                  <div style={{ marginTop: 8 }}>
+                    {pricingItems.map((it, i) => {
+                      const sqft = estimateItemSqft(it);
+                      return (
+                        <div key={it.id} style={styles.estItemRow}>
+                          <div style={styles.estItemNo}>{i + 1}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={styles.itemDesc}>{it.desc}</div>
+                            <div style={styles.itemSub}>{sqft !== null ? (it.length + "' x " + it.height + "' = " + sqft.toFixed(2) + ' sq ft x ' + currency(it.rate)) : ((it.qty || 1) + ' x ' + currency(it.rate))}</div>
+                          </div>
+                          <div style={styles.itemAmount}>{currency(estimateItemAmount(it))}</div>
+                          <button style={styles.iconBtnSmall} onClick={() => removeItemFromPricing(it.id)}><Trash2 size={14} color='#C7CCDC' /></button>
+                        </div>
+                      );
+                    })}
+                    <input style={{ ...styles.input, marginTop: 8 }} placeholder='Item description' value={newPricingItem.desc} onChange={(ev) => setNewPricingItem((n) => ({ ...n, desc: ev.target.value }))} />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <input style={styles.input} placeholder='Length (inch)' inputMode='decimal' value={newPricingItem.length} onChange={(ev) => setNewPricingItem((n) => ({ ...n, length: ev.target.value }))} />
+                      <input style={styles.input} placeholder='Height (inch)' inputMode='decimal' value={newPricingItem.height} onChange={(ev) => setNewPricingItem((n) => ({ ...n, height: ev.target.value }))} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <input style={styles.input} placeholder='Qty' inputMode='numeric' value={newPricingItem.qty} onChange={(ev) => setNewPricingItem((n) => ({ ...n, qty: ev.target.value }))} />
+                      <input style={styles.input} placeholder='Rate ₹' inputMode='decimal' value={newPricingItem.rate} onChange={(ev) => setNewPricingItem((n) => ({ ...n, rate: ev.target.value }))} />
+                    </div>
+                    <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={addItemToPricing}><Plus size={13} /> Item add karein</button>
+                    {pricingItems.length > 0 && (
+                      <div style={styles.hintText}>Total: {currency(pricingItems.reduce((s, it) => s + estimateItemAmount(it), 0))}</div>
+                    )}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => setExtraWorkPrice(e)}>Save</button>
+                      <button style={styles.cancelBtn} onClick={() => { setPricingId(null); setPricingItems([]); }}>Cancel</button>
+                    </div>
                   </div>
                 )}
                 {e.status === 'pending_customer_approval' && (
@@ -4502,7 +4788,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
         )}
 
         {tab === 'notes' && (
-          <ProjectNotesPanel job={job} onSave={onSave} showToast={showToast} authorRole='admin' authorName={staffName || 'Admin'} />
+          <ProjectNotesPanel job={job} onSave={onSave} showToast={showToast} authorRole='admin' authorName={staffName || 'Admin'} categories={categories} />
         )}
 
         {tab === 'karigar' && (
@@ -5943,6 +6229,7 @@ const styles = {
   quoteTermPoint: { fontSize: 11, color: '#333B57', lineHeight: 1.6, paddingLeft: 4 },
   quoteFooter: { textAlign: 'center', fontSize: 12, fontWeight: 700, color: BRAND.gold, marginTop: 22, paddingTop: 14, borderTop: '1px solid ' + BRAND.line },
   hintText: { fontSize: 10.5, color: BRAND.textMuted, marginTop: 5, lineHeight: 1.4 },
+  folderHeader: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 800, color: BRAND.navy, background: BRAND.paper, padding: '6px 10px', borderRadius: 8, marginBottom: 6 },
   liveCalcBox: { display: 'flex', flexDirection: 'column', gap: 2, background: '#F3EFE3', borderRadius: 8, padding: '8px 10px', marginTop: 8, fontSize: 11.5, color: '#5A4E2E' },
 
   apptCard: { background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: 14, marginTop: 10 },
