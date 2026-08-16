@@ -700,7 +700,7 @@ export default function App() {
         const [g, j, br, cats, aio] = await Promise.all([
           safeGet('gallery'), safeGet('jobs'), safeGet('brochures'), safeGet('categories'), safeGet('appointment_item_options'),
         ]);
-        if (g && Date.now() - lastLocalGalleryWriteRef.current > 5000) {
+        if (g && Date.now() - lastLocalGalleryWriteRef.current > 8000) {
           setGallery(await hydrateGalleryPhotos(JSON.parse(g)));
         }
         // Skip applying this poll's jobs result if a local write (delete,
@@ -711,7 +711,7 @@ export default function App() {
         // revert the local change. The next poll 20s later will have
         // given the write plenty of time to settle and correctly reflect
         // it (or any other changes made elsewhere in the meantime).
-        if (j && Date.now() - lastLocalJobsWriteRef.current > 5000) {
+        if (j && Date.now() - lastLocalJobsWriteRef.current > 8000) {
           setJobs(await hydrateJobNotePhotos(JSON.parse(j)));
         }
         if (br) setBrochures(JSON.parse(br));
@@ -2358,10 +2358,27 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
   const [text, setText] = useState('');
   const [pendingPhoto, setPendingPhoto] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [noteCategory, setNoteCategory] = useState((categories && categories[0]) || 'General');
   const fileInputRef = React.useRef(null);
   const notes = job.projectNotes || [];
   const isAdmin = authorRole === 'admin';
+
+  // Item options come from THIS job's actual estimate line items (and
+  // any approved extra work), not the generic app-wide furniture
+  // categories - a note is almost always about a specific piece being
+  // built for this customer ("Wardrobe A", "TV Unit"), so the picker
+  // should offer exactly those, matching what's really in the estimate,
+  // rather than a fixed business-wide list that may not even include
+  // items this job has. Falls back to the general categories (and then
+  // "General") only when the estimate is still empty - before there's
+  // anything item-specific to tag a note against yet.
+  const itemOptions = useMemo(() => {
+    const fromItems = (job.items || []).map((it) => it.desc).filter(Boolean);
+    const fromExtraWork = (job.extraWork || []).filter((e) => e.status === 'approved').map((e) => e.desc).filter(Boolean);
+    const combined = [...new Set([...fromItems, ...fromExtraWork])];
+    if (combined.length > 0) return combined;
+    return (categories && categories.length > 0) ? categories : ['General'];
+  }, [job.items, job.extraWork, categories]);
+  const [noteCategory, setNoteCategory] = useState(itemOptions[0]);
 
   const handleFilePicked = async (e) => {
     const file = e.target.files && e.target.files[0];
@@ -2457,7 +2474,7 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
       <div style={styles.formCard}>
         <div style={styles.hintText}>Kis item ke liye hai:</div>
         <div style={styles.chipRow}>
-          {(categories && categories.length > 0 ? categories : ['General']).map((c) => (
+          {itemOptions.map((c) => (
             <button key={c} onClick={() => setNoteCategory(c)} style={{ ...styles.chip, ...(noteCategory === c ? styles.chipActive : {}) }}>{c}</button>
           ))}
         </div>
@@ -3327,6 +3344,15 @@ function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs,
   const pendingEstimates = jobs.filter((j) => j.status === 'appointment' && (j.requirements || []).length > 0).length;
   const overdue = jobs.filter((j) => jobDue(j) > 0 && (j.status === 'delivered' || j.status === 'in_progress')).length;
   const pendingAppointments = jobs.filter((j) => j.appointment && j.appointment.status === 'requested').length;
+  // A customer's extra-work request fires a one-time notification, but
+  // if that gets dismissed or missed, there was previously nothing
+  // reminding admin it's still sitting there unpriced/unapproved -
+  // unlike pendingEstimates/overdue/pendingAppointments, which all stay
+  // visible on Home until resolved. This counts extra-work items in
+  // either state (needing a price, or priced and awaiting the
+  // customer's decision) so the same ongoing-reminder pattern applies
+  // here too.
+  const pendingExtraWork = jobs.reduce((s, j) => s + (j.extraWork || []).filter((e) => e.status === 'pending_admin_price' || e.status === 'pending_customer_approval').length, 0);
 
   return (
     <div style={{ paddingBottom: 70 }}>
@@ -3347,8 +3373,8 @@ function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs,
 
       {tab === 'home' && (
         <AdminHome
-          customers={customers} jobs={jobs} gallery={gallery} categories={categories}
-          pendingEstimates={pendingEstimates} overdue={overdue} pendingAppointments={pendingAppointments}
+          customers={customers} jobs={jobs} expenses={expenses} gallery={gallery} categories={categories}
+          pendingEstimates={pendingEstimates} overdue={overdue} pendingAppointments={pendingAppointments} pendingExtraWork={pendingExtraWork}
           onOpenJob={setActiveJobId} setTab={setTab} isPartner={isPartner}
         />
       )}
@@ -3382,7 +3408,9 @@ function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs,
   );
 }
 
-function AdminHome({ customers, jobs, gallery, categories, pendingEstimates, overdue, pendingAppointments, onOpenJob, setTab, isPartner }) {
+function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEstimates, overdue, pendingAppointments, pendingExtraWork, onOpenJob, setTab, isPartner }) {
+  const [showList, setShowList] = useState(null); // null | 'inProgress' | 'dueList' | 'todaysVisits' | 'allEstimates'
+
   // Total Due should only reflect work that's actually started - an
   // estimate sitting unapproved (status still 'appointment' or
   // 'estimate') isn't money owed yet, it's a quote the customer hasn't
@@ -3406,11 +3434,65 @@ function AdminHome({ customers, jobs, gallery, categories, pendingEstimates, ove
   const todaysVisits = jobs.filter((j) => j.appointment && (j.appointment.status === 'confirmed' || j.appointment.status === 'rescheduled') && isSameLocalDay(j.appointment.confirmedDate, todayIso));
   const newLeadsToday = customers.filter((c) => isSameLocalDay(c.createdAt, todayIso)).length;
 
+  if (showList === 'inProgress') {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
+        </div>
+        <AdminJobStatusList jobs={jobs} statuses={['in_progress']} title='In Progress' onOpenJob={onOpenJob} />
+      </div>
+    );
+  }
+  if (showList === 'dueList') {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
+        </div>
+        <AdminDuePaymentsList jobs={jobs} expenses={expenses || []} onOpenJob={onOpenJob} />
+      </div>
+    );
+  }
+  if (showList === 'todaysVisits') {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          <div style={styles.sectionTitle}>Aaj ki Visits</div>
+          <div style={styles.plainTextMuted}>{todaysVisits.length} visit{todaysVisits.length !== 1 ? 's' : ''} aaj</div>
+          {todaysVisits.length === 0 && <div style={styles.emptySmall}>Aaj koi visit nahi hai.</div>}
+          {todaysVisits.map((j) => (
+            <button key={j.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(j.id)}>
+              <div style={styles.cardName}>{j.customerName}</div>
+              <div style={styles.itemSub}>{j.appointment.confirmedTime || 'Time set nahi hai'} {j.appointment.address && ('- ' + j.appointment.address)}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (showList === 'allEstimates') {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
+        </div>
+        <AdminAllEstimatesList jobs={jobs} onOpenJob={onOpenJob} />
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: '12px 16px' }}>
-      <div style={styles.sectionTitle}>Aaj ka Summary</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={styles.sectionTitle}>Aaj ka Summary</div>
+        <button style={styles.linkBtn2} onClick={() => setShowList('allEstimates')}>All Estimates</button>
+      </div>
       <div style={styles.statRow2}>
-        <StatCard icon={<Calendar size={16} />} label="Aaj ki Visits" value={todaysVisits.length} onClick={() => setTab('customers')} />
+        <StatCard icon={<Calendar size={16} />} label="Aaj ki Visits" value={todaysVisits.length} onClick={() => setShowList('todaysVisits')} />
         <StatCard icon={<UserPlus size={16} />} label='Naye Leads' value={newLeadsToday} onClick={() => setTab('customers')} />
         <StatCard icon={<Edit3 size={16} />} label='Estimate Pending' value={pendingEstimates} />
       </div>
@@ -3434,17 +3516,18 @@ function AdminHome({ customers, jobs, gallery, categories, pendingEstimates, ove
 
       <div style={{ ...styles.statRow2, marginTop: 12 }}>
         <StatCard icon={<User size={16} />} label='Customers' value={customers.length} onClick={() => setTab('customers')} />
-        <StatCard icon={<Hammer size={16} />} label='In Progress' value={jobs.filter((j) => j.status === 'in_progress').length} />
-        <StatCard icon={<IndianRupee size={16} />} label='Total Due' value={currency(dueTotal)} accent />
+        <StatCard icon={<Hammer size={16} />} label='In Progress' value={jobs.filter((j) => j.status === 'in_progress').length} onClick={() => setShowList('inProgress')} />
+        <StatCard icon={<IndianRupee size={16} />} label='Total Due' value={currency(dueTotal)} accent onClick={() => setShowList('dueList')} />
       </div>
 
-      {(pendingEstimates > 0 || overdue > 0 || pendingAppointments > 0) && (
+      {(pendingEstimates > 0 || overdue > 0 || pendingAppointments > 0 || pendingExtraWork > 0) && (
         <div style={styles.alertBox}>
           <AlertTriangle size={16} color='#B5562E' />
           <div style={{ flex: 1 }}>
             {pendingAppointments > 0 && <div style={styles.alertText}>{pendingAppointments} appointment request{pendingAppointments !== 1 ? 's' : ''} confirm karni hai</div>}
             {pendingEstimates > 0 && <div style={styles.alertText}>{pendingEstimates} customer{pendingEstimates !== 1 ? 's' : ''} ka estimate pending hai</div>}
             {overdue > 0 && <div style={styles.alertText}>{overdue} job{overdue !== 1 ? 's' : ''} mein payment due hai</div>}
+            {pendingExtraWork > 0 && <div style={styles.alertText}>{pendingExtraWork} extra work item{pendingExtraWork !== 1 ? 's' : ''} pending hai (price/approval)</div>}
           </div>
         </div>
       )}
@@ -5569,6 +5652,36 @@ function AdminMonthlyReport({ jobs, expenses }) {
    Alongside each customer's due amount, shows any expenses specifically
    linked to their project, so admin can see both sides (what's owed to
    us, what we've spent on them) in one place. ---- */
+/* ---- Generic status-filtered job list: lets any Home stat card (In
+   Progress, Delivered, etc) open a real filtered list instead of either
+   doing nothing or dumping into the unfiltered full Customers tab -
+   which is what "In Progress" and "Total Due" cards did before (no
+   onClick at all), and what "Aaj ki Visits" did (navigated to the
+   generic Customers tab, showing every customer rather than just
+   today's visits). ---- */
+function AdminJobStatusList({ jobs, statuses, title, onOpenJob }) {
+  const rows = jobs
+    .filter((j) => statuses.includes(j.status))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>{title}</div>
+      <div style={styles.plainTextMuted}>{rows.length} customer{rows.length !== 1 ? 's' : ''}</div>
+      {rows.length === 0 && <div style={styles.emptySmall}>Koi customer nahi hai.</div>}
+      {rows.map((j) => (
+        <button key={j.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(j.id)}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={styles.cardName}>{j.customerName}</div>
+            <span style={styles.badge}>{STATUS[j.status]?.label || j.status}</span>
+          </div>
+          <div style={styles.itemSub}>{jobDue(j) > 0 ? (currency(jobDue(j)) + ' due') : 'Payment clear'}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function AdminDuePaymentsList({ jobs, expenses, onOpenJob }) {
   const rows = useMemo(() => {
     return jobs
