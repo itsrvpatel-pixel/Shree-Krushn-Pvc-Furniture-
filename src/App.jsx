@@ -1025,11 +1025,23 @@ export default function App() {
   // happened locally instantly, but the poll raced the Firestore write
   // and won, silently reverting it.
   const lastLocalJobsWriteRef = useRef(0);
+  // Returns true/false so callers can tell whether the save genuinely
+  // landed before announcing success of their own - see persistGallery's
+  // matching comment for why this matters (a caller showing success
+  // before the write actually completes is exactly what made saves look
+  // like they "worked, then vanished": local state updates optimistically
+  // regardless, so without checking this, a failed write is invisible
+  // until a later background poll replaces it with the real data).
   const persistJobs = useCallback(async (next) => {
     lastLocalJobsWriteRef.current = Date.now();
     setJobs(next);
-    try { await window.storage.set('jobs', JSON.stringify(next), true); }
-    catch (e) { showToast('Save failed', true); }
+    try {
+      await window.storage.set('jobs', JSON.stringify(next), true);
+      return true;
+    } catch (e) {
+      showToast('Save failed', true);
+      return false;
+    }
   }, []);
   const persistPin = useCallback(async (pin) => {
     setAdminPin(pin);
@@ -1234,9 +1246,9 @@ export default function App() {
           jobs={myJobs}
           staffName={session.staffName}
           staffId={myStaffId}
-          onSaveJob={(j) => {
-            if (!myJobs.some((jj) => jj.id === j.id)) return; // guard: only ever write a job assigned to this karigar
-            persistJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)));
+          onSaveJob={async (j) => {
+            if (!myJobs.some((jj) => jj.id === j.id)) return false; // guard: only ever write a job assigned to this karigar
+            return await persistJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)));
           }}
           onLogout={() => setSession(null)}
           showToast={showToast}
@@ -1307,8 +1319,8 @@ export default function App() {
         notifications={myNotifications}
         markNotificationRead={markNotificationRead}
         markAllNotificationsRead={markAllNotificationsRead}
-        onSaveJob={(j) => {
-          if (j.customerId !== myCustomerId) return; // guard: never allow writing another customer's job
+        onSaveJob={async (j) => {
+          if (j.customerId !== myCustomerId) return false; // guard: never allow writing another customer's job
           const prevJob = jobs.find((jj) => jj.id === j.id) || null;
           // Customer approving the estimate is the real-world signal that
           // work is starting - auto-advancing status here means admin
@@ -1325,7 +1337,7 @@ export default function App() {
           }
           const exists = !!prevJob;
           const next = exists ? jobs.map((jj) => (jj.id === j.id ? j : jj)) : [j, ...jobs];
-          persistJobs(next);
+          const ok = await persistJobs(next);
           // A brand-new appointment request (customer just submitted the
           // appointment form for the first time, or re-requested after a
           // reschedule) is the one customer-side action admin needs to
@@ -1367,6 +1379,7 @@ export default function App() {
               }
             }
           }
+          return ok;
         }}
         onLogout={() => setSession(null)}
         showToast={showToast}
@@ -2045,7 +2058,6 @@ function GalleryBrowser({ gallery, brochures, categories, testimonials, job, onS
     return combined.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   }, [gallery, categories]);
 
-  const recentPhotos = allPhotosFlat.slice(0, 8);
 
   if (showAllPhotos || activeCat) {
     const inAllPhotosMode = showAllPhotos && !activeCat;
@@ -2089,19 +2101,6 @@ function GalleryBrowser({ gallery, brochures, categories, testimonials, job, onS
 
       {totalPhotos > 0 && (
         <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => setShowAllPhotos(true)}><Grid3x3 size={14} /> View All Photos ({totalPhotos})</button>
-      )}
-
-      {recentPhotos.length > 0 && (
-        <div style={{ marginTop: 14 }}>
-          <div style={styles.fieldLabel}>Recently Added</div>
-          <div style={styles.recentPhotoStrip}>
-            {recentPhotos.map((p, i) => (
-              <button key={p.id} style={styles.recentPhotoThumb} onClick={() => setLightbox({ photos: recentPhotos, index: i })}>
-                <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption || p.category} style={styles.recentPhotoImg} />
-              </button>
-            ))}
-          </div>
-        </div>
       )}
 
       {brochures && brochures.length > 0 && (
@@ -2589,10 +2588,23 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
         showToast('Photo save nahi ho payi, sirf text save ho raha hai', true);
       }
     }
-    onSave({ ...job, projectNotes: [entry, ...notes] });
-    setText('');
-    setPendingPhoto(null);
-    showToast('Note add ho gaya');
+    // Awaiting onSave (and only announcing success once it genuinely
+    // resolves true) is what fixes notes "sometimes not adding,
+    // sometimes not showing" - previously this fired the success toast
+    // and cleared the form immediately, before the actual save had even
+    // finished, so a failed save (flaky connection, etc.) still looked
+    // like it worked until a later background refresh replaced local
+    // state with the real (note-less) server data.
+    const ok = await onSave({ ...job, projectNotes: [entry, ...notes] });
+    if (ok) {
+      setText('');
+      setPendingPhoto(null);
+      showToast('Note add ho gaya');
+    }
+    // If it failed, the underlying save already showed its own
+    // "Save failed" toast - the text/photo stay in the form so the
+    // user can just tap Add again rather than having to retype
+    // everything.
   };
 
   const removeNote = (id) => {
@@ -2605,9 +2617,9 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
   // finalized decision doesn't get accidentally deleted or contradicted
   // by a later note once work has already moved forward based on it;
   // the customer can still see it, just not modify it.
-  const approveNote = (id) => {
-    onSave({ ...job, projectNotes: notes.map((n) => (n.id === id ? { ...n, locked: true } : n)) });
-    showToast('Note approve ho gaya, ab locked hai');
+  const approveNote = async (id) => {
+    const ok = await onSave({ ...job, projectNotes: notes.map((n) => (n.id === id ? { ...n, locked: true } : n)) });
+    if (ok) showToast('Note approve ho gaya, ab locked hai');
   };
 
   // Notes are grouped by category (item) like separate folders, so a
