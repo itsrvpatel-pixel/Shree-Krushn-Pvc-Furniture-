@@ -969,8 +969,19 @@ export default function App() {
   // where a poll could race ahead and revert it with pre-write data is
   // if anything wider here than for jobs.
   const lastLocalGalleryWriteRef = useRef(0);
+  // Returns true/false so callers (e.g. AdminGallery's addPhotosFromPanel)
+  // can tell whether the save genuinely succeeded before announcing
+  // success of their own. On failure, this ALSO rolls the local
+  // `gallery` state back to what it was before the optimistic update -
+  // without that, a failed save would still leave the just-added photos
+  // visible locally (since setGallery(next) already ran), and they'd
+  // only disappear later once a background poll replaced local state
+  // with the real, photo-less server data - which is exactly what made
+  // uploads look like they "worked, then vanished" instead of clearly
+  // failing up front.
   const persistGallery = useCallback(async (next) => {
     lastLocalGalleryWriteRef.current = Date.now();
+    const prevGallery = gallery;
     const prevPhotoById = {};
     for (const cat of Object.keys(gallery)) {
       for (const p of gallery[cat] || []) prevPhotoById[p.id] = p;
@@ -991,8 +1002,11 @@ export default function App() {
       }
       await Promise.all(writes);
       await window.storage.set('gallery', JSON.stringify(meta), true);
+      return true;
     } catch (e) {
-      showToast('Save failed - connection check karein', true);
+      setGallery(prevGallery);
+      showToast('Save failed - internet check karein aur dobara try karein', true);
+      return false;
     }
   }, [gallery]);
   const persistCustomers = useCallback(async (next) => {
@@ -2013,26 +2027,51 @@ function GalleryBrowser({ gallery, brochures, categories, testimonials, job, onS
   const [lightbox, setLightbox] = useState(null);
   const [showBrochures, setShowBrochures] = useState(false);
   const [showTestimonials, setShowTestimonials] = useState(false);
+  const [query, setQuery] = useState('');
+  const [showAllPhotos, setShowAllPhotos] = useState(false);
 
-  if (activeCat) {
-    // Newest first - falls back to array position for older entries
-    // that predate the createdAt field (undefined dates sort as if
-    // very old, i.e. after anything with a real timestamp).
-    const photos = [...(gallery[activeCat] || [])].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  // All photos across every category, newest first - lets a customer
+  // browse everything in one flat grid instead of having to know (or
+  // guess) which category something was filed under, or click into each
+  // category one at a time just to see what's new. Recomputed from
+  // `gallery` each render (not memoized), which is fine at this photo
+  // count - no meaningful cost, and it stays trivially correct as
+  // photos get added/moved/removed.
+  const allPhotosFlat = useMemo(() => {
+    const combined = [];
+    for (const cat of categories) {
+      for (const p of (gallery[cat] || [])) combined.push({ ...p, category: cat });
+    }
+    return combined.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }, [gallery, categories]);
+
+  const recentPhotos = allPhotosFlat.slice(0, 8);
+
+  if (showAllPhotos || activeCat) {
+    const inAllPhotosMode = showAllPhotos && !activeCat;
+    const basePhotos = inAllPhotosMode ? allPhotosFlat : [...(gallery[activeCat] || [])].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    // Caption search only makes sense once there's enough to search
+    // through - filters the CURRENT view (whichever category, or all
+    // photos), not a separate global search.
+    const photos = basePhotos.filter((p) => !query.trim() || (p.caption || '').toLowerCase().includes(query.toLowerCase()));
     return (
       <div style={{ padding: '12px 16px' }}>
-        <button style={styles.backLink} onClick={() => setActiveCat(null)}><ArrowLeft size={13} /> All categories</button>
-        <div style={styles.catTitle}>{activeCat} <span style={styles.catCount}>({photos.length})</span></div>
+        <button style={styles.backLink} onClick={() => { setActiveCat(null); setShowAllPhotos(false); setQuery(''); }}><ArrowLeft size={13} /> All categories</button>
+        <div style={styles.catTitle}>{inAllPhotosMode ? 'All Photos' : activeCat} <span style={styles.catCount}>({photos.length})</span></div>
+        {basePhotos.length > 6 && (
+          <input style={{ ...styles.input, marginTop: 8 }} placeholder='Search by caption...' value={query} onChange={(e) => setQuery(e.target.value)} />
+        )}
         {photos.length === 0 && (
           <div style={styles.emptyBlock}>
             <ImageIcon size={26} color='#C7CCDC' />
-            <p style={styles.emptyBlockText}>Is category mein abhi koi photo nahi hai.</p>
+            <p style={styles.emptyBlockText}>{query.trim() ? 'Koi photo match nahi hui.' : 'Is category mein abhi koi photo nahi hai.'}</p>
           </div>
         )}
         <div style={styles.photoGrid}>
           {photos.map((p, i) => (
             <button key={p.id} style={styles.photoThumb} onClick={() => setLightbox({ photos, index: i })}>
               <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption || activeCat} style={styles.photoImg} />
+              {inAllPhotosMode && <div style={styles.photoThumbCatTag}>{p.category}</div>}
             </button>
           ))}
         </div>
@@ -2047,6 +2086,23 @@ function GalleryBrowser({ gallery, brochures, categories, testimonials, job, onS
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Design Gallery</div>
       <div style={styles.plainTextMuted}>{totalPhotos} designs across {categories.length} categories</div>
+
+      {totalPhotos > 0 && (
+        <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => setShowAllPhotos(true)}><Grid3x3 size={14} /> View All Photos ({totalPhotos})</button>
+      )}
+
+      {recentPhotos.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={styles.fieldLabel}>Recently Added</div>
+          <div style={styles.recentPhotoStrip}>
+            {recentPhotos.map((p, i) => (
+              <button key={p.id} style={styles.recentPhotoThumb} onClick={() => setLightbox({ photos: recentPhotos, index: i })}>
+                <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption || p.category} style={styles.recentPhotoImg} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {brochures && brochures.length > 0 && (
         <div style={styles.brochureSection}>
@@ -5492,44 +5548,64 @@ function AdminGallery({ gallery, setGallery, categories, setCategories, showToas
   const allPhotos = [...(gallery[activeCat] || [])].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   const photos = allPhotos.filter((p) => !query.trim() || (p.caption || '').toLowerCase().includes(query.toLowerCase()));
 
-  const addPhotosFromPanel = (photos) => {
+  const addPhotosFromPanel = async (photos) => {
     // Building the full new-photo list here and calling setGallery ONCE
     // is what actually fixes the multi-upload bug: this closure's
     // `allPhotos` is a single fresh snapshot for the whole batch, so
     // every photo in `photos` lands correctly instead of only the last
     // one surviving.
+    //
+    // Awaiting setGallery (= persistGallery, an async function) before
+    // showing "added" matters just as much: persistGallery does the
+    // real Firestore writes in the background, and if ANY of them fail
+    // (a flaky mobile connection, several photos uploading in parallel,
+    // etc.), it shows its own "Save failed" toast - but only AFTER
+    // already updating local state optimistically. Without awaiting
+    // here, this function's OWN success toast fired immediately, before
+    // that outcome was known, telling the user it worked even when it
+    // hadn't - and since the local view was never rolled back on
+    // failure, the photos stayed visible until the next background
+    // refresh replaced them with the real (photo-less) server data,
+    // which is exactly what "upload hoke automatically gayab ho jaana"
+    // looks like from the user's side.
     const newEntries = photos.map((p) => ({ id: uid(), url: p.url, origUrl: p.origUrl, caption: p.caption, createdAt: new Date().toISOString() }));
     const next = { ...gallery, [activeCat]: [...newEntries, ...allPhotos] };
-    setGallery(next);
-    showToast(photos.length + ' photo' + (photos.length !== 1 ? 's' : '') + ' added to ' + activeCat);
+    const ok = await setGallery(next);
+    if (ok) {
+      showToast(photos.length + ' photo' + (photos.length !== 1 ? 's' : '') + ' added to ' + activeCat);
+    }
+    // If it failed, persistGallery already showed its own error toast
+    // and rolled the local state back - nothing further to say here.
   };
 
-  const addBulk = () => {
+  const addBulk = async () => {
     const urls = bulkText.split(NEWLINE).map((l) => l.trim()).filter(Boolean);
     if (urls.length === 0) return;
     const newPhotos = urls.map((u) => ({ id: uid(), url: toDirectImageUrl(u), origUrl: u, caption: '', createdAt: new Date().toISOString() }));
     const next = { ...gallery, [activeCat]: [...newPhotos, ...allPhotos] };
-    setGallery(next);
-    setBulkText('');
-    setShowBulk(false);
-    showToast(urls.length + ' photos added to ' + activeCat);
+    const ok = await setGallery(next);
+    if (ok) {
+      setBulkText('');
+      setShowBulk(false);
+      showToast(urls.length + ' photos added to ' + activeCat);
+    }
   };
 
   const removePhoto = (id) => setGallery({ ...gallery, [activeCat]: allPhotos.filter((p) => p.id !== id) });
 
-  const saveEditedPhoto = (photo, newCaption, newCategory) => {
+  const saveEditedPhoto = async (photo, newCaption, newCategory) => {
     if (newCategory === activeCat) {
-      setGallery({ ...gallery, [activeCat]: allPhotos.map((p) => (p.id === photo.id ? { ...p, caption: newCaption } : p)) });
+      await setGallery({ ...gallery, [activeCat]: allPhotos.map((p) => (p.id === photo.id ? { ...p, caption: newCaption } : p)) });
     } else {
       // Move to a different category: remove from current, append to target.
       const remaining = allPhotos.filter((p) => p.id !== photo.id);
       const targetPhotos = gallery[newCategory] || [];
-      setGallery({
+      const ok = await setGallery({
         ...gallery,
         [activeCat]: remaining,
         [newCategory]: [{ ...photo, caption: newCaption }, ...targetPhotos],
       });
-      showToast('Photo ' + newCategory + ' mein move ho gayi');
+      if (ok) showToast('Photo ' + newCategory + ' mein move ho gayi');
     }
     setEditingPhoto(null);
   };
@@ -6515,7 +6591,11 @@ const styles = {
   catCount: { color: BRAND.textMuted, fontWeight: 600, fontSize: 13 },
 
   photoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 8 },
-  photoThumb: { border: 'none', padding: 0, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: '#EEF0F5', aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  photoThumb: { border: 'none', padding: 0, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: '#EEF0F5', aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  photoThumbCatTag: { position: 'absolute', bottom: 4, left: 4, right: 4, background: 'rgba(15,27,61,0.75)', color: '#FFF', fontSize: 9, fontWeight: 700, padding: '2px 5px', borderRadius: 5, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  recentPhotoStrip: { display: 'flex', gap: 8, overflowX: 'auto', marginTop: 8, paddingBottom: 4 },
+  recentPhotoThumb: { flexShrink: 0, width: 74, height: 74, border: 'none', padding: 0, borderRadius: 10, overflow: 'hidden', cursor: 'pointer', background: '#EEF0F5' },
+  recentPhotoImg: { width: '100%', height: '100%', objectFit: 'cover' },
   photoImg: { width: '100%', height: '100%', objectFit: 'contain', display: 'block' },
   progressPhotoCard: { position: 'relative', background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 8, overflow: 'hidden' },
   progressCaption: { fontSize: 10.5, padding: '4px 6px', color: '#333B57', fontWeight: 600 },
