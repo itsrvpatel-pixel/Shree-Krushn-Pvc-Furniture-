@@ -1681,7 +1681,7 @@ function FavoritesButton({ job, onSaveJob, showToast, categories, gallery }) {
   // photo, so the image data already exists in the gallery's own
   // storage and doesn't need a second, inline copy inside the shared
   // 'jobs' document.
-  const addToProject = (d) => {
+  const addToProject = async (d) => {
     const req = {
       id: uid(),
       category: addCategory,
@@ -1693,9 +1693,9 @@ function FavoritesButton({ job, onSaveJob, showToast, categories, gallery }) {
     };
     let next = { ...job, requirements: [req, ...(job.requirements || [])] };
     next = logActivity(next, 'Requirement added: ' + addCategory + ' (saved design)');
-    onSaveJob(next);
+    const ok = await onSaveJob(next);
     setAddingId(null);
-    showToast('Project mein add ho gaya');
+    if (ok) showToast('Project mein add ho gaya');
   };
 
   return (
@@ -2020,7 +2020,20 @@ function CustomerHome({ job, customer, setTab, onLogout }) {
         )}
       </div>
 
-      <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
+      {(job.activity || []).length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <div style={styles.fieldLabel}>Recent Activity</div>
+          {job.activity.slice(0, 8).map((a) => (
+            <div key={a.id} style={styles.activityRow}>
+              <div style={styles.activityDot} />
+              <div style={{ flex: 1 }}>
+                <div style={styles.activityText}>{a.text}</div>
+                <div style={styles.itemSub}>{timeAgo(a.date)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2070,6 +2083,20 @@ function GalleryBrowser({ gallery, brochures, categories, testimonials, job, onS
       <div style={{ padding: '12px 16px' }}>
         <button style={styles.backLink} onClick={() => { setActiveCat(null); setShowAllPhotos(false); setQuery(''); }}><ArrowLeft size={13} /> All categories</button>
         <div style={styles.catTitle}>{inAllPhotosMode ? 'All Photos' : activeCat} <span style={styles.catCount}>({photos.length})</span></div>
+
+        {/* Quick category switcher - lets the customer jump straight to
+            another album without going back to the category grid first,
+            since browsing between a few related categories (e.g.
+            Kitchen -> Wardrobe -> Bedroom) back-and-forth is common and
+            the extra round trip through "All categories" each time was
+            unnecessary friction. */}
+        <div style={styles.chipRow}>
+          <button onClick={() => { setActiveCat(null); setShowAllPhotos(true); setQuery(''); }} style={{ ...styles.chip, ...(inAllPhotosMode ? styles.chipActive : {}) }}>All Photos</button>
+          {categories.map((c) => (
+            <button key={c} onClick={() => { setActiveCat(c); setShowAllPhotos(false); setQuery(''); }} style={{ ...styles.chip, ...(!inAllPhotosMode && activeCat === c ? styles.chipActive : {}) }}>{c}</button>
+          ))}
+        </div>
+
         {basePhotos.length > 6 && (
           <input style={{ ...styles.input, marginTop: 8 }} placeholder='Search by caption...' value={query} onChange={(e) => setQuery(e.target.value)} />
         )}
@@ -2743,6 +2770,7 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
   const [dimensions, setDimensions] = useState('');
   const [priority, setPriority] = useState('normal');
   const [showForm, setShowForm] = useState((job.requirements || []).length === 0);
+  const [lightbox, setLightbox] = useState(null);
   const savedDesigns = job.savedDesigns || [];
 
   // photoRef only stores a photoId (see FavoritesButton's addToProject
@@ -2756,7 +2784,7 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
     return null;
   };
 
-  const add = (photoRef) => {
+  const add = async (photoRef) => {
     if (!photoRef && !text.trim()) return;
     const req = {
       id: uid(),
@@ -2775,10 +2803,12 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
     };
     let next = { ...job, requirements: [req, ...(job.requirements || [])] };
     next = logActivity(next, 'Requirement added: ' + category + (photoRef ? ' (saved design)' : ''));
-    onSave(next);
-    setText(''); setDimensions(''); setPriority('normal');
-    setShowForm(false);
-    showToast('Requirement added');
+    const ok = await onSave(next);
+    if (ok) {
+      setText(''); setDimensions(''); setPriority('normal');
+      setShowForm(false);
+      showToast('Requirement added');
+    }
   };
   const removeSavedDesign = (photoId) => {
     onSave({ ...job, savedDesigns: savedDesigns.filter((d) => d.photoId !== photoId) });
@@ -2875,7 +2905,9 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
           {reqs.map((r) => (
             <div key={r.id} style={styles.reqRow}>
               {r.photoRef && resolveGalleryPhoto(r.photoRef.photoId) && (
-                <SmartImg src={resolveGalleryPhoto(r.photoRef.photoId).url} origUrl={resolveGalleryPhoto(r.photoRef.photoId).origUrl} alt={r.text} style={styles.reqThumb} />
+                <button style={{ ...styles.reqThumb, border: 'none', padding: 0, cursor: 'pointer' }} onClick={() => setLightbox({ photos: [resolveGalleryPhoto(r.photoRef.photoId)], index: 0 })}>
+                  <SmartImg src={resolveGalleryPhoto(r.photoRef.photoId).url} origUrl={resolveGalleryPhoto(r.photoRef.photoId).origUrl} alt={r.text} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </button>
               )}
               <div style={{ flex: 1 }}>
                 <div style={styles.reqText}>{r.text}</div>
@@ -2896,6 +2928,8 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
       <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${BRAND.line}` }}>
         <ProjectNotesPanel job={job} onSave={onSave} showToast={showToast} authorRole='customer' authorName={customer?.name || 'Customer'} categories={categories} />
       </div>
+
+      {lightbox && <Lightbox data={lightbox} onClose={() => setLightbox(null)} setLightbox={setLightbox} job={job} onSaveDesign={onSave} showToast={showToast} />}
     </div>
   );
 }
@@ -3731,7 +3765,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
       <div style={styles.statRow2}>
         <StatCard icon={<Calendar size={16} />} label="Aaj ki Visits" value={todaysVisits.length} onClick={() => setShowList('todaysVisits')} />
         <StatCard icon={<FileText size={16} />} label='Estimates Given' value={jobs.filter((j) => (j.items || []).length > 0).length} onClick={() => setShowList('allEstimates')} />
-        <StatCard icon={<Edit3 size={16} />} label='Estimate Pending' value={pendingEstimates} />
+        <StatCard icon={<UserPlus size={16} />} label='New Appointments' value={pendingAppointments} onClick={() => setShowList('newAppointments')} />
       </div>
 
       {todaysVisits.length > 0 && (
