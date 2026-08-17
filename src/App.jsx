@@ -484,7 +484,20 @@ async function prepareImageForUpload(file) {
 }
 
 const emptyJob = (customerId, customerName, phone) => ({
-  id: uid(),
+  // Deterministic, not uid() - this fallback gets recomputed on every
+  // render for a customer who doesn't have a real job document yet
+  // (jobs.find(...) returning nothing), since it's not memoized. A
+  // random id here would mean a DIFFERENT id every time the customer's
+  // app re-renders (which happens on every background poll, roughly
+  // every 8-20 seconds) - if the customer took more than that long to
+  // fill in the appointment form, the job object they were editing
+  // could end up with a different id than the one actually submitted,
+  // and the save could land under an id nothing else ever looks up
+  // again - which is exactly the "booked appointment never showed up
+  // for admin" symptom. Tying it to customerId instead means it's
+  // always the same value no matter how many times this runs, so the
+  // customer's very first save always lands under one consistent id.
+  id: 'job_' + customerId,
   customerId,               // <- every job is permanently pinned to ONE customer
   customerName,
   phone,
@@ -4800,7 +4813,13 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     if (!newPayment.amount) return;
     let nextJob = { ...job, payments: [...(job.payments || []), { id: uid(), amount: newPayment.amount, note: newPayment.note.trim(), date: new Date().toISOString() }] };
     nextJob = logActivity(nextJob, 'Payment received: ' + currency(newPayment.amount));
-    if (jobDue(nextJob) <= 0 && nextJob.status !== 'paid') nextJob.status = 'paid';
+    // jobTotal(nextJob) > 0 guards against a job with NO estimate yet
+    // (jobTotal is 0, so jobDue is trivially 0 too) auto-flipping to
+    // "paid" the moment ANY stray payment gets recorded - the Payment
+    // tab is reachable at any stage, even before an estimate exists, so
+    // without this guard a payment entered too early would skip the
+    // job straight past appointment/estimate/in_progress to paid.
+    if (jobTotal(nextJob) > 0 && jobDue(nextJob) <= 0 && nextJob.status !== 'paid') nextJob.status = 'paid';
     onSave(nextJob);
     setNewPayment({ amount: '', note: '' });
     showToast('Payment recorded');
