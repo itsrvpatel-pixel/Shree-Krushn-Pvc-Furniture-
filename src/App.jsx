@@ -673,15 +673,32 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
+      let galleryMeta = null;
+      let jobsRaw = null;
       try {
         const [g, c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att] = await Promise.all([
           safeGet('gallery'), safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'),
         ]);
-        if (g) setGallery(await hydrateGalleryPhotos(JSON.parse(g)));
+        // Gallery/jobs go in immediately with their UNHYDRATED shape (photo
+        // metadata only, no image data yet - each photo's actual url lives
+        // in its own small document, see hydrateGalleryPhotos/
+        // hydrateJobNotePhotos above). Hydrating fetches one Firestore
+        // document PER PHOTO across every gallery photo, note attachment,
+        // and progress photo - with months of accumulated data that can
+        // be dozens or hundreds of individual reads, and awaiting all of
+        // them before the app becomes usable at all is what made loading
+        // feel slow. Setting loaded=true right after this single batch of
+        // 13 reads (not waiting on the photo fan-out) gets the login/home
+        // screen up immediately; the hydration below then runs in the
+        // background and photos simply fill in a moment later as their
+        // data arrives, rather than blocking the whole app on it.
+        galleryMeta = g ? JSON.parse(g) : null;
+        jobsRaw = j ? JSON.parse(j) : null;
+        if (galleryMeta) setGallery(galleryMeta);
+        if (jobsRaw) setJobs(jobsRaw);
         if (c) setCustomers(JSON.parse(c));
-        if (j) setJobs(await hydrateJobNotePhotos(JSON.parse(j)));
         if (p) setAdminPin(p);
         if (st) setStaff(JSON.parse(st));
         if (exp) setExpenses(JSON.parse(exp));
@@ -694,6 +711,17 @@ export default function App() {
         if (att) setAttendanceRaw(JSON.parse(att));
       } finally {
         setLoaded(true);
+      }
+      // Background hydration - not awaited by the loading gate above, so
+      // it never delays the app becoming usable. Each call independently
+      // updates state as soon as ITS photos are ready, so gallery and
+      // job-attached photos can appear at slightly different times rather
+      // than both waiting on whichever is slower.
+      if (galleryMeta) {
+        hydrateGalleryPhotos(galleryMeta).then(setGallery).catch(() => {});
+      }
+      if (jobsRaw) {
+        hydrateJobNotePhotos(jobsRaw).then(setJobs).catch(() => {});
       }
     })();
   }, []);
@@ -841,9 +869,26 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
 
+  // A hard timeout on every read, on top of the try/catch below - without
+  // this, if the underlying window.storage.get() call ever genuinely
+  // hangs (never resolves OR rejects - which can happen with certain
+  // Firestore SDK states, e.g. right after a plan/rules change while
+  // things are still propagating, or a flaky connection stuck retrying),
+  // the try/catch alone wouldn't help, since a catch only fires on
+  // rejection, not on "never settles". That would leave the app's
+  // initial Promise.all() load stuck forever, and since setLoaded(true)
+  // only runs once that resolves, the whole app would be stuck on its
+  // loading screen indefinitely with no error ever shown - exactly what
+  // "sirf loading dikhta hai, koi error nahi" looks like from the
+  // outside. Racing against a timeout guarantees this call always
+  // settles within 10s either way, so the app can always proceed (with
+  // that one key treated as empty/not-found) instead of hanging.
   async function safeGet(key) {
     try {
-      const res = await window.storage.get(key, true);
+      const res = await Promise.race([
+        window.storage.get(key, true),
+        new Promise((resolve) => setTimeout(() => resolve(null), 10000)),
+      ]);
       return res ? res.value : null;
     } catch (e) { return null; }
   }
@@ -997,7 +1042,7 @@ export default function App() {
           if (changed) {
             writes.push(window.storage.set('gallery_photo_' + p.id, JSON.stringify({ url: p.url, origUrl: p.origUrl }), true));
           }
-          return { id: p.id, caption: p.caption || '' };
+          return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null };
         });
       }
       await Promise.all(writes);
