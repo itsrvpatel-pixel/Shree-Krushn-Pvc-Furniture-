@@ -717,12 +717,56 @@ export default function App() {
       // updates state as soon as ITS photos are ready, so gallery and
       // job-attached photos can appear at slightly different times rather
       // than both waiting on whichever is slower.
-      if (galleryMeta) {
-        hydrateGalleryPhotos(galleryMeta).then(setGallery).catch(() => {});
-      }
-      if (jobsRaw) {
-        hydrateJobNotePhotos(jobsRaw).then(setJobs).catch(() => {});
-      }
+      //
+      // Retries a couple of times with a short delay before giving up -
+      // this runs unattended in the background with nothing else
+      // prompting a retry (unlike a failed foreground action, where the
+      // user can just try again), so silently swallowing a transient
+      // failure here would leave every photo stuck showing "Load nahi
+      // hui" permanently until the next full app reload. A brief retry
+      // covers the common case of a hiccup right after a plan/rules
+      // change while things are still settling; if it's still failing
+      // after that, it's more likely a genuine, non-transient problem,
+      // so a toast surfaces it instead of failing invisibly.
+      const mergeGalleryHydrated = (current, hydrated) => {
+        const merged = { ...current };
+        for (const cat of Object.keys(hydrated)) {
+          const hydratedById = {};
+          for (const p of hydrated[cat] || []) hydratedById[p.id] = p;
+          merged[cat] = (current[cat] || []).map((p) => (hydratedById[p.id] ? { ...p, ...hydratedById[p.id] } : p));
+        }
+        return merged;
+      };
+      const mergeJobsHydrated = (current, hydrated) => {
+        const hydratedById = {};
+        for (const j of hydrated) hydratedById[j.id] = j;
+        return current.map((j) => {
+          const h = hydratedById[j.id];
+          if (!h) return j;
+          return { ...j, projectNotes: h.projectNotes, progressPhotos: h.progressPhotos };
+        });
+      };
+      const hydrateWithRetry = async (hydrateFn, data, applyFn, mergeFn, label) => {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const result = await hydrateFn(data);
+            // Merges hydrated photo data into whatever the CURRENT state
+            // is (a function updater, not a blind overwrite) - if a
+            // photo was added while this background hydration was still
+            // in flight, applyFn(result) alone would have reverted that
+            // addition back to the pre-hydration snapshot; merging keeps
+            // any such newer entries intact and only fills in image data
+            // for the ones this hydration pass actually covers.
+            applyFn((current) => mergeFn(current, result));
+            return;
+          } catch (e) {
+            if (attempt < 2) await new Promise((r) => setTimeout(r, 1500));
+          }
+        }
+        showToast(label + ' load nahi ho payi - app ko refresh karke dekhein', true);
+      };
+      if (galleryMeta) hydrateWithRetry(hydrateGalleryPhotos, galleryMeta, setGallery, mergeGalleryHydrated, 'Gallery photos');
+      if (jobsRaw) hydrateWithRetry(hydrateJobNotePhotos, jobsRaw, setJobs, mergeJobsHydrated, 'Photos');
     })();
   }, []);
 
