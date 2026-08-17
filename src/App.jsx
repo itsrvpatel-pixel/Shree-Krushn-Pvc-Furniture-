@@ -415,13 +415,11 @@ function isLikelyDriveLink(input) {
    high as possible - we only shrink dimensions/quality when the original
    genuinely exceeds the limit, never as a blanket compression.
 
-   The cap is deliberately much smaller than a "5MB photo" might suggest:
-   each photo is stored as its own Firestore document (see
-   hydrateGalleryPhotos/persistGallery in the App component), and Firestore
-   hard-caps every document at 1MiB. Once the photo is base64-encoded (~4/3
-   size inflation) and wrapped in a small JSON envelope, a binary image
-   needs to stay well under 1MB to leave headroom - 650KB keeps real-world
-   photos comfortably under that limit even with encoding overhead. --- */
+   The cap keeps uploads fast on mobile connections and bounds how big a
+   single Firebase Storage upload gets - photos now upload to Storage
+   (see persistGallery/window.fileStorage.upload in the App component)
+   rather than living inline in Firestore, so this is purely a bandwidth/
+   speed consideration, not a document-size limit workaround. --- */
 const MAX_PHOTO_BYTES = 650 * 1024;
 // Brochure PDFs are stored in Firebase Storage (not Firestore - see
 // firebaseStorage.js's fileStorage.upload), which has no meaningful
@@ -673,32 +671,21 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      let galleryMeta = null;
-      let jobsRaw = null;
       try {
         const [g, c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att] = await Promise.all([
           safeGet('gallery'), safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'),
         ]);
-        // Gallery/jobs go in immediately with their UNHYDRATED shape (photo
-        // metadata only, no image data yet - each photo's actual url lives
-        // in its own small document, see hydrateGalleryPhotos/
-        // hydrateJobNotePhotos above). Hydrating fetches one Firestore
-        // document PER PHOTO across every gallery photo, note attachment,
-        // and progress photo - with months of accumulated data that can
-        // be dozens or hundreds of individual reads, and awaiting all of
-        // them before the app becomes usable at all is what made loading
-        // feel slow. Setting loaded=true right after this single batch of
-        // 13 reads (not waiting on the photo fan-out) gets the login/home
-        // screen up immediately; the hydration below then runs in the
-        // background and photos simply fill in a moment later as their
-        // data arrives, rather than blocking the whole app on it.
-        galleryMeta = g ? JSON.parse(g) : null;
-        jobsRaw = j ? JSON.parse(j) : null;
-        if (galleryMeta) setGallery(galleryMeta);
-        if (jobsRaw) setJobs(jobsRaw);
+        // Photos now live in Firebase Storage, with just their (short)
+        // download URL stored directly in this same metadata - no more
+        // separate per-photo Firestore documents, and no more extra
+        // "hydration" read pass needed on every load. This one batch of
+        // reads is everything the app needs to become fully usable,
+        // photos included.
+        if (g) setGallery(JSON.parse(g));
         if (c) setCustomers(JSON.parse(c));
+        if (j) setJobs(JSON.parse(j));
         if (p) setAdminPin(p);
         if (st) setStaff(JSON.parse(st));
         if (exp) setExpenses(JSON.parse(exp));
@@ -712,61 +699,6 @@ export default function App() {
       } finally {
         setLoaded(true);
       }
-      // Background hydration - not awaited by the loading gate above, so
-      // it never delays the app becoming usable. Each call independently
-      // updates state as soon as ITS photos are ready, so gallery and
-      // job-attached photos can appear at slightly different times rather
-      // than both waiting on whichever is slower.
-      //
-      // Retries a couple of times with a short delay before giving up -
-      // this runs unattended in the background with nothing else
-      // prompting a retry (unlike a failed foreground action, where the
-      // user can just try again), so silently swallowing a transient
-      // failure here would leave every photo stuck showing "Load nahi
-      // hui" permanently until the next full app reload. A brief retry
-      // covers the common case of a hiccup right after a plan/rules
-      // change while things are still settling; if it's still failing
-      // after that, it's more likely a genuine, non-transient problem,
-      // so a toast surfaces it instead of failing invisibly.
-      const mergeGalleryHydrated = (current, hydrated) => {
-        const merged = { ...current };
-        for (const cat of Object.keys(hydrated)) {
-          const hydratedById = {};
-          for (const p of hydrated[cat] || []) hydratedById[p.id] = p;
-          merged[cat] = (current[cat] || []).map((p) => (hydratedById[p.id] ? { ...p, ...hydratedById[p.id] } : p));
-        }
-        return merged;
-      };
-      const mergeJobsHydrated = (current, hydrated) => {
-        const hydratedById = {};
-        for (const j of hydrated) hydratedById[j.id] = j;
-        return current.map((j) => {
-          const h = hydratedById[j.id];
-          if (!h) return j;
-          return { ...j, projectNotes: h.projectNotes, progressPhotos: h.progressPhotos };
-        });
-      };
-      const hydrateWithRetry = async (hydrateFn, data, applyFn, mergeFn, label) => {
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            const result = await hydrateFn(data);
-            // Merges hydrated photo data into whatever the CURRENT state
-            // is (a function updater, not a blind overwrite) - if a
-            // photo was added while this background hydration was still
-            // in flight, applyFn(result) alone would have reverted that
-            // addition back to the pre-hydration snapshot; merging keeps
-            // any such newer entries intact and only fills in image data
-            // for the ones this hydration pass actually covers.
-            applyFn((current) => mergeFn(current, result));
-            return;
-          } catch (e) {
-            if (attempt < 2) await new Promise((r) => setTimeout(r, 1500));
-          }
-        }
-        showToast(label + ' load nahi ho payi - app ko refresh karke dekhein', true);
-      };
-      if (galleryMeta) hydrateWithRetry(hydrateGalleryPhotos, galleryMeta, setGallery, mergeGalleryHydrated, 'Gallery photos');
-      if (jobsRaw) hydrateWithRetry(hydrateJobNotePhotos, jobsRaw, setJobs, mergeJobsHydrated, 'Photos');
     })();
   }, []);
 
@@ -786,7 +718,7 @@ export default function App() {
           safeGet('gallery'), safeGet('jobs'), safeGet('brochures'), safeGet('categories'), safeGet('appointment_item_options'),
         ]);
         if (g && Date.now() - lastLocalGalleryWriteRef.current > 8000) {
-          setGallery(await hydrateGalleryPhotos(JSON.parse(g)));
+          setGallery(JSON.parse(g));
         }
         // Skip applying this poll's jobs result if a local write (delete,
         // edit, approval, etc.) happened within the last 5 seconds - see
@@ -797,7 +729,7 @@ export default function App() {
         // given the write plenty of time to settle and correctly reflect
         // it (or any other changes made elsewhere in the meantime).
         if (j && Date.now() - lastLocalJobsWriteRef.current > 8000) {
-          setJobs(await hydrateJobNotePhotos(JSON.parse(j)));
+          setJobs(JSON.parse(j));
         }
         if (br) setBrochures(JSON.parse(br));
         if (cats) setCategoriesRaw(JSON.parse(cats));
@@ -937,160 +869,49 @@ export default function App() {
     } catch (e) { return null; }
   }
 
-  // Gallery photos are stored split across two tiers to stay under
-  // Firestore's 1MB-per-document limit: the 'gallery' document itself only
-  // holds small metadata ({id, caption} per photo, grouped by category),
-  // while each photo's actual image data ({url, origUrl}) lives in its own
-  // 'gallery_photo_<id>' document. This function re-merges the two after
-  // loading the metadata, so every other part of the app can keep treating
-  // gallery[category] as a flat array of {id, url, origUrl, caption} - the
-  // shape it always was - without knowing about the split underneath.
-  async function hydrateGalleryPhotos(galleryMeta) {
-    const allIds = [];
-    for (const cat of Object.keys(galleryMeta)) {
-      for (const p of galleryMeta[cat] || []) allIds.push(p.id);
-    }
-    if (allIds.length === 0) return galleryMeta;
-    const fetched = await Promise.all(allIds.map((id) => safeGet('gallery_photo_' + id)));
-    const photoDataById = {};
-    allIds.forEach((id, i) => {
-      if (fetched[i]) {
-        try { photoDataById[id] = JSON.parse(fetched[i]); } catch (e) { /* skip corrupt entry */ }
-      }
-    });
-    const hydrated = {};
-    for (const cat of Object.keys(galleryMeta)) {
-      hydrated[cat] = (galleryMeta[cat] || []).map((p) => ({
-        ...p,
-        url: photoDataById[p.id]?.url || '',
-        origUrl: photoDataById[p.id]?.origUrl || '',
-      }));
-    }
-    return hydrated;
-  }
 
-  // Same split-storage pattern as hydrateGalleryPhotos, applied to two
-  // kinds of job-attached photos across all jobs: Project Notes photo
-  // attachments AND progress photos. Both are genuinely new uploads (not
-  // sourced from the gallery, unlike favorited designs), so each needs
-  // its own small per-photo document rather than a gallery reference -
-  // notes under 'job_note_photo_<id>', progress photos under
-  // 'job_progress_photo_<id>' - resolved back here on every jobs
-  // load/poll. Without this, each photo's full base64 data would sit
-  // inline inside the single shared 'jobs' document (see persistJobs) -
-  // and progress photos in particular are uploaded often, several per
-  // job as work proceeds, making this the single biggest contributor to
-  // that document growing past Firestore's 1MiB limit and photos
-  // silently failing to save.
-  async function hydrateJobNotePhotos(jobsArray) {
-    const noteIds = [];
-    const progressIds = [];
-    for (const j of jobsArray) {
-      for (const n of (j.projectNotes || [])) {
-        if (n.photo && n.photo.id) noteIds.push(n.photo.id);
-      }
-      for (const p of (j.progressPhotos || [])) {
-        if (p.id && !p.url) progressIds.push(p.id);
-      }
-    }
-    if (noteIds.length === 0 && progressIds.length === 0) return jobsArray;
-    const [noteFetched, progressFetched] = await Promise.all([
-      Promise.all(noteIds.map((id) => safeGet('job_note_photo_' + id))),
-      Promise.all(progressIds.map((id) => safeGet('job_progress_photo_' + id))),
-    ]);
-    const notePhotoById = {};
-    noteIds.forEach((id, i) => {
-      if (noteFetched[i]) {
-        try { notePhotoById[id] = JSON.parse(noteFetched[i]); } catch (e) { /* skip corrupt entry */ }
-      }
-    });
-    const progressPhotoById = {};
-    progressIds.forEach((id, i) => {
-      if (progressFetched[i]) {
-        try { progressPhotoById[id] = JSON.parse(progressFetched[i]); } catch (e) { /* skip corrupt entry */ }
-      }
-    });
-    return jobsArray.map((j) => {
-      const hasNotePhoto = (j.projectNotes || []).some((n) => n.photo && n.photo.id);
-      const hasProgressRef = (j.progressPhotos || []).some((p) => p.id && !p.url);
-      if (!hasNotePhoto && !hasProgressRef) return j;
-      return {
-        ...j,
-        projectNotes: !hasNotePhoto ? j.projectNotes : j.projectNotes.map((n) => (
-          n.photo && n.photo.id
-            ? { ...n, photo: { url: notePhotoById[n.photo.id]?.url || '', origUrl: notePhotoById[n.photo.id]?.origUrl || null } }
-            : n
-        )),
-        progressPhotos: !hasProgressRef ? j.progressPhotos : (j.progressPhotos || []).map((p) => (
-          p.id && !p.url
-            ? { ...p, url: progressPhotoById[p.id]?.url || '', origUrl: progressPhotoById[p.id]?.origUrl || null }
-            : p
-        )),
-      };
-    });
-  }
 
   const showToast = (msg, isError) => {
     setToast({ msg, isError, id: uid() });
     setTimeout(() => setToast((t) => (t && t.msg === msg ? null : t)), 2400);
   };
 
-  // Gallery photos are split across two storage tiers (see hydrateGalleryPhotos
-  // above for the read side): full photo data (url/origUrl, capped at
-  // MAX_PHOTO_BYTES so the base64 data-URI stays under Firestore's 1MB
-  // document limit) goes into its own small 'gallery_photo_<id>'
-  // document per photo, while 'gallery' itself only ever holds lightweight
-  // metadata. Without this split, a handful of uploaded photos pushes the
-  // single 'gallery' document past Firestore's 1MB-per-document hard limit -
-  // writes then fail silently from the UI's point of view (state still
-  // updates locally, so the photo appears to save, but reloads/refreshes
-  // show it missing because the real document was never written).
-  //
-  // Only photos whose url/origUrl actually differ from the currently-loaded
-  // gallery state get their per-photo document rewritten - callers always
-  // pass the full gallery object (matching the shape the rest of the app
-  // expects), so without this check every single photo add/edit would
-  // needlessly rewrite every other photo's document too, burning through
-  // Firestore's daily write quota fast on a gallery with many photos.
-  // Same stale-poll-overwrite guard as lastLocalJobsWriteRef above,
-  // applied to gallery writes - a photo add/remove is a multi-step write
-  // (per-photo documents, then the metadata document), so the window
-  // where a poll could race ahead and revert it with pre-write data is
-  // if anything wider here than for jobs.
+  // Gallery photos now upload to Firebase Storage (window.fileStorage) and
+  // store the resulting download URL directly in the 'gallery' metadata
+  // document - a URL is a short string (100-200 chars), so even 100+
+  // photos' worth of them fit comfortably in one document, unlike the
+  // old approach of embedding full base64 image data (which needed a
+  // separate small document per photo just to stay under Firestore's
+  // 1MiB limit, and required a whole extra "hydration" read pass on
+  // every load to fetch each one - the real source of the loading delays
+  // and "load nahi hui" failures). Only photos whose url is STILL a raw
+  // data: URI (freshly picked from the device, not yet uploaded) get
+  // uploaded here; a photo already carrying a real URL (Storage, or an
+  // external link from bulk-add) is left untouched, so editing just a
+  // caption never re-uploads the image.
   const lastLocalGalleryWriteRef = useRef(0);
-  // Returns true/false so callers (e.g. AdminGallery's addPhotosFromPanel)
-  // can tell whether the save genuinely succeeded before announcing
-  // success of their own. On failure, this ALSO rolls the local
-  // `gallery` state back to what it was before the optimistic update -
-  // without that, a failed save would still leave the just-added photos
-  // visible locally (since setGallery(next) already ran), and they'd
-  // only disappear later once a background poll replaced local state
-  // with the real, photo-less server data - which is exactly what made
-  // uploads look like they "worked, then vanished" instead of clearly
-  // failing up front.
   const persistGallery = useCallback(async (next) => {
     lastLocalGalleryWriteRef.current = Date.now();
     const prevGallery = gallery;
-    const prevPhotoById = {};
-    for (const cat of Object.keys(gallery)) {
-      for (const p of gallery[cat] || []) prevPhotoById[p.id] = p;
-    }
     setGallery(next);
     try {
-      const writes = [];
       const meta = {};
       for (const cat of Object.keys(next)) {
-        meta[cat] = (next[cat] || []).map((p) => {
-          const prev = prevPhotoById[p.id];
-          const changed = !prev || prev.url !== p.url || prev.origUrl !== p.origUrl;
-          if (changed) {
-            writes.push(window.storage.set('gallery_photo_' + p.id, JSON.stringify({ url: p.url, origUrl: p.origUrl }), true));
+        meta[cat] = await Promise.all((next[cat] || []).map(async (p) => {
+          if (p.url && p.url.startsWith('data:')) {
+            const uploaded = await window.fileStorage.upload('gallery_' + p.id, p.url);
+            if (!uploaded) throw new Error('Photo upload failed: ' + p.id);
+            return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: uploaded.url, origUrl: p.origUrl || null };
           }
-          return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null };
-        });
+          return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: p.url || '', origUrl: p.origUrl || null };
+        }));
       }
-      await Promise.all(writes);
       await window.storage.set('gallery', JSON.stringify(meta), true);
+      // Reflect the now-uploaded URLs (data: URI replaced by the real
+      // Storage URL) back into local state too, so the freshly-added
+      // photo's <img> tag switches from the temporary local preview to
+      // the real hosted image immediately, without waiting on a poll.
+      setGallery(meta);
       return true;
     } catch (e) {
       setGallery(prevGallery);
@@ -2290,16 +2111,11 @@ function Lightbox({ data, onClose, setLightbox, job, onSaveDesign, showToast }) 
     const current = job.savedDesigns || [];
     // Store only a lightweight reference (photoId + caption), NOT the
     // photo's full url/origUrl - a favorited photo always comes from the
-    // gallery, which already has its own image data stored separately
-    // (see gallery_photo_<id> / hydrateGalleryPhotos). Copying the full
-    // base64 url inline here would duplicate it inside the single,
-    // monolithic 'jobs' Firestore document (all jobs share one document -
-    // see persistJobs), and since that data URI can be hundreds of KB,
-    // a handful of favorited photos across customers could push that
-    // shared document past Firestore's 1MiB limit - causing the save to
-    // fail silently and the favorite (or other job data saved in the
-    // same write) to vanish on refresh. Resolving the actual image at
-    // display time from the live gallery state avoids storing it twice.
+    // gallery, which already has its own Storage URL stored there.
+    // Copying the full url inline here would duplicate it inside the
+    // single, monolithic 'jobs' Firestore document (all jobs share one
+    // document - see persistJobs); resolving it live from the gallery
+    // by photoId instead means favoriting never needs to write it twice.
     const next = isSaved
       ? current.filter((d) => d.photoId !== photo.id)
       : [...current, { photoId: photo.id, caption: photo.caption || '', savedAt: new Date().toISOString() }];
@@ -2687,20 +2503,19 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
       authorName,
       createdAt: new Date().toISOString(),
     };
-    // The photo (if any) is written to its own small Firestore document
-    // BEFORE the note itself is saved, and the note only ever carries a
-    // reference {id} to it - never the raw base64 data. All jobs share a
-    // single Firestore document (see persistJobs), so embedding a photo's
-    // full data URI directly inside a note would duplicate potentially
-    // hundreds of KB into that shared document; across a handful of
-    // notes with photos, that risks pushing it past Firestore's 1MiB
-    // limit and silently failing to save - which is exactly what caused
-    // photos to vanish on refresh before this fix.
+    // The photo (if any) is uploaded to Firebase Storage FIRST, and the
+    // note only ever carries the resulting (short) download URL - never
+    // the raw base64 data inline. All jobs share a single Firestore
+    // document (see persistJobs), so embedding a photo's full data URI
+    // directly inside a note would duplicate potentially hundreds of KB
+    // into that shared document; a real Storage URL is a tiny string by
+    // comparison, so this stays completely safe even with many
+    // photo-attached notes.
     if (pendingPhoto) {
-      try {
-        await window.storage.set('job_note_photo_' + entry.id, JSON.stringify({ url: pendingPhoto, origUrl: null }), true);
-        entry.photo = { id: entry.id };
-      } catch (e) {
+      const uploaded = await window.fileStorage.upload('note_' + entry.id, pendingPhoto);
+      if (uploaded) {
+        entry.photo = { url: uploaded.url, origUrl: null };
+      } else {
         showToast('Photo save nahi ho payi, sirf text save ho raha hai', true);
       }
     }
@@ -3492,21 +3307,19 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
   };
 
   const addPhotos = async (job, photos) => {
-    // Each photo's full image data is written to its own small
-    // 'job_progress_photo_<id>' document BEFORE the job is saved, so
-    // only a lightweight {id, caption, date} reference goes into
-    // job.progressPhotos - never the raw base64 - for the same reason
-    // ProjectNotesPanel's addNote does this (see hydrateJobNotePhotos):
+    // Each photo is uploaded to Firebase Storage, and only the resulting
+    // (short) download URL goes into job.progressPhotos - never the raw
+    // base64 - for the same reason ProjectNotesPanel's addNote does this:
     // all jobs share one Firestore document, and inlining even a few
     // photos' worth of base64 data risks pushing that document past the
     // 1MiB limit, causing saves to fail silently and photos to vanish.
     const newPhotos = [];
     for (const p of photos) {
       const id = uid();
-      try {
-        await window.storage.set('job_progress_photo_' + id, JSON.stringify({ url: p.url, origUrl: p.origUrl }), true);
-        newPhotos.push({ id, caption: p.caption, date: new Date().toISOString() });
-      } catch (e) {
+      const uploaded = await window.fileStorage.upload('progress_' + id, p.url);
+      if (uploaded) {
+        newPhotos.push({ id, url: uploaded.url, origUrl: p.origUrl || null, caption: p.caption, date: new Date().toISOString() });
+      } else {
         showToast('Ek photo save nahi ho payi', true);
       }
     }
@@ -5079,18 +4892,18 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
   const removeExtraWork = (id) => onSave({ ...job, extraWork: extraWork.filter((e) => e.id !== id) });
 
   const addPhotosFromPanel = async (photos) => {
-    // Same fix as KarigarApp's addPhotos: each photo's full image data
-    // goes into its own small 'job_progress_photo_<id>' document first,
-    // and only a lightweight reference is kept in job.progressPhotos -
-    // never the raw base64 - to avoid overflowing the single shared
-    // 'jobs' Firestore document (see persistJobs / hydrateJobNotePhotos).
+    // Same fix as KarigarApp's addPhotos: each photo is uploaded to
+    // Firebase Storage, and only the resulting (short) download URL is
+    // kept in job.progressPhotos - never the raw base64 - to avoid
+    // overflowing the single shared 'jobs' Firestore document (see
+    // persistJobs).
     const newPhotos = [];
     for (const p of photos) {
       const id = uid();
-      try {
-        await window.storage.set('job_progress_photo_' + id, JSON.stringify({ url: p.url, origUrl: p.origUrl }), true);
-        newPhotos.push({ id, caption: p.caption, date: new Date().toISOString() });
-      } catch (e) {
+      const uploaded = await window.fileStorage.upload('progress_' + id, p.url);
+      if (uploaded) {
+        newPhotos.push({ id, url: uploaded.url, origUrl: p.origUrl || null, caption: p.caption, date: new Date().toISOString() });
+      } else {
         showToast('Ek photo save nahi ho payi', true);
       }
     }
