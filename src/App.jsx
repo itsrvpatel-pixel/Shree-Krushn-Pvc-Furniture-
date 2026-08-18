@@ -356,6 +356,149 @@ function generateReceiptPdf(job, payment) {
   doc.save('Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf');
 }
 
+/* ---- Estimate PDF: builds the same content as QuotationPreview, but as
+   an actual downloadable/shareable PDF document rather than an on-screen
+   preview. Returns the jsPDF doc object itself (not saved/downloaded)
+   so callers can either trigger a download or convert it to a File for
+   navigator.share - sharing straight to WhatsApp with the PDF attached
+   is the whole point, and that only works with a real file, not a link
+   or plain text. ---- */
+function buildEstimatePdfDoc(job) {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  let y = 20;
+
+  doc.setFontSize(16);
+  doc.setFont(undefined, 'bold');
+  doc.text(BUSINESS.name, pageWidth / 2, y, { align: 'center' });
+  y += 7;
+  doc.setFontSize(10);
+  doc.setFont(undefined, 'normal');
+  doc.text(BUSINESS.addressLine, pageWidth / 2, y, { align: 'center' });
+  y += 5;
+  doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, pageWidth / 2, y, { align: 'center' });
+  y += 10;
+  doc.setLineWidth(0.5);
+  doc.line(15, y, pageWidth - 15, y);
+  y += 10;
+
+  doc.setFontSize(14);
+  doc.setFont(undefined, 'bold');
+  doc.text('ESTIMATE', pageWidth / 2, y, { align: 'center' });
+  y += 12;
+
+  doc.setFontSize(11);
+  doc.setFont(undefined, 'normal');
+  doc.text('Customer:', 15, y);
+  doc.text(job.customerName, 70, y);
+  y += 7;
+  if (job.phone) {
+    doc.text('Phone:', 15, y);
+    doc.text(formatPhoneDisplay(job.phone), 70, y);
+    y += 7;
+  }
+  if (job.materialCompany || job.sheetWeightKg) {
+    doc.text('Material:', 15, y);
+    doc.text([job.materialCompany, job.sheetWeightKg && (job.sheetWeightKg + ' kg')].filter(Boolean).join(' - '), 70, y);
+    y += 7;
+  }
+  y += 6;
+
+  doc.setFontSize(9);
+  doc.setFont(undefined, 'bold');
+  doc.text('#', 15, y);
+  doc.text('Item', 24, y);
+  doc.text('Sq Ft', 130, y);
+  doc.text('Rate', 155, y);
+  doc.text('Amount', pageWidth - 15, y, { align: 'right' });
+  y += 2;
+  doc.setLineWidth(0.2);
+  doc.line(15, y, pageWidth - 15, y);
+  y += 6;
+
+  doc.setFont(undefined, 'normal');
+  let srNo = 1;
+  (job.items || []).forEach((it) => {
+    if (y > 270) { doc.addPage(); y = 20; }
+    const sqft = estimateItemSqft(it);
+    doc.text(String(srNo), 15, y);
+    doc.text(it.desc.slice(0, 42), 24, y);
+    doc.text(sqft !== null ? sqft.toFixed(2) : String(it.qty || 1), 130, y);
+    doc.text('Rs.' + Number(it.rate || 0).toLocaleString('en-IN'), 155, y);
+    doc.text('Rs.' + Number(estimateItemAmount(it)).toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
+    y += 7;
+    srNo++;
+  });
+  (job.extraWork || []).filter((e) => e.status === 'approved').forEach((e) => {
+    if (y > 270) { doc.addPage(); y = 20; }
+    doc.text(String(srNo), 15, y);
+    doc.text((e.desc + ' (Extra Work)').slice(0, 42), 24, y);
+    doc.text('-', 130, y);
+    doc.text('-', 155, y);
+    doc.text('Rs.' + Number(e.amount || 0).toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
+    y += 7;
+    srNo++;
+  });
+
+  y += 4;
+  doc.setLineWidth(0.2);
+  doc.line(15, y, pageWidth - 15, y);
+  y += 10;
+
+  const discount = Number(job.discount) || 0;
+  if (discount > 0) {
+    const subtotal = (job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0) + (job.extraWork || []).filter((e) => e.status === 'approved').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    doc.setFontSize(10);
+    doc.text('Subtotal:', 130, y);
+    doc.text('Rs.' + subtotal.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
+    y += 7;
+    doc.text('Discount:', 130, y);
+    doc.text('- Rs.' + discount.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
+    y += 7;
+  }
+
+  doc.setFontSize(12);
+  doc.setFont(undefined, 'bold');
+  doc.text('Grand Total:', 130, y);
+  doc.text('Rs. ' + jobTotal(job).toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
+  y += 16;
+
+  doc.setFontSize(9);
+  doc.setFont(undefined, 'italic');
+  doc.text('Payment: 50% advance, 40% midway, 10% on completion.', pageWidth / 2, y, { align: 'center' });
+
+  return doc;
+}
+
+function downloadEstimatePdf(job) {
+  const doc = buildEstimatePdfDoc(job);
+  doc.save('Estimate-' + job.customerName.replace(/\s+/g, '-') + '.pdf');
+}
+
+// Shares the estimate PDF directly to WhatsApp (or any app the phone
+// offers) using the Web Share API with an actual file attached - this
+// is what lets "send on WhatsApp" mean the PDF shows up as a real
+// attachment in the chat, not just a text message. Falls back to a
+// plain download (with a toast explaining why) on desktop browsers or
+// older phones where file sharing isn't supported, since there's no
+// reliable way to hand a file to WhatsApp without it.
+async function shareEstimatePdf(job, showToast) {
+  const doc = buildEstimatePdfDoc(job);
+  const fileName = 'Estimate-' + job.customerName.replace(/\s+/g, '-') + '.pdf';
+  const blob = doc.output('blob');
+  const file = new File([blob], fileName, { type: 'application/pdf' });
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: 'Estimate - ' + job.customerName });
+      return;
+    } catch (e) {
+      // user cancelled the share sheet, or it failed - fall through to download
+    }
+  }
+  doc.save(fileName);
+  if (showToast) showToast('PDF download ho gaya - WhatsApp mein manually attach karein');
+}
+
 function whatsAppShareUrl(phoneDigits10, text) {
   const encoded = encodeURIComponent(text);
   if (phoneDigits10) return 'https://wa.me/91' + phoneDigits10 + '?text=' + encoded;
@@ -2947,7 +3090,10 @@ function EstimateView({ job, onSave, showToast }) {
 
       {((job.items || []).length > 0 || (job.extraWork || []).some((e) => e.status === 'approved')) && (
         <div style={{ marginTop: 18 }}>
-          <div style={styles.sectionTitle}>Estimate Details</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={styles.sectionTitle}>Estimate Details</div>
+            <button style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#25D366', color: '#FFF', border: 'none', borderRadius: 20, padding: '6px 11px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }} onClick={() => shareEstimatePdf(job, showToast)}><Send size={12} /> PDF WhatsApp</button>
+          </div>
           {(job.materialCompany || job.sheetWeightKg) && (
             <div style={styles.plainTextMuted}>
               Material: {job.materialCompany}{job.materialCompany && job.sheetWeightKg && ' - '}{job.sheetWeightKg && (job.sheetWeightKg + ' kg')}
@@ -4310,10 +4456,13 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
     <div>
       {(job.items || []).length === 0 && <AdminEstimateDraftsPanel job={job} onSave={onSave} showToast={showToast} />}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <div style={styles.fieldLabel}>Estimate items</div>
         {(job.items || []).length > 0 && (
-          <button style={styles.previewLinkBtn} onClick={() => setShowPreview(true)}><FileText size={12} /> Preview Quotation</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button style={styles.previewLinkBtn} onClick={() => setShowPreview(true)}><FileText size={12} /> Preview Quotation</button>
+            <button style={{ ...styles.previewLinkBtn, background: '#25D366' }} onClick={() => shareEstimatePdf(job, showToast)}><Send size={12} /> PDF WhatsApp</button>
+          </div>
         )}
       </div>
 
@@ -4391,6 +4540,37 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
       )}
 
       <div style={styles.totalBar}><span>Estimate Total</span><span style={styles.totalAmt}>{currency(total)}</span></div>
+
+      {(job.materialCompany || job.sheetWeightKg) && (
+        <div style={styles.plainTextMuted}>
+          Material: {[job.materialCompany, job.sheetWeightKg && (job.sheetWeightKg + ' kg')].filter(Boolean).join(' - ')}
+        </div>
+      )}
+
+      {/* Same payment summary the customer sees below their estimate
+          (total/paid/due + a receipt-downloadable history) - admin has
+          full payment management in the separate Payment tab, but seeing
+          this right here too means checking "kitna paid hai" doesn't
+          require switching tabs while reviewing the estimate itself. */}
+      {(job.payments || []).length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={styles.payStrip}>
+            <MoneyBit label='Total' value={currency(total)} />
+            <MoneyBit label='Paid' value={currency(jobPaid(job))} muted />
+            <MoneyBit label='Due' value={currency(jobDue(job))} highlight={jobDue(job) > 0} />
+          </div>
+          <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Payment History</div>
+          {job.payments.map((p) => (
+            <div key={p.id} style={styles.itemRow}>
+              <div style={{ flex: 1 }}>
+                <div style={styles.itemDesc}>{currency(p.amount)}</div>
+                <div style={styles.itemSub}>{formatDate(p.date)} {p.note && ('- ' + p.note)}</div>
+              </div>
+              <button style={styles.cardActionBtn} onClick={() => generateReceiptPdf(job, p)}><FileText size={13} /> Receipt</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {showPreview && <QuotationPreview job={job} onClose={() => setShowPreview(false)} />}
     </div>
