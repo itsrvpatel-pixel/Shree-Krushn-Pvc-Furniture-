@@ -375,28 +375,67 @@ function generateReceiptPdf(job, payment) {
    completely different drawing API.
    Splits into multiple PDF pages if the captured content is taller than
    one page - a full estimate with the complete Terms & Conditions
-   section is usually much longer than a single A4 page. */
+   section is usually much longer than a single A4 page.
+
+   Before capturing, temporarily removes the modal's mobile-screen width
+   cap (#quote-sheet-container has maxWidth:480 + overflow:hidden) and
+   the item table's horizontal scroll clipping (#quote-table-wrap has
+   overflowX:auto) - both exist so the table is USABLE on a phone
+   screen (swipe sideways to see Rate/Amount), but a screenshot has no
+   scrolling, so without lifting these first, html2canvas would only
+   capture whatever fit in the visible width at that moment and the
+   columns beyond it (Rate, Amount) would simply be missing from the
+   image - which is exactly the "side wala cut gaya" symptom. Restoring
+   both afterward (in a finally block, so it happens even if the capture
+   itself throws) puts the on-screen modal back to its normal scrollable
+   mobile layout once the screenshot is done. */
 async function buildEstimatePdfFromDom(elementId) {
   const element = document.getElementById(elementId);
   if (!element || !window.html2canvas) return null;
-  const canvas = await window.html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
-  const imgData = canvas.toDataURL('image/jpeg', 0.92);
-  const doc = new jsPDF('p', 'mm', 'a4');
-  const pdfWidth = doc.internal.pageSize.getWidth();
-  const pdfHeight = doc.internal.pageSize.getHeight();
-  const imgHeightMm = (canvas.height * pdfWidth) / canvas.width;
 
-  let heightLeft = imgHeightMm;
-  let position = 0;
-  doc.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeightMm);
-  heightLeft -= pdfHeight;
-  while (heightLeft > 0) {
-    position -= pdfHeight;
-    doc.addPage();
+  const sheetEl = document.getElementById('quote-sheet-container');
+  const tableWrapEl = document.getElementById('quote-table-wrap');
+  const prevSheetStyle = sheetEl ? { maxWidth: sheetEl.style.maxWidth, overflow: sheetEl.style.overflow, width: sheetEl.style.width } : null;
+  const prevTableWrapStyle = tableWrapEl ? { overflowX: tableWrapEl.style.overflowX } : null;
+
+  try {
+    if (sheetEl) {
+      sheetEl.style.maxWidth = 'none';
+      sheetEl.style.width = 'fit-content';
+      sheetEl.style.overflow = 'visible';
+    }
+    if (tableWrapEl) {
+      tableWrapEl.style.overflowX = 'visible';
+    }
+
+    const canvas = await window.html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+    const imgData = canvas.toDataURL('image/jpeg', 0.92);
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const pdfWidth = doc.internal.pageSize.getWidth();
+    const pdfHeight = doc.internal.pageSize.getHeight();
+    const imgHeightMm = (canvas.height * pdfWidth) / canvas.width;
+
+    let heightLeft = imgHeightMm;
+    let position = 0;
     doc.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeightMm);
     heightLeft -= pdfHeight;
+    while (heightLeft > 0) {
+      position -= pdfHeight;
+      doc.addPage();
+      doc.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeightMm);
+      heightLeft -= pdfHeight;
+    }
+    return doc;
+  } finally {
+    if (sheetEl && prevSheetStyle) {
+      sheetEl.style.maxWidth = prevSheetStyle.maxWidth;
+      sheetEl.style.width = prevSheetStyle.width;
+      sheetEl.style.overflow = prevSheetStyle.overflow;
+    }
+    if (tableWrapEl && prevTableWrapStyle) {
+      tableWrapEl.style.overflowX = prevTableWrapStyle.overflowX;
+    }
   }
-  return doc;
 }
 
 // Shares the estimate PDF (built from the real rendered document) directly
@@ -666,9 +705,15 @@ function BrochureList({ brochures, showToast, canManage, onDelete }) {
   const grouped = useMemo(() => {
     const g = {};
     (brochures || []).forEach((b) => {
-      const cat = b.category || 'Other';
-      if (!g[cat]) g[cat] = [];
-      g[cat].push(b);
+      // Grouped by company (e.g. "Shree Krushn" for the business's own
+      // catalog, or "Kaka"/other material brand names for their color-
+      // option catalogs) rather than item-category, since a catalog is
+      // fundamentally "whose colors/products are these", not "which
+      // furniture type" - that distinction belongs to the gallery, not
+      // brochures.
+      const co = b.company || 'Other';
+      if (!g[co]) g[co] = [];
+      g[co].push(b);
     });
     return g;
   }, [brochures]);
@@ -4721,7 +4766,7 @@ function QuotationPreview({ job, onClose, showToast }) {
       <style>
         {'@media print { body * { visibility: hidden; } #quotation-print-area, #quotation-print-area * { visibility: visible; } #quotation-print-area { position: absolute; left: 0; top: 0; width: 100%; } }'}
       </style>
-      <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
+      <div id='quote-sheet-container' style={styles.sheet} onClick={(e) => e.stopPropagation()}>
         <div style={styles.sheetHeader}>
           <div style={styles.sheetTitle}>Estimate & Invoice</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -4781,7 +4826,7 @@ function QuotationPreview({ job, onClose, showToast }) {
               </div>
             )}
 
-            <div style={styles.quoteTableWrap}>
+            <div id='quote-table-wrap' style={styles.quoteTableWrap}>
               <table style={styles.quoteTable}>
                 <thead>
                   <tr>
@@ -6483,8 +6528,8 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
           <FileText size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Product Brochures (PDF)</div>
         </div>
-        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Category-wise brochure PDFs upload karein - customer inhe Gallery se dekh sakega.</div>
-        <BrochureUploadPanel addBrochure={addBrochure} categories={categories} showToast={showToast} />
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Company-wise brochure PDFs upload karein - customer inhe Gallery se dekh sakega.</div>
+        <BrochureUploadPanel addBrochure={addBrochure} brochures={brochures} showToast={showToast} />
         <div style={{ marginTop: 12 }}>
           <BrochureList brochures={brochures} showToast={showToast} canManage={true} onDelete={removeBrochure} />
         </div>
@@ -6543,8 +6588,18 @@ function PartnerSettings({ staffName, onLogout }) {
    (several pages of product photos) often run 1-5MB, well past what a
    single Firestore document can hold - a scanned/compressed PDF, or one
    split into fewer pages, is needed to fit under this limit. ---- */
-function BrochureUploadPanel({ addBrochure, categories, showToast }) {
-  const [category, setCategory] = useState(categories[0]);
+function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
+  // Suggests previously-used company names as quick-tap chips (own
+  // business name, plus any material brand names already used for past
+  // catalogs) so re-adding another catalog for a company already on
+  // file doesn't require retyping it - but the field stays free text
+  // underneath, since a new material brand can come up anytime.
+  const knownCompanies = useMemo(() => {
+    const set = new Set([BUSINESS.name]);
+    (brochures || []).forEach((b) => { if (b.company) set.add(b.company); });
+    return Array.from(set);
+  }, [brochures]);
+  const [company, setCompany] = useState(BUSINESS.name);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = React.useRef(null);
 
@@ -6552,6 +6607,7 @@ function BrochureUploadPanel({ addBrochure, categories, showToast }) {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
+    if (!company.trim()) { showToast('Company ka naam likhein', true); return; }
     if (file.type !== 'application/pdf') { showToast('Sirf PDF file select karein', true); return; }
     setUploading(true);
     try {
@@ -6563,7 +6619,7 @@ function BrochureUploadPanel({ addBrochure, categories, showToast }) {
       }
       const nameLower = file.name.toLowerCase();
       const displayName = nameLower.endsWith('.pdf') ? file.name.slice(0, file.name.length - 4) : file.name;
-      const meta = { id: uid(), name: displayName, category, sizeKb: Math.round(sizeBytes / 1024) };
+      const meta = { id: uid(), name: displayName, company: company.trim(), sizeKb: Math.round(sizeBytes / 1024) };
       const ok = await addBrochure(meta, dataUri);
       if (ok) showToast('Brochure add ho gayi');
     } catch (e) {
@@ -6575,15 +6631,18 @@ function BrochureUploadPanel({ addBrochure, categories, showToast }) {
 
   return (
     <div>
-      <div style={styles.fieldLabel}>Category</div>
-      <div style={styles.chipRow}>
-        {categories.map((c) => (
-          <button key={c} onClick={() => setCategory(c)} style={{ ...styles.chip, ...(category === c ? styles.chipActive : {}) }}>{c}</button>
-        ))}
-      </div>
+      <div style={styles.fieldLabel}>Company</div>
+      {knownCompanies.length > 0 && (
+        <div style={styles.chipRow}>
+          {knownCompanies.map((c) => (
+            <button key={c} onClick={() => setCompany(c)} style={{ ...styles.chip, ...(company === c ? styles.chipActive : {}) }}>{c}</button>
+          ))}
+        </div>
+      )}
+      <input style={{ ...styles.input, marginTop: 8 }} placeholder='Company ka naam (jaise Kaka)' value={company} onChange={(e) => setCompany(e.target.value)} />
       <input ref={fileInputRef} type='file' accept='application/pdf' style={{ display: 'none' }} onChange={handleFilePicked} />
-      <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
-        <FileText size={14} /> {uploading ? 'Uploading...' : ('Upload PDF to ' + category)}
+      <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading || !company.trim()}>
+        <FileText size={14} /> {uploading ? 'Uploading...' : ('Upload PDF for ' + (company || '...'))}
       </button>
     </div>
   );
