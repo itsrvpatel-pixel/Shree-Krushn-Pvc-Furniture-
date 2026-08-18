@@ -363,233 +363,55 @@ function generateReceiptPdf(job, payment) {
   doc.save('Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf');
 }
 
-/* ---- Loads an image (like the business logo) from a URL and converts
-   it to a data URI via canvas, so jsPDF's addImage can embed it - jsPDF
-   can't load images from a URL directly, only from a data URI or raw
-   image data already in memory. Returns null on any failure (missing
-   file, CORS issue, etc.) so the PDF still generates normally without
-   the logo rather than the whole thing breaking over one image. ---- */
-function loadImageAsDataUrl(url) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        resolve(canvas.toDataURL('image/jpeg'));
-      } catch (e) {
-        resolve(null);
-      }
-    };
-    img.onerror = () => resolve(null);
-    img.src = url;
-  });
-}
-function hexToRgb(hex) {
-  const n = parseInt(hex.replace('#', ''), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-const PDF_NAVY = hexToRgb(BRAND.navy);
-const PDF_GOLD = hexToRgb(BRAND.gold);
+/* ---- Estimate PDF via screenshot: captures the ACTUAL rendered
+   #quotation-print-area DOM node (the same content QuotationPreview
+   shows on screen - logo, brand colors, Devanagari blessing line, exact
+   layout) using html2canvas, then places that image into a jsPDF
+   document. This is a true visual match because it's a picture of the
+   real, already-styled HTML, not a separate hand-drawn reconstruction
+   in jsPDF's own text/line-drawing commands - a plain text-based PDF
+   can never really match a CSS-styled page (fonts, background tints,
+   the logo) without duplicating the whole design a second time in a
+   completely different drawing API.
+   Splits into multiple PDF pages if the captured content is taller than
+   one page - a full estimate with the complete Terms & Conditions
+   section is usually much longer than a single A4 page. */
+async function buildEstimatePdfFromDom(elementId) {
+  const element = document.getElementById(elementId);
+  if (!element || !window.html2canvas) return null;
+  const canvas = await window.html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+  const imgData = canvas.toDataURL('image/jpeg', 0.92);
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const pdfWidth = doc.internal.pageSize.getWidth();
+  const pdfHeight = doc.internal.pageSize.getHeight();
+  const imgHeightMm = (canvas.height * pdfWidth) / canvas.width;
 
-/* ---- Estimate PDF: builds the same content as QuotationPreview, but as
-   an actual downloadable/shareable PDF document rather than an on-screen
-   preview. Returns the jsPDF doc object itself (not saved/downloaded)
-   so callers can either trigger a download or convert it to a File for
-   navigator.share - sharing straight to WhatsApp with the PDF attached
-   is the whole point, and that only works with a real file, not a link
-   or plain text.
-   Async because the business logo has to be fetched and converted to a
-   data URI before jsPDF can embed it (see loadImageAsDataUrl above) -
-   callers already await this. ---- */
-async function buildEstimatePdfDoc(job) {
-  const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  let y = 20;
-
-  const checkPageBreak = (neededSpace) => {
-    if (y + neededSpace > pageHeight - 15) { doc.addPage(); y = 20; }
-  };
-
-  const logoDataUrl = await loadImageAsDataUrl('/logo.jpeg');
-  if (logoDataUrl) {
-    try { doc.addImage(logoDataUrl, 'JPEG', 15, y - 4, 22, 22); } catch (e) { /* skip logo if embedding fails */ }
+  let heightLeft = imgHeightMm;
+  let position = 0;
+  doc.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeightMm);
+  heightLeft -= pdfHeight;
+  while (heightLeft > 0) {
+    position -= pdfHeight;
+    doc.addPage();
+    doc.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeightMm);
+    heightLeft -= pdfHeight;
   }
-  const textCenterX = logoDataUrl ? pageWidth / 2 + 10 : pageWidth / 2;
-
-  doc.setTextColor(...PDF_NAVY);
-  doc.setFontSize(16);
-  doc.setFont(undefined, 'bold');
-  doc.text(BUSINESS.name, textCenterX, y, { align: 'center' });
-  y += 6;
-  doc.setTextColor(...PDF_GOLD);
-  doc.setFontSize(9);
-  doc.setFont(undefined, 'normal');
-  doc.text('Estimate & Invoice', textCenterX, y, { align: 'center' });
-  y += 6;
-  doc.setTextColor(0, 0, 0);
-  doc.text('Mobile no. ' + BUSINESS.phone.replace('+91 ', '') + ' / ' + BUSINESS.altPhone.replace('+91 ', '') + '. ' + BUSINESS.website, textCenterX, y, { align: 'center' });
-  y += 8;
-  doc.setDrawColor(...PDF_GOLD);
-  doc.setLineWidth(0.5);
-  doc.line(15, y, pageWidth - 15, y);
-  doc.setDrawColor(0, 0, 0);
-  y += 10;
-
-  doc.setFontSize(11);
-  doc.setFont(undefined, 'bold');
-  doc.text('Contact Name', 15, y);
-  doc.text('Date', pageWidth - 15, y, { align: 'right' });
-  y += 6;
-  doc.setFont(undefined, 'normal');
-  doc.text(job.customerName, 15, y);
-  doc.text(formatDate(new Date().toISOString()), pageWidth - 15, y, { align: 'right' });
-  y += 6;
-  if (job.phone) {
-    doc.text(formatPhoneDisplay(job.phone) || job.phone, 15, y);
-    y += 6;
-  }
-  if (job.address) {
-    doc.text('Address: ' + job.address, 15, y);
-    y += 6;
-  }
-  if (job.materialCompany || job.sheetWeightKg) {
-    doc.text('Material: ' + [job.materialCompany, job.sheetWeightKg && (job.sheetWeightKg + ' kg sheet')].filter(Boolean).join(' - '), 15, y);
-    y += 6;
-  }
-  y += 4;
-
-  // Table columns: Sr No / Item / Length / Height / Sq Ft / Rate / Amount
-  // - the same seven columns the on-screen QuotationPreview shows, so the
-  // PDF matches what the customer/admin already sees in the app rather
-  // than a shortened version.
-  doc.setFontSize(8.5);
-  doc.setFont(undefined, 'bold');
-  doc.text('#', 16, y);
-  doc.text('Item & Description', 22, y);
-  doc.text('Length', 108, y);
-  doc.text('Height', 126, y);
-  doc.text('Sq Ft', 144, y);
-  doc.text('Rate', 160, y);
-  doc.text('Amount', pageWidth - 15, y, { align: 'right' });
-  y += 2;
-  doc.setLineWidth(0.2);
-  doc.line(15, y, pageWidth - 15, y);
-  y += 6;
-
-  doc.setFont(undefined, 'normal');
-  let srNo = 1;
-  (job.items || []).forEach((it) => {
-    checkPageBreak(8);
-    const sqft = estimateItemSqft(it);
-    doc.text(String(srNo), 16, y);
-    doc.text(it.desc.slice(0, 38), 22, y);
-    doc.text(sqft !== null ? String(it.length) : '-', 108, y);
-    doc.text(sqft !== null ? String(it.height) : '-', 126, y);
-    doc.text(sqft !== null ? sqft.toFixed(2) : String(it.qty || 1), 144, y);
-    doc.text(currencyPlain(it.rate), 160, y);
-    doc.text(currencyPlain(estimateItemAmount(it)), pageWidth - 15, y, { align: 'right' });
-    y += 7;
-    srNo++;
-  });
-  (job.extraWork || []).filter((e) => e.status === 'approved').forEach((e) => {
-    checkPageBreak(8);
-    doc.text(String(srNo), 16, y);
-    doc.text((e.desc + ' (Extra Work)').slice(0, 38), 22, y);
-    doc.text('-', 108, y);
-    doc.text('-', 126, y);
-    doc.text('-', 144, y);
-    doc.text('-', 160, y);
-    doc.text(currencyPlain(e.amount), pageWidth - 15, y, { align: 'right' });
-    y += 7;
-    srNo++;
-  });
-
-  y += 4;
-  doc.setLineWidth(0.2);
-  doc.line(15, y, pageWidth - 15, y);
-  y += 9;
-
-  const discount = Number(job.discount) || 0;
-  if (discount > 0) {
-    checkPageBreak(16);
-    const subtotal = (job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0) + (job.extraWork || []).filter((e) => e.status === 'approved').reduce((s, e) => s + (Number(e.amount) || 0), 0);
-    doc.setFontSize(10);
-    doc.text('Subtotal', 130, y);
-    doc.text(currencyPlain(subtotal), pageWidth - 15, y, { align: 'right' });
-    y += 7;
-    doc.text('Discount', 130, y);
-    doc.text('- ' + currencyPlain(discount), pageWidth - 15, y, { align: 'right' });
-    y += 7;
-  }
-
-  checkPageBreak(12);
-  doc.setTextColor(...PDF_NAVY);
-  doc.setFontSize(12);
-  doc.setFont(undefined, 'bold');
-  doc.text('Grand Total', 130, y);
-  doc.text(currencyPlain(jobTotal(job)), pageWidth - 15, y, { align: 'right' });
-  doc.setTextColor(0, 0, 0);
-  y += 14;
-
-  // Terms & Conditions - the same sections shown in QuotationPreview, so
-  // the shared PDF carries the full payment/material/warranty terms
-  // rather than just the item breakdown.
-  checkPageBreak(10);
-  doc.setTextColor(...PDF_NAVY);
-  doc.setFontSize(11);
-  doc.setFont(undefined, 'bold');
-  doc.text('Terms & Conditions & Details', 15, y);
-  doc.setTextColor(0, 0, 0);
-  y += 8;
-  ESTIMATE_TERMS.forEach((section, i) => {
-    checkPageBreak(8);
-    doc.setFontSize(9.5);
-    doc.setFont(undefined, 'bold');
-    doc.text((i + 1) + '. ' + section.title, 15, y);
-    y += 5.5;
-    doc.setFont(undefined, 'normal');
-    doc.setFontSize(8.5);
-    section.points.forEach((point) => {
-      checkPageBreak(10);
-      const lines = doc.splitTextToSize('* ' + point, pageWidth - 34);
-      lines.forEach((line) => {
-        checkPageBreak(6);
-        doc.text(line, 19, y);
-        y += 4.5;
-      });
-    });
-    y += 2;
-  });
-
-  checkPageBreak(10);
-  y += 4;
-  doc.setFontSize(9);
-  doc.setFont(undefined, 'italic');
-  doc.text('Thank you for choosing ' + BUSINESS.name, pageWidth / 2, y, { align: 'center' });
-
   return doc;
 }
 
-async function downloadEstimatePdf(job) {
-  const doc = await buildEstimatePdfDoc(job);
-  doc.save('Estimate-' + job.customerName.replace(/\s+/g, '-') + '.pdf');
-}
-
-// Shares the estimate PDF directly to WhatsApp (or any app the phone
-// offers) using the Web Share API with an actual file attached - this
-// is what lets "send on WhatsApp" mean the PDF shows up as a real
-// attachment in the chat, not just a text message. Falls back to a
-// plain download (with a toast explaining why) on desktop browsers or
-// older phones where file sharing isn't supported, since there's no
-// reliable way to hand a file to WhatsApp without it.
-async function shareEstimatePdf(job, showToast) {
-  const doc = await buildEstimatePdfDoc(job);
+// Shares the estimate PDF (built from the real rendered document) directly
+// to WhatsApp using the Web Share API with an actual file attached -
+// this is what lets "send on WhatsApp" mean the PDF shows up as a real
+// attachment in the chat. Falls back to a plain download (with a toast
+// explaining why) on desktop browsers or older phones where file
+// sharing isn't supported, since there's no reliable way to hand a file
+// to WhatsApp without it.
+async function shareEstimatePdf(job, elementId, showToast) {
+  const doc = await buildEstimatePdfFromDom(elementId);
+  if (!doc) {
+    if (showToast) showToast('PDF banane mein dikkat aayi, dobara try karein', true);
+    return;
+  }
   const fileName = 'Estimate-' + job.customerName.replace(/\s+/g, '-') + '.pdf';
   const blob = doc.output('blob');
   const file = new File([blob], fileName, { type: 'application/pdf' });
@@ -604,6 +426,7 @@ async function shareEstimatePdf(job, showToast) {
   doc.save(fileName);
   if (showToast) showToast('PDF download ho gaya - WhatsApp mein manually attach karein');
 }
+
 
 function whatsAppShareUrl(phoneDigits10, text) {
   const encoded = encodeURIComponent(text);
@@ -3198,7 +3021,7 @@ function EstimateView({ job, onSave, showToast }) {
         <div style={{ marginTop: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={styles.sectionTitle}>Estimate Details</div>
-            <button style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#25D366', color: '#FFF', border: 'none', borderRadius: 20, padding: '6px 11px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }} onClick={() => shareEstimatePdf(job, showToast)}><Send size={12} /> PDF WhatsApp</button>
+            <button style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#25D366', color: '#FFF', border: 'none', borderRadius: 20, padding: '6px 11px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }} onClick={() => { setShowQuote(true); setTimeout(() => shareEstimatePdf(job, 'quotation-print-area', showToast), 350); }}><Send size={12} /> PDF WhatsApp</button>
           </div>
           {(job.materialCompany || job.sheetWeightKg) && (
             <div style={styles.plainTextMuted}>
@@ -3303,7 +3126,7 @@ function EstimateView({ job, onSave, showToast }) {
           )}
         </div>
       )}
-      {showQuote && <QuotationPreview job={job} onClose={() => setShowQuote(false)} />}
+      {showQuote && <QuotationPreview job={job} onClose={() => setShowQuote(false)} showToast={showToast} />}
     </>
   );
 }
@@ -3575,11 +3398,12 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
         showToast('Ek photo save nahi ho payi: ' + (uploaded?.error || 'unknown error'), true);
       }
     }
-    if (newPhotos.length === 0) return;
+    if (newPhotos.length === 0) return false;
     let next = { ...job, progressPhotos: [...(job.progressPhotos || []), ...newPhotos] };
     next = logActivity(next, newPhotos.length + ' progress photo' + (newPhotos.length !== 1 ? 's' : '') + ' added by ' + staffName);
-    onSaveJob(next);
-    showToast(newPhotos.length + ' photo' + (newPhotos.length !== 1 ? 's' : '') + ' add ho gayi');
+    const ok = await onSaveJob(next);
+    if (ok) showToast(newPhotos.length + ' photo' + (newPhotos.length !== 1 ? 's' : '') + ' add ho gayi');
+    return ok;
   };
   const removePhoto = (job, photoId) => {
     onSaveJob({ ...job, progressPhotos: (job.progressPhotos || []).filter((p) => p.id !== photoId) });
@@ -4567,7 +4391,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
         {(job.items || []).length > 0 && (
           <div style={{ display: 'flex', gap: 8 }}>
             <button style={styles.previewLinkBtn} onClick={() => setShowPreview(true)}><FileText size={12} /> Preview Quotation</button>
-            <button style={{ ...styles.previewLinkBtn, background: '#25D366' }} onClick={() => shareEstimatePdf(job, showToast)}><Send size={12} /> PDF WhatsApp</button>
+            <button style={{ ...styles.previewLinkBtn, background: '#25D366' }} onClick={() => { setShowPreview(true); setTimeout(() => shareEstimatePdf(job, 'quotation-print-area', showToast), 350); }}><Send size={12} /> PDF WhatsApp</button>
           </div>
         )}
       </div>
@@ -4678,7 +4502,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
         </div>
       )}
 
-      {showPreview && <QuotationPreview job={job} onClose={() => setShowPreview(false)} />}
+      {showPreview && <QuotationPreview job={job} onClose={() => setShowPreview(false)} showToast={showToast} />}
     </div>
   );
 }
@@ -4880,7 +4704,7 @@ function EstimateItemEditRow({ item, onSave, onCancel }) {
    sheet: header, customer info, item table with sq-ft calc, grand total,
    and the standard terms & conditions block. Visible to both admin
    (preview) and customer (their own job's estimate). ---- */
-function QuotationPreview({ job, onClose }) {
+function QuotationPreview({ job, onClose, showToast }) {
   const total = jobTotal(job);
   const waText = buildEstimateWhatsAppText(job);
   const waUrl = whatsAppShareUrl(job.phone, waText);
@@ -4900,9 +4724,15 @@ function QuotationPreview({ job, onClose }) {
       <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
         <div style={styles.sheetHeader}>
           <div style={styles.sheetTitle}>Estimate & Invoice</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {/* Screenshots this exact document (logo, colors, everything)
+                and attaches it as a real PDF file to WhatsApp's share
+                sheet - unlike the plain-text WhatsApp button beside it. */}
+            <button style={{ ...styles.waShareBtn, border: 'none', cursor: 'pointer' }} onClick={() => shareEstimatePdf(job, 'quotation-print-area', showToast)}>
+              <Send size={13} /> PDF WhatsApp
+            </button>
             <a href={waUrl} target='_blank' rel='noopener noreferrer' style={styles.waShareBtn}>
-              <Send size={13} /> WhatsApp
+              <Send size={13} /> Text
             </a>
             <button style={styles.pdfDownloadBtn} onClick={() => window.print()}>
               <Download size={13} /> PDF
@@ -5193,11 +5023,12 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
         showToast('Ek photo save nahi ho payi: ' + (uploaded?.error || 'unknown error'), true);
       }
     }
-    if (newPhotos.length === 0) return;
+    if (newPhotos.length === 0) return false;
     let next = { ...job, progressPhotos: [...(job.progressPhotos || []), ...newPhotos] };
     next = logActivity(next, newPhotos.length + ' new progress photo' + (newPhotos.length !== 1 ? 's' : '') + ' added');
-    onSave(next);
-    showToast(newPhotos.length + ' progress photo' + (newPhotos.length !== 1 ? 's' : '') + ' added');
+    const ok = await onSave(next);
+    if (ok) showToast(newPhotos.length + ' progress photo' + (newPhotos.length !== 1 ? 's' : '') + ' added');
+    return ok;
   };
   const removePhoto = (id) => onSave({ ...job, progressPhotos: job.progressPhotos.filter((p) => p.id !== id) });
 
@@ -5680,7 +5511,7 @@ function PhotoAddPanel({ onAdd, addLabel, showToast }) {
 
   const removePending = (idx) => setPendingUploads((prev) => prev.filter((_, i) => i !== idx));
 
-  const confirmUploads = () => {
+  const confirmUploads = async () => {
     if (pendingUploads.length === 0) return;
     // A single shared caption applies to every photo in this batch -
     // captions can still be edited individually afterward from the
@@ -5695,10 +5526,24 @@ function PhotoAddPanel({ onAdd, addLabel, showToast }) {
     // the same stale "before" snapshot and only the last one survives.
     // A single call with an array lets the caller add all N photos to
     // one fresh snapshot in one state update.
-    onAdd(pendingUploads.map((p) => ({ url: p.dataUri, origUrl: null, caption: caption.trim() })));
-    showToast(pendingUploads.length + ' photo' + (pendingUploads.length !== 1 ? 's' : '') + ' add ho gayi');
-    setPendingUploads([]);
-    setCaption('');
+    //
+    // Awaiting onAdd (and only clearing the staged photos / showing
+    // success once it genuinely resolves true) is what fixes uploads
+    // "disappearing" - previously this cleared pendingUploads and showed
+    // success immediately, before the actual Firebase Storage upload had
+    // even finished, so a failed upload still made the staged photos
+    // vanish from the screen and told the user it worked, even though
+    // it hadn't. onAdd's own success/failure toast (from
+    // addPhotosFromPanel/persistGallery) already covers the outcome, so
+    // this only adds its own toast on success to avoid a duplicate.
+    const ok = await onAdd(pendingUploads.map((p) => ({ url: p.dataUri, origUrl: null, caption: caption.trim() })));
+    if (ok !== false) {
+      setPendingUploads([]);
+      setCaption('');
+    }
+    // If it failed (ok === false), the staged photos and caption stay
+    // exactly as they were so the user can just tap the button again to
+    // retry, instead of having to re-pick every photo from scratch.
   };
 
   const addFromLink = () => {
@@ -5810,6 +5655,7 @@ function AdminGallery({ gallery, setGallery, categories, setCategories, showToas
     }
     // If it failed, persistGallery already showed its own error toast
     // and rolled the local state back - nothing further to say here.
+    return ok;
   };
 
   const addBulk = async () => {
