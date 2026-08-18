@@ -702,21 +702,25 @@ function openOrDownloadPdf(url, filename) {
 
 function BrochureList({ brochures, showToast, canManage, onDelete }) {
   const [loadingId, setLoadingId] = useState(null);
-  const grouped = useMemo(() => {
+
+  // Two distinct kinds of PDF, shown as two distinct sections rather
+  // than mixed into one list: the business's own "About Us" / PVC
+  // furniture benefits document (docType 'profile' - normally just one
+  // file, so it's shown as a single featured card, not a grouped list),
+  // and laminate/material color catalogs from various supplier
+  // companies (docType 'catalog', grouped by company like before) -
+  // customer taps a company name to see just that company's colors.
+  const profileDocs = (brochures || []).filter((b) => b.docType === 'profile');
+  const catalogDocs = (brochures || []).filter((b) => b.docType !== 'profile');
+  const groupedCatalogs = useMemo(() => {
     const g = {};
-    (brochures || []).forEach((b) => {
-      // Grouped by company (e.g. "Shree Krushn" for the business's own
-      // catalog, or "Kaka"/other material brand names for their color-
-      // option catalogs) rather than item-category, since a catalog is
-      // fundamentally "whose colors/products are these", not "which
-      // furniture type" - that distinction belongs to the gallery, not
-      // brochures.
+    catalogDocs.forEach((b) => {
       const co = b.company || 'Other';
       if (!g[co]) g[co] = [];
       g[co].push(b);
     });
     return g;
-  }, [brochures]);
+  }, [catalogDocs]);
 
   const openBrochure = (b) => {
     if (!b.url) { showToast(b.name + ' ka link missing hai - purani entry ho sakti hai, dobara upload karein', true); return; }
@@ -726,36 +730,48 @@ function BrochureList({ brochures, showToast, canManage, onDelete }) {
     setLoadingId(null);
   };
 
+  const BrochureRow = ({ b }) => (
+    <div style={styles.brochureRow}>
+      <div style={styles.brochureIcon}><FileText size={16} color={BRAND.gold} /></div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={styles.itemDesc}>{b.name}</div>
+        <div style={styles.itemSub}>
+          {b.sizeKb ? (b.sizeKb + ' KB') : ''}
+          {!b.url && <span style={{ color: '#C62828', fontWeight: 700 }}> - Link missing, dobara upload karein</span>}
+        </div>
+      </div>
+      <button style={styles.brochureOpenBtn} onClick={() => openBrochure(b)} disabled={loadingId === b.id}>
+        {loadingId === b.id ? '...' : <Download size={13} />}
+      </button>
+      {canManage && (
+        <button style={styles.iconBtnSmall} onClick={() => onDelete(b.id)}><Trash2 size={14} color='#C7CCDC' /></button>
+      )}
+    </div>
+  );
+
   if (!brochures || brochures.length === 0) {
     return <div style={styles.emptySmall}>Abhi koi brochure upload nahi hui.</div>;
   }
 
   return (
     <div>
-      {Object.entries(grouped).map(([cat, list]) => (
-        <div key={cat} style={{ marginBottom: 14 }}>
-          <div style={styles.reqGroupHeader}>{cat}</div>
-          {list.map((b) => (
-            <div key={b.id} style={styles.brochureRow}>
-              <div style={styles.brochureIcon}><FileText size={16} color={BRAND.gold} /></div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={styles.itemDesc}>{b.name}</div>
-
-                <div style={styles.itemSub}>
-                  {b.sizeKb ? (b.sizeKb + ' KB') : ''}
-                  {!b.url && <span style={{ color: '#C62828', fontWeight: 700 }}> - Link missing, dobara upload karein</span>}
-                </div>
-              </div>
-              <button style={styles.brochureOpenBtn} onClick={() => openBrochure(b)} disabled={loadingId === b.id}>
-                {loadingId === b.id ? '...' : <Download size={13} />}
-              </button>
-              {canManage && (
-                <button style={styles.iconBtnSmall} onClick={() => onDelete(b.id)}><Trash2 size={14} color='#C7CCDC' /></button>
-              )}
+      {profileDocs.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={styles.reqGroupHeader}>Company Details</div>
+          {profileDocs.map((b) => <BrochureRow key={b.id} b={b} />)}
+        </div>
+      )}
+      {Object.keys(groupedCatalogs).length > 0 && (
+        <div>
+          <div style={styles.reqGroupHeader}>Laminate & Material Colors</div>
+          {Object.entries(groupedCatalogs).map(([company, list]) => (
+            <div key={company} style={{ marginBottom: 14, marginTop: 8 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: BRAND.gold, marginBottom: 4 }}>{company}</div>
+              {list.map((b) => <BrochureRow key={b.id} b={b} />)}
             </div>
           ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }
@@ -6528,7 +6544,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
           <FileText size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Product Brochures (PDF)</div>
         </div>
-        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Company-wise brochure PDFs upload karein - customer inhe Gallery se dekh sakega.</div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Apni company details ka PDF, ya alag-alag laminate companies ke color catalog PDFs upload karein - customer inhe Gallery se dekh sakega.</div>
         <BrochureUploadPanel addBrochure={addBrochure} brochures={brochures} showToast={showToast} />
         <div style={{ marginTop: 12 }}>
           <BrochureList brochures={brochures} showToast={showToast} canManage={true} onDelete={removeBrochure} />
@@ -6589,17 +6605,19 @@ function PartnerSettings({ staffName, onLogout }) {
    single Firestore document can hold - a scanned/compressed PDF, or one
    split into fewer pages, is needed to fit under this limit. ---- */
 function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
-  // Suggests previously-used company names as quick-tap chips (own
-  // business name, plus any material brand names already used for past
-  // catalogs) so re-adding another catalog for a company already on
-  // file doesn't require retyping it - but the field stays free text
-  // underneath, since a new material brand can come up anytime.
+  // Two kinds of PDF: our own "Company Details" document (PVC furniture
+  // benefits, business info - always tagged to the business's own name,
+  // no separate company field needed), or a "Laminate Catalog" from a
+  // material supplier (needs a company name, since there are several -
+  // Kaka and others). Picking one up front decides which fields show
+  // next and how the saved PDF gets grouped in BrochureList.
+  const [docType, setDocType] = useState('catalog');
   const knownCompanies = useMemo(() => {
-    const set = new Set([BUSINESS.name]);
-    (brochures || []).forEach((b) => { if (b.company) set.add(b.company); });
+    const set = new Set();
+    (brochures || []).forEach((b) => { if (b.docType !== 'profile' && b.company) set.add(b.company); });
     return Array.from(set);
   }, [brochures]);
-  const [company, setCompany] = useState(BUSINESS.name);
+  const [company, setCompany] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = React.useRef(null);
 
@@ -6607,7 +6625,7 @@ function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
-    if (!company.trim()) { showToast('Company ka naam likhein', true); return; }
+    if (docType === 'catalog' && !company.trim()) { showToast('Company ka naam likhein', true); return; }
     if (file.type !== 'application/pdf') { showToast('Sirf PDF file select karein', true); return; }
     setUploading(true);
     try {
@@ -6619,30 +6637,47 @@ function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
       }
       const nameLower = file.name.toLowerCase();
       const displayName = nameLower.endsWith('.pdf') ? file.name.slice(0, file.name.length - 4) : file.name;
-      const meta = { id: uid(), name: displayName, company: company.trim(), sizeKb: Math.round(sizeBytes / 1024) };
+      const meta = {
+        id: uid(),
+        name: displayName,
+        docType,
+        company: docType === 'profile' ? BUSINESS.name : company.trim(),
+        sizeKb: Math.round(sizeBytes / 1024),
+      };
       const ok = await addBrochure(meta, dataUri);
-      if (ok) showToast('Brochure add ho gayi');
+      if (ok) showToast('PDF add ho gayi');
     } catch (e) {
-      showToast('Brochure upload nahi ho payi', true);
+      showToast('PDF upload nahi ho payi', true);
     } finally {
       setUploading(false);
     }
   };
 
+  const canUpload = docType === 'profile' || company.trim();
+
   return (
     <div>
-      <div style={styles.fieldLabel}>Company</div>
-      {knownCompanies.length > 0 && (
-        <div style={styles.chipRow}>
-          {knownCompanies.map((c) => (
-            <button key={c} onClick={() => setCompany(c)} style={{ ...styles.chip, ...(company === c ? styles.chipActive : {}) }}>{c}</button>
-          ))}
-        </div>
+      <div style={styles.fieldLabel}>PDF Kis Type Ki Hai</div>
+      <div style={styles.chipRow}>
+        <button onClick={() => setDocType('profile')} style={{ ...styles.chip, ...(docType === 'profile' ? styles.chipActive : {}) }}>Company Details</button>
+        <button onClick={() => setDocType('catalog')} style={{ ...styles.chip, ...(docType === 'catalog' ? styles.chipActive : {}) }}>Laminate Catalog</button>
+      </div>
+      {docType === 'catalog' && (
+        <>
+          <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Company</div>
+          {knownCompanies.length > 0 && (
+            <div style={styles.chipRow}>
+              {knownCompanies.map((c) => (
+                <button key={c} onClick={() => setCompany(c)} style={{ ...styles.chip, ...(company === c ? styles.chipActive : {}) }}>{c}</button>
+              ))}
+            </div>
+          )}
+          <input style={{ ...styles.input, marginTop: 8 }} placeholder='Company ka naam (jaise Kaka)' value={company} onChange={(e) => setCompany(e.target.value)} />
+        </>
       )}
-      <input style={{ ...styles.input, marginTop: 8 }} placeholder='Company ka naam (jaise Kaka)' value={company} onChange={(e) => setCompany(e.target.value)} />
       <input ref={fileInputRef} type='file' accept='application/pdf' style={{ display: 'none' }} onChange={handleFilePicked} />
-      <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading || !company.trim()}>
-        <FileText size={14} /> {uploading ? 'Uploading...' : ('Upload PDF for ' + (company || '...'))}
+      <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading || !canUpload}>
+        <FileText size={14} /> {uploading ? 'Uploading...' : (docType === 'profile' ? 'Upload Company Details PDF' : 'Upload PDF for ' + (company || '...'))}
       </button>
     </div>
   );
