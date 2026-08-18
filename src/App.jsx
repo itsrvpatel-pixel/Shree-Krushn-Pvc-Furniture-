@@ -895,7 +895,7 @@ export default function App() {
         const [galleryCatList, j, br, cats, aio] = await Promise.all([
           safeGet('gallery_categories'), safeGet('jobs'), safeGet('brochures'), safeGet('categories'), safeGet('appointment_item_options'),
         ]);
-        if (galleryCatList && Date.now() - lastLocalGalleryWriteRef.current > 8000) {
+        if (galleryCatList && !galleryWriteInFlightRef.current) {
           const galleryCategories = JSON.parse(galleryCatList);
           const galleryEntries = await Promise.all(
             galleryCategories.map(async (cat) => [cat, await safeGet('gallery_cat_' + cat)])
@@ -906,15 +906,15 @@ export default function App() {
           }
           setGallery(galleryObj);
         }
-        // Skip applying this poll's jobs result if a local write (delete,
-        // edit, approval, etc.) happened within the last 5 seconds - see
-        // lastLocalJobsWriteRef above. That write's own Firestore call may
-        // not have propagated yet, so this poll's fetch could still be
+        // Skip applying this poll's jobs result while a local write
+        // (delete, edit, approval, photo add, etc.) is still in flight -
+        // see jobsWriteInFlightRef above. That write's own Firestore call
+        // may not have landed yet, so this poll's fetch could still be
         // reading the pre-write data; applying it now would silently
-        // revert the local change. The next poll 20s later will have
-        // given the write plenty of time to settle and correctly reflect
-        // it (or any other changes made elsewhere in the meantime).
-        if (j && Date.now() - lastLocalJobsWriteRef.current > 8000) {
+        // revert the local change. Once the in-flight write finishes,
+        // the very next poll will correctly reflect it (or any other
+        // changes made elsewhere in the meantime).
+        if (j && !jobsWriteInFlightRef.current) {
           setJobs(JSON.parse(j));
         }
         if (br) setBrochures(JSON.parse(br));
@@ -1080,9 +1080,22 @@ export default function App() {
   // against the previous gallery state) - editing one photo in
   // "Kitchen" no longer means rewriting "Wardrobe", "TV Unit", and
   // every other untouched category's document too.
-  const lastLocalGalleryWriteRef = useRef(0);
+  // A boolean "is a write currently happening" flag, not a timestamp -
+  // this is what actually fixes photos "disappearing a couple seconds
+  // after being added" for larger batches: uploading many photos to
+  // Firebase Storage (even with the concurrency limit above) can easily
+  // take longer than a fixed few-second grace window, so a TIME-based
+  // guard ("skip the poll if a write happened in the last 8s") would
+  // expire mid-upload - the background poll would then apply its
+  // fetched data (which still doesn't have the new photos, since the
+  // real Firestore write hasn't landed yet) right on top of the
+  // in-progress optimistic update, wiping it out. Tracking "is a write
+  // in flight" instead means the poll correctly waits for the ENTIRE
+  // upload+save to finish - however long that takes - before it's ever
+  // allowed to overwrite gallery state, regardless of batch size.
+  const galleryWriteInFlightRef = useRef(false);
   const persistGallery = useCallback(async (next) => {
-    lastLocalGalleryWriteRef.current = Date.now();
+    galleryWriteInFlightRef.current = true;
     const prevGallery = gallery;
     setGallery(next);
     try {
@@ -1121,6 +1134,8 @@ export default function App() {
       setGallery(prevGallery);
       showToast('Save failed: ' + (e.message || 'internet check karein aur dobara try karein'), true);
       return false;
+    } finally {
+      galleryWriteInFlightRef.current = false;
     }
   }, [gallery]);
   const persistCustomers = useCallback(async (next) => {
@@ -1138,7 +1153,13 @@ export default function App() {
   // extra-work item "come back a little while later": the delete
   // happened locally instantly, but the poll raced the Firestore write
   // and won, silently reverting it.
-  const lastLocalJobsWriteRef = useRef(0);
+  // Boolean "write in flight" flag rather than a timestamp - same fix
+  // as galleryWriteInFlightRef above, applied here for the same class
+  // of protection: this write itself is normally fast (a single
+  // Firestore document), but any slow network moment could still let
+  // it run past a fixed time window, and a boolean guard removes that
+  // possibility entirely regardless of how long a save takes.
+  const jobsWriteInFlightRef = useRef(false);
   // Returns true/false so callers can tell whether the save genuinely
   // landed before announcing success of their own - see persistGallery's
   // matching comment for why this matters (a caller showing success
@@ -1147,7 +1168,7 @@ export default function App() {
   // regardless, so without checking this, a failed write is invisible
   // until a later background poll replaces it with the real data).
   const persistJobs = useCallback(async (next) => {
-    lastLocalJobsWriteRef.current = Date.now();
+    jobsWriteInFlightRef.current = true;
     setJobs(next);
     try {
       await window.storage.set('jobs', JSON.stringify(next), true);
@@ -1155,6 +1176,8 @@ export default function App() {
     } catch (e) {
       showToast('Save failed', true);
       return false;
+    } finally {
+      jobsWriteInFlightRef.current = false;
     }
   }, []);
   const persistPin = useCallback(async (pin) => {
@@ -5685,25 +5708,10 @@ function PhotoAddPanel({ onAdd, addLabel, showToast }) {
     if (imageFiles.length < files.length) {
       showToast((files.length - imageFiles.length) + ' file(s) skip ki gayi (image nahi thi)', true);
     }
-    // A large batch (50+) selected all at once can crash the tab on a
-    // budget phone before compression even starts: the browser has to
-    // hold every full-resolution image in memory simultaneously just to
-    // read them, and low-RAM Android devices often kill a tab outright
-    // under that pressure rather than throwing a catchable JS error -
-    // which is exactly why this looked like "photos vanish with no
-    // error" instead of a normal failure. Capping how many get
-    // processed per pick, and pointing out that the rest are still
-    // sitting in the picker for a follow-up batch, keeps peak memory
-    // bounded regardless of how many the user actually selected.
-    const MAX_BATCH = 20;
-    const toProcess = imageFiles.slice(0, MAX_BATCH);
-    if (imageFiles.length > MAX_BATCH) {
-      showToast('Ek baar mein zyada se zyada ' + MAX_BATCH + ' photos process hoti hain - pehli ' + MAX_BATCH + ' le raha hoon, baaki dobara select karein', true);
-    }
     setUploading(true);
-    setUploadProgress({ done: 0, total: toProcess.length });
+    setUploadProgress({ done: 0, total: imageFiles.length });
     const results = [];
-    for (const file of toProcess) {
+    for (const file of imageFiles) {
       try {
         const dataUri = await prepareImageForUpload(file);
         const sizeBytes = dataUriByteSize(dataUri);
@@ -5715,7 +5723,7 @@ function PhotoAddPanel({ onAdd, addLabel, showToast }) {
       } catch (err) {
         showToast("'" + file.name + "' process nahi ho payi, skip ki gayi", true);
       }
-      setUploadProgress((p) => ({ done: (p ? p.done : 0) + 1, total: toProcess.length }));
+      setUploadProgress((p) => ({ done: (p ? p.done : 0) + 1, total: imageFiles.length }));
       // A brief yield between photos gives the browser a chance to run
       // garbage collection and other housekeeping between each heavy
       // decode/compress step, rather than one unbroken synchronous-ish
