@@ -69,6 +69,25 @@ function saveStoredSession(session) {
 }
 const DEFAULT_PIN = '2580';
 
+// Runs an async map over `items`, but never more than `limit` calls in
+// flight at once - used for batches of Firebase Storage uploads, so a
+// large photo batch doesn't fire dozens of simultaneous network
+// requests (which can time out, get throttled, or on a weak mobile
+// connection simply never all complete) the way Promise.all over the
+// whole array would. Preserves the original order in the results.
+async function mapWithConcurrencyLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 function currency(n) {
   const v = Number(n) || 0;
   return '₹' + v.toLocaleString('en-IN', { maximumFractionDigits: 0 });
@@ -1070,14 +1089,14 @@ export default function App() {
       const meta = {};
       const writes = [];
       for (const cat of Object.keys(next)) {
-        const catMeta = await Promise.all((next[cat] || []).map(async (p) => {
+        const catMeta = await mapWithConcurrencyLimit(next[cat] || [], 5, async (p) => {
           if (p.url && p.url.startsWith('data:')) {
             const uploaded = await window.fileStorage.upload('gallery_' + p.id, p.url);
             if (!uploaded || uploaded.error) throw new Error(uploaded?.error || 'Photo upload failed: ' + p.id);
             return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: uploaded.url, origUrl: p.origUrl || null };
           }
           return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: p.url || '', origUrl: p.origUrl || null };
-        }));
+        });
         meta[cat] = catMeta;
         const changed = JSON.stringify(catMeta) !== JSON.stringify(prevGallery[cat] || []);
         if (changed) {
@@ -4939,6 +4958,12 @@ function QuotationPreview({ job, onClose, showToast }) {
                 <div style={styles.quoteCustSub}>{formatDate(new Date().toISOString())}</div>
               </div>
             </div>
+            {job.flatNo && (
+              <div style={styles.quoteAddressRow}>
+                <span style={styles.quoteLabel}>Flat&nbsp;</span>
+                <span style={styles.quoteCustSub}>{job.flatNo}</span>
+              </div>
+            )}
             {job.address && (
               <div style={styles.quoteAddressRow}>
                 <span style={styles.quoteLabel}>Address&nbsp;</span>
@@ -5660,10 +5685,25 @@ function PhotoAddPanel({ onAdd, addLabel, showToast }) {
     if (imageFiles.length < files.length) {
       showToast((files.length - imageFiles.length) + ' file(s) skip ki gayi (image nahi thi)', true);
     }
+    // A large batch (50+) selected all at once can crash the tab on a
+    // budget phone before compression even starts: the browser has to
+    // hold every full-resolution image in memory simultaneously just to
+    // read them, and low-RAM Android devices often kill a tab outright
+    // under that pressure rather than throwing a catchable JS error -
+    // which is exactly why this looked like "photos vanish with no
+    // error" instead of a normal failure. Capping how many get
+    // processed per pick, and pointing out that the rest are still
+    // sitting in the picker for a follow-up batch, keeps peak memory
+    // bounded regardless of how many the user actually selected.
+    const MAX_BATCH = 20;
+    const toProcess = imageFiles.slice(0, MAX_BATCH);
+    if (imageFiles.length > MAX_BATCH) {
+      showToast('Ek baar mein zyada se zyada ' + MAX_BATCH + ' photos process hoti hain - pehli ' + MAX_BATCH + ' le raha hoon, baaki dobara select karein', true);
+    }
     setUploading(true);
-    setUploadProgress({ done: 0, total: imageFiles.length });
+    setUploadProgress({ done: 0, total: toProcess.length });
     const results = [];
-    for (const file of imageFiles) {
+    for (const file of toProcess) {
       try {
         const dataUri = await prepareImageForUpload(file);
         const sizeBytes = dataUriByteSize(dataUri);
@@ -5675,7 +5715,13 @@ function PhotoAddPanel({ onAdd, addLabel, showToast }) {
       } catch (err) {
         showToast("'" + file.name + "' process nahi ho payi, skip ki gayi", true);
       }
-      setUploadProgress((p) => ({ done: (p ? p.done : 0) + 1, total: imageFiles.length }));
+      setUploadProgress((p) => ({ done: (p ? p.done : 0) + 1, total: toProcess.length }));
+      // A brief yield between photos gives the browser a chance to run
+      // garbage collection and other housekeeping between each heavy
+      // decode/compress step, rather than one unbroken synchronous-ish
+      // chain across the whole batch - this is what actually keeps
+      // memory bounded through the loop, not just the batch size cap.
+      await new Promise((r) => setTimeout(r, 30));
     }
     setPendingUploads((prev) => [...prev, ...results]);
     setUploading(false);
