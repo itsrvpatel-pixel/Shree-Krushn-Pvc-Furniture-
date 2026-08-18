@@ -2659,7 +2659,9 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
     // finished, so a failed save (flaky connection, etc.) still looked
     // like it worked until a later background refresh replaced local
     // state with the real (note-less) server data.
-    const ok = await onSave({ ...job, projectNotes: [entry, ...notes] });
+    let nextJob = { ...job, projectNotes: [entry, ...notes] };
+    nextJob = logActivity(nextJob, noteType + ' note added for ' + noteCategory + (entry.text ? ': ' + entry.text.slice(0, 60) : ''));
+    const ok = await onSave(nextJob);
     if (ok) {
       setText('');
       setPendingPhoto(null);
@@ -2682,7 +2684,12 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
   // by a later note once work has already moved forward based on it;
   // the customer can still see it, just not modify it.
   const approveNote = async (id) => {
-    const ok = await onSave({ ...job, projectNotes: notes.map((n) => (n.id === id ? { ...n, locked: true } : n)) });
+    const approvedNote = notes.find((n) => n.id === id);
+    let nextJob = { ...job, projectNotes: notes.map((n) => (n.id === id ? { ...n, locked: true } : n)) };
+    if (approvedNote) {
+      nextJob = logActivity(nextJob, (approvedNote.category || 'Design') + ' final ho gaya: ' + (approvedNote.text || approvedNote.noteType));
+    }
+    const ok = await onSave(nextJob);
     if (ok) showToast('Note approve ho gaya, ab locked hai');
   };
 
@@ -3349,6 +3356,30 @@ function ProgressView({ job, onSave, showToast, customer, categories }) {
           </button>
         ))}
       </div>
+
+      {/* Project timeline: "design final ho gaya", "50% kaam complete",
+          a change request, an extra-work approval - every logActivity()
+          entry for this job, in one place. This is the same data
+          CustomerHome's "Recent Activity" shows (capped to the latest
+          8), but here on the Progress tab it's the FULL history, since
+          this is where someone would naturally look to trace "what
+          happened with my project so far" rather than just the few most
+          recent updates. */}
+      {(job.activity || []).length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <div style={styles.fieldLabel}>Project History</div>
+          {job.activity.map((a) => (
+            <div key={a.id} style={styles.activityRow}>
+              <div style={styles.activityDot} />
+              <div style={{ flex: 1 }}>
+                <div style={styles.activityText}>{a.text}</div>
+                <div style={styles.itemSub}>{timeAgo(a.date)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {lightbox && <Lightbox data={lightbox} onClose={() => setLightbox(null)} setLightbox={setLightbox} />}
     </div>
   );
@@ -3970,13 +4001,23 @@ function AdminReferralReport({ customers }) {
 function AdminVisitsByDate({ jobs, onOpenJob }) {
   const allVisits = [];
   for (const j of jobs) {
+    // A visit is treated as completed either because admin explicitly
+    // marked it so, OR because the job has since moved past the
+    // appointment stage at all (estimate given, work started, delivered,
+    // paid) - reaching any of those is only possible once the visit
+    // actually happened, so waiting on admin to remember a separate
+    // "mark visit completed" tap (easy to forget once the job is
+    // clearly progressing) left otherwise-obviously-done visits stuck
+    // showing as "Pending" indefinitely, even for jobs that were fully
+    // paid off.
+    const jobHasMovedPastAppointment = j.status !== 'appointment';
     if (j.appointment && (j.appointment.status === 'confirmed' || j.appointment.status === 'rescheduled' || j.appointment.status === 'completed')) {
       allVisits.push({
         jobId: j.id,
         customerName: j.customerName,
         date: j.appointment.confirmedDate,
         time: j.appointment.confirmedTime,
-        completed: j.appointment.status === 'completed',
+        completed: j.appointment.status === 'completed' || jobHasMovedPastAppointment,
         reason: null,
       });
     }
@@ -3987,7 +4028,7 @@ function AdminVisitsByDate({ jobs, onOpenJob }) {
           customerName: j.customerName,
           date: v.confirmedDate,
           time: v.confirmedTime,
-          completed: false,
+          completed: jobHasMovedPastAppointment,
           reason: v.reason,
         });
       }
