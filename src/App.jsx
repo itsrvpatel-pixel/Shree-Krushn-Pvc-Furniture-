@@ -86,6 +86,21 @@ function formatDate(iso) {
   if (isNaN(d)) return iso;
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
+// Appointment/visit times are stored as "HH:MM" (24-hour), the format
+// browsers' native <input type="time"> pickers always use regardless of
+// locale - this converts that to a 12-hour "h:MM AM/PM" display, since
+// showing raw 24-hour values ("14:30") everywhere they're displayed
+// reads unnaturally for a mostly 12-hour-clock audience.
+function formatTime12h(time24) {
+  if (!time24) return '';
+  const parts = time24.split(':');
+  const h = Number(parts[0]);
+  const m = parts[1];
+  if (isNaN(h) || m === undefined) return time24;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return h12 + ':' + m + ' ' + period;
+}
 function timeAgo(iso) {
   if (!iso) return '';
   const diff = Date.now() - new Date(iso).getTime();
@@ -805,18 +820,29 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [g, c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att] = await Promise.all([
-          safeGet('gallery'), safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
+        const [galleryCatList, c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att] = await Promise.all([
+          safeGet('gallery_categories'), safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'),
         ]);
-        // Photos now live in Firebase Storage, with just their (short)
-        // download URL stored directly in this same metadata - no more
-        // separate per-photo Firestore documents, and no more extra
-        // "hydration" read pass needed on every load. This one batch of
-        // reads is everything the app needs to become fully usable,
-        // photos included.
-        if (g) setGallery(JSON.parse(g));
+        // Gallery is split one Firestore document PER CATEGORY (see
+        // persistGallery) rather than one combined document, so total
+        // photo capacity isn't capped by a single 1MiB document once
+        // photo count climbs into the hundreds. 'gallery_categories'
+        // just lists which category documents exist; falls back to the
+        // item-category list if that hasn't been written yet (e.g. a
+        // fresh install with no gallery photos at all), so there's
+        // always SOME list to fetch against.
+        const itemCategories = cats ? JSON.parse(cats) : DEFAULT_CATEGORIES;
+        const galleryCategories = galleryCatList ? JSON.parse(galleryCatList) : itemCategories;
+        const galleryEntries = await Promise.all(
+          galleryCategories.map(async (cat) => [cat, await safeGet('gallery_cat_' + cat)])
+        );
+        const galleryObj = {};
+        for (const [cat, val] of galleryEntries) {
+          if (val) { try { galleryObj[cat] = JSON.parse(val); } catch (e) { /* skip corrupt entry */ } }
+        }
+        setGallery(galleryObj);
         if (c) setCustomers(JSON.parse(c));
         if (j) setJobs(JSON.parse(j));
         if (p) setAdminPin(p);
@@ -847,11 +873,19 @@ export default function App() {
     if (!loaded) return;
     const poll = setInterval(async () => {
       try {
-        const [g, j, br, cats, aio] = await Promise.all([
-          safeGet('gallery'), safeGet('jobs'), safeGet('brochures'), safeGet('categories'), safeGet('appointment_item_options'),
+        const [galleryCatList, j, br, cats, aio] = await Promise.all([
+          safeGet('gallery_categories'), safeGet('jobs'), safeGet('brochures'), safeGet('categories'), safeGet('appointment_item_options'),
         ]);
-        if (g && Date.now() - lastLocalGalleryWriteRef.current > 8000) {
-          setGallery(JSON.parse(g));
+        if (galleryCatList && Date.now() - lastLocalGalleryWriteRef.current > 8000) {
+          const galleryCategories = JSON.parse(galleryCatList);
+          const galleryEntries = await Promise.all(
+            galleryCategories.map(async (cat) => [cat, await safeGet('gallery_cat_' + cat)])
+          );
+          const galleryObj = {};
+          for (const [cat, val] of galleryEntries) {
+            if (val) { try { galleryObj[cat] = JSON.parse(val); } catch (e) { /* skip corrupt entry */ } }
+          }
+          setGallery(galleryObj);
         }
         // Skip applying this poll's jobs result if a local write (delete,
         // edit, approval, etc.) happened within the last 5 seconds - see
@@ -1009,19 +1043,24 @@ export default function App() {
     setTimeout(() => setToast((t) => (t && t.msg === msg ? null : t)), 2400);
   };
 
-  // Gallery photos now upload to Firebase Storage (window.fileStorage) and
-  // store the resulting download URL directly in the 'gallery' metadata
-  // document - a URL is a short string (100-200 chars), so even 100+
-  // photos' worth of them fit comfortably in one document, unlike the
-  // old approach of embedding full base64 image data (which needed a
-  // separate small document per photo just to stay under Firestore's
-  // 1MiB limit, and required a whole extra "hydration" read pass on
-  // every load to fetch each one - the real source of the loading delays
-  // and "load nahi hui" failures). Only photos whose url is STILL a raw
-  // data: URI (freshly picked from the device, not yet uploaded) get
-  // uploaded here; a photo already carrying a real URL (Storage, or an
-  // external link from bulk-add) is left untouched, so editing just a
-  // caption never re-uploads the image.
+  // Each gallery CATEGORY gets its own Firestore document
+  // ('gallery_cat_<CategoryName>') rather than one combined 'gallery'
+  // document holding every category's photos together. A photo's full
+  // Firebase Storage download URL (with its auth token) runs well over
+  // 100 characters, so a single combined document accumulates that
+  // length across every photo in every category - once total photos
+  // climb into the several-hundreds, that one document creeps toward
+  // Firestore's 1MiB-per-document limit and starts failing to save
+  // (exactly what "500 se upar add nahi hoti" was). Splitting by
+  // category means each category gets its OWN 1MiB budget, multiplying
+  // total capacity by however many categories exist - comfortably
+  // covering several thousand photos spread across a typical set of
+  // 8-10 categories instead of all sharing one shrinking budget.
+  //
+  // Only categories that actually changed get rewritten (compared
+  // against the previous gallery state) - editing one photo in
+  // "Kitchen" no longer means rewriting "Wardrobe", "TV Unit", and
+  // every other untouched category's document too.
   const lastLocalGalleryWriteRef = useRef(0);
   const persistGallery = useCallback(async (next) => {
     lastLocalGalleryWriteRef.current = Date.now();
@@ -1029,8 +1068,9 @@ export default function App() {
     setGallery(next);
     try {
       const meta = {};
+      const writes = [];
       for (const cat of Object.keys(next)) {
-        meta[cat] = await Promise.all((next[cat] || []).map(async (p) => {
+        const catMeta = await Promise.all((next[cat] || []).map(async (p) => {
           if (p.url && p.url.startsWith('data:')) {
             const uploaded = await window.fileStorage.upload('gallery_' + p.id, p.url);
             if (!uploaded || uploaded.error) throw new Error(uploaded?.error || 'Photo upload failed: ' + p.id);
@@ -1038,8 +1078,20 @@ export default function App() {
           }
           return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: p.url || '', origUrl: p.origUrl || null };
         }));
+        meta[cat] = catMeta;
+        const changed = JSON.stringify(catMeta) !== JSON.stringify(prevGallery[cat] || []);
+        if (changed) {
+          writes.push(window.storage.set('gallery_cat_' + cat, JSON.stringify(catMeta), true));
+        }
       }
-      await window.storage.set('gallery', JSON.stringify(meta), true);
+      // The category NAME LIST itself (not the photos) stays in one
+      // small 'gallery_categories' document, so the app knows which
+      // per-category documents to fetch on load without needing to
+      // separately track this via the item-category list, which can
+      // differ (a category could exist for gallery photos even if no
+      // estimate item uses that name, or vice versa).
+      writes.push(window.storage.set('gallery_categories', JSON.stringify(Object.keys(meta)), true));
+      await Promise.all(writes);
       // Reflect the now-uploaded URLs (data: URI replaced by the real
       // Storage URL) back into local state too, so the freshly-added
       // photo's <img> tag switches from the temporary local preview to
@@ -2387,7 +2439,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
             <div style={styles.apptConfirmedBlock}>
               <Calendar size={16} color={BRAND.navy} />
               <div>
-                <div style={styles.apptConfirmedDate}>{formatDate(appt.confirmedDate)} {appt.confirmedTime && ('- ' + appt.confirmedTime)}</div>
+                <div style={styles.apptConfirmedDate}>{formatDate(appt.confirmedDate)} {appt.confirmedTime && ('- ' + formatTime12h(appt.confirmedTime))}</div>
                 <div style={styles.itemSub}>{appt.status === 'rescheduled' ? 'Admin ne naya time diya hai' : 'Admin ne confirm ki hai'}</div>
                 {appt.status === 'rescheduled' && (
                   <button style={{ ...styles.primaryBtn2, marginTop: 8 }} onClick={confirmReschedule}><Check size={14} /> Ye Time Theek Hai</button>
@@ -2397,7 +2449,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
           ) : (
             <div style={styles.apptRow}>
               <span style={styles.apptRowLabel}>Preferred</span>
-              <span style={styles.apptRowValue}>{formatDate(appt.preferredDate)} {appt.preferredTime && ('- ' + appt.preferredTime)}</span>
+              <span style={styles.apptRowValue}>{formatDate(appt.preferredDate)} {appt.preferredTime && ('- ' + formatTime12h(appt.preferredTime))}</span>
             </div>
           )}
 
@@ -2545,7 +2597,7 @@ function AdditionalVisitsPanel({ job, onSave, showToast }) {
       {visits.map((v) => (
         <div key={v.id} style={styles.extraWorkCard}>
           <div style={styles.itemDesc}>{v.reason}</div>
-          <div style={styles.itemSub}>{formatDate(v.status === 'confirmed' ? v.confirmedDate : v.preferredDate)} {(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime) && ('- ' + (v.status === 'confirmed' ? v.confirmedTime : v.preferredTime))}</div>
+          <div style={styles.itemSub}>{formatDate(v.status === 'confirmed' ? v.confirmedDate : v.preferredDate)} {(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime) && ('- ' + formatTime12h(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime))}</div>
           <div style={{ ...styles.estimateStatusBanner, marginTop: 8, background: v.status === 'confirmed' ? '#E8F5E9' : '#FFF3E0', color: v.status === 'confirmed' ? '#2E7D32' : '#E65100' }}>
             {v.status === 'confirmed' ? <ThumbsUp size={14} /> : <AlertCircle size={14} />} {v.status === 'confirmed' ? 'Confirm ho gaya' : 'Admin confirm karega'}
           </div>
@@ -3785,7 +3837,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
           {todaysVisits.map((j) => (
             <button key={j.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(j.id)}>
               <div style={styles.cardName}>{j.customerName}</div>
-              <div style={styles.itemSub}>{j.appointment.confirmedTime || 'Time set nahi hai'} {j.appointment.address && ('- ' + j.appointment.address)}</div>
+              <div style={styles.itemSub}>{j.appointment.confirmedTime ? formatTime12h(j.appointment.confirmedTime) : 'Time set nahi hai'} {j.appointment.address && ('- ' + j.appointment.address)}</div>
             </button>
           ))}
         </div>
@@ -3846,7 +3898,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
               <button key={j.id} style={styles.miniRowClickArea} onClick={() => onOpenJob(j.id)}>
                 <div style={{ flex: 1, textAlign: 'left' }}>
                   <div style={styles.itemDesc}>{j.customerName}</div>
-                  <div style={styles.itemSub}>{j.appointment.confirmedTime || 'Time set nahi hai'} {j.appointment.address && ('- ' + j.appointment.address)}</div>
+                  <div style={styles.itemSub}>{j.appointment.confirmedTime ? formatTime12h(j.appointment.confirmedTime) : 'Time set nahi hai'} {j.appointment.address && ('- ' + j.appointment.address)}</div>
                 </div>
                 <Calendar size={15} color={BRAND.gold} />
               </button>
@@ -4066,7 +4118,7 @@ function AdminVisitsByDate({ jobs, onOpenJob }) {
                 <div style={styles.cardName}>{v.customerName}</div>
                 <span style={{ ...styles.badge, background: v.completed ? '#DFF0E4' : '#F3EFE3', color: v.completed ? '#2F7D4F' : '#A8975F' }}>{v.completed ? 'Completed' : 'Pending'}</span>
               </div>
-              <div style={styles.itemSub}>{v.time || 'Time set nahi hai'}{v.reason && (' - ' + v.reason)}</div>
+              <div style={styles.itemSub}>{v.time ? formatTime12h(v.time) : 'Time set nahi hai'}{v.reason && (' - ' + v.reason)}</div>
             </button>
           ))}
         </div>
@@ -4088,7 +4140,7 @@ function AdminNewAppointmentsList({ jobs, onOpenJob }) {
       {rows.map((j) => (
         <button key={j.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(j.id)}>
           <div style={styles.cardName}>{j.customerName}</div>
-          <div style={styles.itemSub}>Chaha hua: {formatDate(j.appointment.preferredDate)} {j.appointment.preferredTime && ('- ' + j.appointment.preferredTime)}</div>
+          <div style={styles.itemSub}>Chaha hua: {formatDate(j.appointment.preferredDate)} {j.appointment.preferredTime && ('- ' + formatTime12h(j.appointment.preferredTime))}</div>
           <div style={styles.itemSub}>{j.appointment.address}</div>
         </button>
       ))}
@@ -4097,12 +4149,22 @@ function AdminNewAppointmentsList({ jobs, onOpenJob }) {
 }
 
 function AdminAllEstimatesList({ jobs, onOpenJob }) {
+  const [query, setQuery] = useState('');
   const rows = useMemo(() => {
     return jobs
       .filter((j) => (j.items || []).length > 0)
       .map((j) => ({ job: j, total: jobTotal(j), due: jobDue(j) }))
       .sort((a, b) => new Date(b.job.createdAt) - new Date(a.job.createdAt));
   }, [jobs]);
+
+  const filteredRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) =>
+      (r.job.customerName || '').toLowerCase().includes(q) ||
+      (r.job.flatNo || '').toLowerCase().includes(q)
+    );
+  }, [rows, query]);
 
   const grandTotal = rows.reduce((s, r) => s + r.total, 0);
 
@@ -4116,13 +4178,19 @@ function AdminAllEstimatesList({ jobs, onOpenJob }) {
         <StatCard icon={<IndianRupee size={16} />} label='Combined Value' value={currency(grandTotal)} accent />
       </div>
 
+      {rows.length > 0 && (
+        <input style={{ ...styles.input, marginTop: 12 }} placeholder='Naam ya Flat Number se search karein...' value={query} onChange={(e) => setQuery(e.target.value)} />
+      )}
+
       {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi estimate nahi bana.</div>}
-      {rows.map((r) => (
+      {rows.length > 0 && filteredRows.length === 0 && <div style={styles.emptySmall}>Koi estimate match nahi hua.</div>}
+      {filteredRows.map((r) => (
         <button key={r.job.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(r.job.id)}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div style={styles.cardName}>{r.job.customerName}</div>
             <span style={styles.badge}>{STATUS[r.job.status]?.label || r.job.status}</span>
           </div>
+          {r.job.flatNo && <div style={styles.itemSub}>{r.job.flatNo}</div>}
           <div style={styles.itemSub}>{(r.job.items || []).length} item{(r.job.items || []).length !== 1 ? 's' : ''} - {currency(r.total)}{r.due > 0 && (' - ' + currency(r.due) + ' due')}</div>
         </button>
       ))}
@@ -4170,7 +4238,7 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, onOpenJob, sho
         if (branchFilter !== 'all' && (!job || job.branch !== branchFilter)) return false;
         if (query.trim()) {
           const q = query.toLowerCase();
-          return customer.name.toLowerCase().includes(q) || customer.phone.includes(q);
+          return customer.name.toLowerCase().includes(q) || customer.phone.includes(q) || (job?.flatNo || '').toLowerCase().includes(q);
         }
         return true;
       });
@@ -4221,7 +4289,7 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, onOpenJob, sho
 
       <div style={styles.searchWrap}>
         <Search size={15} color={BRAND.textMuted} />
-        <input style={styles.searchInput} placeholder='Search naam ya phone...' value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input style={styles.searchInput} placeholder='Search naam, phone, ya flat number...' value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
       <div style={styles.filterRow}>
         <FilterChip active={filter === 'all'} onClick={() => setFilter('all')} label='All' />
@@ -4407,7 +4475,7 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
             <span style={styles.apptRowValue}>{appt.items.join(', ')}</span>
           </div>
         )}
-        <div style={styles.apptRow}><span style={styles.apptRowLabel}>Preferred</span><span style={styles.apptRowValue}>{formatDate(appt.preferredDate)} {appt.preferredTime && ('- ' + appt.preferredTime)}</span></div>
+        <div style={styles.apptRow}><span style={styles.apptRowLabel}>Preferred</span><span style={styles.apptRowValue}>{formatDate(appt.preferredDate)} {appt.preferredTime && ('- ' + formatTime12h(appt.preferredTime))}</span></div>
         <div style={styles.apptRow}><span style={styles.apptRowLabel}>Address</span><span style={styles.apptRowValue}>{appt.address}</span></div>
         {appt.notes && <div style={styles.apptRow}><span style={styles.apptRowLabel}>Notes</span><span style={styles.apptRowValue}>{appt.notes}</span></div>}
         <div style={styles.apptRow}><span style={styles.apptRowLabel}>Requested</span><span style={styles.apptRowValue}>{timeAgo(appt.requestedAt)}</span></div>
@@ -4438,7 +4506,7 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
               <div style={styles.itemDesc}>{v.reason}</div>
               <div style={styles.itemSub}>
                 {v.status === 'confirmed' ? 'Confirmed: ' : 'Requested: '}
-                {formatDate(v.status === 'confirmed' ? v.confirmedDate : v.preferredDate)} {(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime) && ('- ' + (v.status === 'confirmed' ? v.confirmedTime : v.preferredTime))}
+                {formatDate(v.status === 'confirmed' ? v.confirmedDate : v.preferredDate)} {(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime) && ('- ' + formatTime12h(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime))}
               </div>
               {v.status === 'requested' && confirmingVisitId !== v.id && (
                 <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => { setConfirmingVisitId(v.id); setVisitConfirmDate(v.preferredDate); setVisitConfirmTime(v.preferredTime); }}>Confirm karein</button>
@@ -4488,7 +4556,10 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
     <div>
       {(job.items || []).length === 0 && <AdminEstimateDraftsPanel job={job} onSave={onSave} showToast={showToast} />}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+      <div style={styles.fieldLabel}>Flat Name / Number</div>
+      <input style={styles.input} placeholder='Jaise Flat 402, Sun City' value={job.flatNo || ''} onChange={(e) => onSave({ ...job, flatNo: e.target.value })} />
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
         <div style={styles.fieldLabel}>Estimate items</div>
         {(job.items || []).length > 0 && (
           <div style={{ display: 'flex', gap: 8 }}>
