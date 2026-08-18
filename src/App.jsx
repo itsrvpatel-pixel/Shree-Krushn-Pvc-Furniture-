@@ -363,14 +363,50 @@ function generateReceiptPdf(job, payment) {
   doc.save('Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf');
 }
 
+/* ---- Loads an image (like the business logo) from a URL and converts
+   it to a data URI via canvas, so jsPDF's addImage can embed it - jsPDF
+   can't load images from a URL directly, only from a data URI or raw
+   image data already in memory. Returns null on any failure (missing
+   file, CORS issue, etc.) so the PDF still generates normally without
+   the logo rather than the whole thing breaking over one image. ---- */
+function loadImageAsDataUrl(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL('image/jpeg'));
+      } catch (e) {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+function hexToRgb(hex) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+const PDF_NAVY = hexToRgb(BRAND.navy);
+const PDF_GOLD = hexToRgb(BRAND.gold);
+
 /* ---- Estimate PDF: builds the same content as QuotationPreview, but as
    an actual downloadable/shareable PDF document rather than an on-screen
    preview. Returns the jsPDF doc object itself (not saved/downloaded)
    so callers can either trigger a download or convert it to a File for
    navigator.share - sharing straight to WhatsApp with the PDF attached
    is the whole point, and that only works with a real file, not a link
-   or plain text. ---- */
-function buildEstimatePdfDoc(job) {
+   or plain text.
+   Async because the business logo has to be fetched and converted to a
+   data URI before jsPDF can embed it (see loadImageAsDataUrl above) -
+   callers already await this. ---- */
+async function buildEstimatePdfDoc(job) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -380,18 +416,29 @@ function buildEstimatePdfDoc(job) {
     if (y + neededSpace > pageHeight - 15) { doc.addPage(); y = 20; }
   };
 
+  const logoDataUrl = await loadImageAsDataUrl('/logo.jpeg');
+  if (logoDataUrl) {
+    try { doc.addImage(logoDataUrl, 'JPEG', 15, y - 4, 22, 22); } catch (e) { /* skip logo if embedding fails */ }
+  }
+  const textCenterX = logoDataUrl ? pageWidth / 2 + 10 : pageWidth / 2;
+
+  doc.setTextColor(...PDF_NAVY);
   doc.setFontSize(16);
   doc.setFont(undefined, 'bold');
-  doc.text(BUSINESS.name, pageWidth / 2, y, { align: 'center' });
+  doc.text(BUSINESS.name, textCenterX, y, { align: 'center' });
   y += 6;
+  doc.setTextColor(...PDF_GOLD);
   doc.setFontSize(9);
   doc.setFont(undefined, 'normal');
-  doc.text('Estimate & Invoice', pageWidth / 2, y, { align: 'center' });
+  doc.text('Estimate & Invoice', textCenterX, y, { align: 'center' });
   y += 6;
-  doc.text('Mobile no. ' + BUSINESS.phone.replace('+91 ', '') + ' / ' + BUSINESS.altPhone.replace('+91 ', '') + '. ' + BUSINESS.website, pageWidth / 2, y, { align: 'center' });
+  doc.setTextColor(0, 0, 0);
+  doc.text('Mobile no. ' + BUSINESS.phone.replace('+91 ', '') + ' / ' + BUSINESS.altPhone.replace('+91 ', '') + '. ' + BUSINESS.website, textCenterX, y, { align: 'center' });
   y += 8;
+  doc.setDrawColor(...PDF_GOLD);
   doc.setLineWidth(0.5);
   doc.line(15, y, pageWidth - 15, y);
+  doc.setDrawColor(0, 0, 0);
   y += 10;
 
   doc.setFontSize(11);
@@ -482,19 +529,23 @@ function buildEstimatePdfDoc(job) {
   }
 
   checkPageBreak(12);
+  doc.setTextColor(...PDF_NAVY);
   doc.setFontSize(12);
   doc.setFont(undefined, 'bold');
   doc.text('Grand Total', 130, y);
   doc.text(currencyPlain(jobTotal(job)), pageWidth - 15, y, { align: 'right' });
+  doc.setTextColor(0, 0, 0);
   y += 14;
 
   // Terms & Conditions - the same sections shown in QuotationPreview, so
   // the shared PDF carries the full payment/material/warranty terms
   // rather than just the item breakdown.
   checkPageBreak(10);
+  doc.setTextColor(...PDF_NAVY);
   doc.setFontSize(11);
   doc.setFont(undefined, 'bold');
   doc.text('Terms & Conditions & Details', 15, y);
+  doc.setTextColor(0, 0, 0);
   y += 8;
   ESTIMATE_TERMS.forEach((section, i) => {
     checkPageBreak(8);
@@ -525,8 +576,8 @@ function buildEstimatePdfDoc(job) {
   return doc;
 }
 
-function downloadEstimatePdf(job) {
-  const doc = buildEstimatePdfDoc(job);
+async function downloadEstimatePdf(job) {
+  const doc = await buildEstimatePdfDoc(job);
   doc.save('Estimate-' + job.customerName.replace(/\s+/g, '-') + '.pdf');
 }
 
@@ -538,7 +589,7 @@ function downloadEstimatePdf(job) {
 // older phones where file sharing isn't supported, since there's no
 // reliable way to hand a file to WhatsApp without it.
 async function shareEstimatePdf(job, showToast) {
-  const doc = buildEstimatePdfDoc(job);
+  const doc = await buildEstimatePdfDoc(job);
   const fileName = 'Estimate-' + job.customerName.replace(/\s+/g, '-') + '.pdf';
   const blob = doc.output('blob');
   const file = new File([blob], fileName, { type: 'application/pdf' });
@@ -1098,7 +1149,7 @@ export default function App() {
         meta[cat] = await Promise.all((next[cat] || []).map(async (p) => {
           if (p.url && p.url.startsWith('data:')) {
             const uploaded = await window.fileStorage.upload('gallery_' + p.id, p.url);
-            if (!uploaded) throw new Error('Photo upload failed: ' + p.id);
+            if (!uploaded || uploaded.error) throw new Error(uploaded?.error || 'Photo upload failed: ' + p.id);
             return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: uploaded.url, origUrl: p.origUrl || null };
           }
           return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: p.url || '', origUrl: p.origUrl || null };
@@ -1113,7 +1164,7 @@ export default function App() {
       return true;
     } catch (e) {
       setGallery(prevGallery);
-      showToast('Save failed - internet check karein aur dobara try karein', true);
+      showToast('Save failed: ' + (e.message || 'internet check karein aur dobara try karein'), true);
       return false;
     }
   }, [gallery]);
@@ -1241,7 +1292,7 @@ export default function App() {
       // download URL. Only that URL - not the PDF's raw data - gets saved
       // in the small 'brochures' metadata list.
       const uploadResult = await window.fileStorage.upload('brochure_' + meta.id, dataUri);
-      if (!uploadResult) { showToast('Brochure upload fail ho gaya - Firebase Storage abhi tak activate nahi hua ho sakta hai (Blaze plan chahiye)', true); return false; }
+      if (!uploadResult || uploadResult.error) { showToast('Brochure upload fail ho gaya: ' + (uploadResult?.error || 'Firebase Storage abhi tak activate nahi hua ho sakta hai'), true); return false; }
       const next = [{ ...meta, url: uploadResult.url }, ...brochures];
       setBrochures(next);
       await window.storage.set('brochures', JSON.stringify(next), true);
@@ -2711,10 +2762,10 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
     // photo-attached notes.
     if (pendingPhoto) {
       const uploaded = await window.fileStorage.upload('note_' + entry.id, pendingPhoto);
-      if (uploaded) {
+      if (uploaded && !uploaded.error) {
         entry.photo = { url: uploaded.url, origUrl: null };
       } else {
-        showToast('Photo save nahi ho payi, sirf text save ho raha hai', true);
+        showToast('Photo save nahi ho payi: ' + (uploaded?.error || 'unknown error') + ' - sirf text save ho raha hai', true);
       }
     }
     // Awaiting onSave (and only announcing success once it genuinely
@@ -3518,10 +3569,10 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
     for (const p of photos) {
       const id = uid();
       const uploaded = await window.fileStorage.upload('progress_' + id, p.url);
-      if (uploaded) {
+      if (uploaded && !uploaded.error) {
         newPhotos.push({ id, url: uploaded.url, origUrl: p.origUrl || null, caption: p.caption, date: new Date().toISOString() });
       } else {
-        showToast('Ek photo save nahi ho payi', true);
+        showToast('Ek photo save nahi ho payi: ' + (uploaded?.error || 'unknown error'), true);
       }
     }
     if (newPhotos.length === 0) return;
@@ -5136,10 +5187,10 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     for (const p of photos) {
       const id = uid();
       const uploaded = await window.fileStorage.upload('progress_' + id, p.url);
-      if (uploaded) {
+      if (uploaded && !uploaded.error) {
         newPhotos.push({ id, url: uploaded.url, origUrl: p.origUrl || null, caption: p.caption, date: new Date().toISOString() });
       } else {
-        showToast('Ek photo save nahi ho payi', true);
+        showToast('Ek photo save nahi ho payi: ' + (uploaded?.error || 'unknown error'), true);
       }
     }
     if (newPhotos.length === 0) return;
