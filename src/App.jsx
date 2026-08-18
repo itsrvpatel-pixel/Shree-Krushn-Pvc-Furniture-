@@ -73,6 +73,13 @@ function currency(n) {
   const v = Number(n) || 0;
   return '₹' + v.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
+// Plain "Rs." version for PDFs - jsPDF's default fonts don't reliably
+// render the Unicode ₹ glyph (falls back to a blank/box character on
+// many systems), so PDFs use this instead of currency() above.
+function currencyPlain(n) {
+  const v = Number(n) || 0;
+  return 'Rs. ' + v.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
 function formatDate(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -366,50 +373,62 @@ function generateReceiptPdf(job, payment) {
 function buildEstimatePdfDoc(job) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
   let y = 20;
+
+  const checkPageBreak = (neededSpace) => {
+    if (y + neededSpace > pageHeight - 15) { doc.addPage(); y = 20; }
+  };
 
   doc.setFontSize(16);
   doc.setFont(undefined, 'bold');
   doc.text(BUSINESS.name, pageWidth / 2, y, { align: 'center' });
-  y += 7;
-  doc.setFontSize(10);
+  y += 6;
+  doc.setFontSize(9);
   doc.setFont(undefined, 'normal');
-  doc.text(BUSINESS.addressLine, pageWidth / 2, y, { align: 'center' });
-  y += 5;
-  doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, pageWidth / 2, y, { align: 'center' });
-  y += 10;
+  doc.text('Estimate & Invoice', pageWidth / 2, y, { align: 'center' });
+  y += 6;
+  doc.text('Mobile no. ' + BUSINESS.phone.replace('+91 ', '') + ' / ' + BUSINESS.altPhone.replace('+91 ', '') + '. ' + BUSINESS.website, pageWidth / 2, y, { align: 'center' });
+  y += 8;
   doc.setLineWidth(0.5);
   doc.line(15, y, pageWidth - 15, y);
   y += 10;
 
-  doc.setFontSize(14);
-  doc.setFont(undefined, 'bold');
-  doc.text('ESTIMATE', pageWidth / 2, y, { align: 'center' });
-  y += 12;
-
   doc.setFontSize(11);
+  doc.setFont(undefined, 'bold');
+  doc.text('Contact Name', 15, y);
+  doc.text('Date', pageWidth - 15, y, { align: 'right' });
+  y += 6;
   doc.setFont(undefined, 'normal');
-  doc.text('Customer:', 15, y);
-  doc.text(job.customerName, 70, y);
-  y += 7;
+  doc.text(job.customerName, 15, y);
+  doc.text(formatDate(new Date().toISOString()), pageWidth - 15, y, { align: 'right' });
+  y += 6;
   if (job.phone) {
-    doc.text('Phone:', 15, y);
-    doc.text(formatPhoneDisplay(job.phone), 70, y);
-    y += 7;
+    doc.text(formatPhoneDisplay(job.phone) || job.phone, 15, y);
+    y += 6;
+  }
+  if (job.address) {
+    doc.text('Address: ' + job.address, 15, y);
+    y += 6;
   }
   if (job.materialCompany || job.sheetWeightKg) {
-    doc.text('Material:', 15, y);
-    doc.text([job.materialCompany, job.sheetWeightKg && (job.sheetWeightKg + ' kg')].filter(Boolean).join(' - '), 70, y);
-    y += 7;
+    doc.text('Material: ' + [job.materialCompany, job.sheetWeightKg && (job.sheetWeightKg + ' kg sheet')].filter(Boolean).join(' - '), 15, y);
+    y += 6;
   }
-  y += 6;
+  y += 4;
 
-  doc.setFontSize(9);
+  // Table columns: Sr No / Item / Length / Height / Sq Ft / Rate / Amount
+  // - the same seven columns the on-screen QuotationPreview shows, so the
+  // PDF matches what the customer/admin already sees in the app rather
+  // than a shortened version.
+  doc.setFontSize(8.5);
   doc.setFont(undefined, 'bold');
-  doc.text('#', 15, y);
-  doc.text('Item', 24, y);
-  doc.text('Sq Ft', 130, y);
-  doc.text('Rate', 155, y);
+  doc.text('#', 16, y);
+  doc.text('Item & Description', 22, y);
+  doc.text('Length', 108, y);
+  doc.text('Height', 126, y);
+  doc.text('Sq Ft', 144, y);
+  doc.text('Rate', 160, y);
   doc.text('Amount', pageWidth - 15, y, { align: 'right' });
   y += 2;
   doc.setLineWidth(0.2);
@@ -419,23 +438,27 @@ function buildEstimatePdfDoc(job) {
   doc.setFont(undefined, 'normal');
   let srNo = 1;
   (job.items || []).forEach((it) => {
-    if (y > 270) { doc.addPage(); y = 20; }
+    checkPageBreak(8);
     const sqft = estimateItemSqft(it);
-    doc.text(String(srNo), 15, y);
-    doc.text(it.desc.slice(0, 42), 24, y);
-    doc.text(sqft !== null ? sqft.toFixed(2) : String(it.qty || 1), 130, y);
-    doc.text('Rs.' + Number(it.rate || 0).toLocaleString('en-IN'), 155, y);
-    doc.text('Rs.' + Number(estimateItemAmount(it)).toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
+    doc.text(String(srNo), 16, y);
+    doc.text(it.desc.slice(0, 38), 22, y);
+    doc.text(sqft !== null ? String(it.length) : '-', 108, y);
+    doc.text(sqft !== null ? String(it.height) : '-', 126, y);
+    doc.text(sqft !== null ? sqft.toFixed(2) : String(it.qty || 1), 144, y);
+    doc.text(currencyPlain(it.rate), 160, y);
+    doc.text(currencyPlain(estimateItemAmount(it)), pageWidth - 15, y, { align: 'right' });
     y += 7;
     srNo++;
   });
   (job.extraWork || []).filter((e) => e.status === 'approved').forEach((e) => {
-    if (y > 270) { doc.addPage(); y = 20; }
-    doc.text(String(srNo), 15, y);
-    doc.text((e.desc + ' (Extra Work)').slice(0, 42), 24, y);
-    doc.text('-', 130, y);
-    doc.text('-', 155, y);
-    doc.text('Rs.' + Number(e.amount || 0).toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
+    checkPageBreak(8);
+    doc.text(String(srNo), 16, y);
+    doc.text((e.desc + ' (Extra Work)').slice(0, 38), 22, y);
+    doc.text('-', 108, y);
+    doc.text('-', 126, y);
+    doc.text('-', 144, y);
+    doc.text('-', 160, y);
+    doc.text(currencyPlain(e.amount), pageWidth - 15, y, { align: 'right' });
     y += 7;
     srNo++;
   });
@@ -443,29 +466,61 @@ function buildEstimatePdfDoc(job) {
   y += 4;
   doc.setLineWidth(0.2);
   doc.line(15, y, pageWidth - 15, y);
-  y += 10;
+  y += 9;
 
   const discount = Number(job.discount) || 0;
   if (discount > 0) {
+    checkPageBreak(16);
     const subtotal = (job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0) + (job.extraWork || []).filter((e) => e.status === 'approved').reduce((s, e) => s + (Number(e.amount) || 0), 0);
     doc.setFontSize(10);
-    doc.text('Subtotal:', 130, y);
-    doc.text('Rs.' + subtotal.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
+    doc.text('Subtotal', 130, y);
+    doc.text(currencyPlain(subtotal), pageWidth - 15, y, { align: 'right' });
     y += 7;
-    doc.text('Discount:', 130, y);
-    doc.text('- Rs.' + discount.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
+    doc.text('Discount', 130, y);
+    doc.text('- ' + currencyPlain(discount), pageWidth - 15, y, { align: 'right' });
     y += 7;
   }
 
+  checkPageBreak(12);
   doc.setFontSize(12);
   doc.setFont(undefined, 'bold');
-  doc.text('Grand Total:', 130, y);
-  doc.text('Rs. ' + jobTotal(job).toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
-  y += 16;
+  doc.text('Grand Total', 130, y);
+  doc.text(currencyPlain(jobTotal(job)), pageWidth - 15, y, { align: 'right' });
+  y += 14;
 
+  // Terms & Conditions - the same sections shown in QuotationPreview, so
+  // the shared PDF carries the full payment/material/warranty terms
+  // rather than just the item breakdown.
+  checkPageBreak(10);
+  doc.setFontSize(11);
+  doc.setFont(undefined, 'bold');
+  doc.text('Terms & Conditions & Details', 15, y);
+  y += 8;
+  ESTIMATE_TERMS.forEach((section, i) => {
+    checkPageBreak(8);
+    doc.setFontSize(9.5);
+    doc.setFont(undefined, 'bold');
+    doc.text((i + 1) + '. ' + section.title, 15, y);
+    y += 5.5;
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(8.5);
+    section.points.forEach((point) => {
+      checkPageBreak(10);
+      const lines = doc.splitTextToSize('* ' + point, pageWidth - 34);
+      lines.forEach((line) => {
+        checkPageBreak(6);
+        doc.text(line, 19, y);
+        y += 4.5;
+      });
+    });
+    y += 2;
+  });
+
+  checkPageBreak(10);
+  y += 4;
   doc.setFontSize(9);
   doc.setFont(undefined, 'italic');
-  doc.text('Payment: 50% advance, 40% midway, 10% on completion.', pageWidth / 2, y, { align: 'center' });
+  doc.text('Thank you for choosing ' + BUSINESS.name, pageWidth / 2, y, { align: 'center' });
 
   return doc;
 }
