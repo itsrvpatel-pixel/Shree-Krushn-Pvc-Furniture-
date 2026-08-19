@@ -3203,7 +3203,6 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
   // project). This just gives an early ballpark before that happens.
   const [showCalculator, setShowCalculator] = useState(false);
   const [calcItems, setCalcItems] = useState([]);
-  const [calcCategory, setCalcCategory] = useState(categories[0]);
   const [calcLength, setCalcLength] = useState('');
   const [calcHeight, setCalcHeight] = useState('');
   const [calcQty, setCalcQty] = useState('1');
@@ -3230,11 +3229,11 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
   const addCalcItem = () => {
     if (calcIsPieceType) {
       if (!calcQty || Number(calcQty) <= 0) { showToast('Quantity bharein', true); return; }
-      setCalcItems((prev) => [...prev, { id: uid(), category: calcCategory, qty: calcQty, rateId: calcRateId }]);
+      setCalcItems((prev) => [...prev, { id: uid(), qty: calcQty, rateId: calcRateId }]);
       setCalcQty('1');
     } else {
       if (!calcLength || !calcHeight) { showToast('Length aur Height dono bharein', true); return; }
-      setCalcItems((prev) => [...prev, { id: uid(), category: calcCategory, length: calcLength, height: calcHeight, rateId: calcRateId }]);
+      setCalcItems((prev) => [...prev, { id: uid(), length: calcLength, height: calcHeight, rateId: calcRateId }]);
       setCalcLength(''); setCalcHeight('');
     }
   };
@@ -3313,16 +3312,12 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
         {showCalculator && (
           <div style={{ marginTop: 10 }}>
             <div style={styles.plainTextMuted}>Ye ek approx estimate hai, final estimate admin banayenge site visit ke baad.</div>
-            <div style={{ ...styles.hintText, marginTop: 10 }}>Item</div>
-            <div style={styles.chipRow}>
-              {categories.map((c) => (
-                <button key={c} onClick={() => setCalcCategory(c)} style={{ ...styles.chip, ...(calcCategory === c ? styles.chipActive : {}) }}>{c}</button>
-              ))}
-            </div>
-            <div style={{ ...styles.hintText, marginTop: 8 }}>Type</div>
+            <div style={{ ...styles.hintText, marginTop: 10 }}>Item (rate ke saath)</div>
             <div style={styles.chipRow}>
               {rates.map((r) => (
-                <button key={r.id} onClick={() => setCalcRateId(r.id)} style={{ ...styles.chip, ...(calcRateId === r.id ? styles.chipActive : {}) }}>{r.name}</button>
+                <button key={r.id} onClick={() => setCalcRateId(r.id)} style={{ ...styles.chip, ...(calcRateId === r.id ? styles.chipActive : {}) }}>
+                  {r.name} ({r.unit === 'piece' ? ('₹' + r.rate + '/piece') : ('₹' + r.rate + '/sqft')})
+                </button>
               ))}
             </div>
             {calcIsPieceType ? (
@@ -3340,7 +3335,7 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
                 {calcItems.map((it) => (
                   <div key={it.id} style={styles.itemRow}>
                     <div style={{ flex: 1 }}>
-                      <div style={styles.itemDesc}>{it.category} - {rates.find((r) => r.id === it.rateId)?.name || '-'}</div>
+                      <div style={styles.itemDesc}>{rates.find((r) => r.id === it.rateId)?.name || '-'}</div>
                       <div style={styles.itemSub}>{it.qty ? (it.qty + ' piece') : (it.length + '" x ' + it.height + '" (' + ((Number(it.length) * Number(it.height)) / 144).toFixed(1) + ' sqft)')}</div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
