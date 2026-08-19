@@ -846,11 +846,19 @@ export default function App() {
   const [jobs, setJobs] = useState([]);
   const [adminPin, setAdminPin] = useState(DEFAULT_PIN);
   // Default per-sqft rates used by the customer-facing quick estimate
-  // calculator (Requirements tab) - admin can adjust these in Settings.
-  // Separate from actual estimate items (which admin builds by hand
-  // with real, per-job rates) - this is only for giving the customer a
-  // rough, instant approximation before an admin-built estimate exists.
-  const [estimateRates, setEstimateRatesRaw] = useState({ laminate: '1000', withoutLaminate: '700' });
+  // calculator (Requirements tab) - admin manages this list in
+  // Settings. Not just a single "with/without laminate" split, since
+  // real furniture work breaks down into named components with very
+  // different rates (framing, box, basket, drawer, TV cabinet,
+  // partition, etc.) - each admin's own list, fully editable, since
+  // this varies a lot business to business. Separate from actual
+  // estimate items (which admin builds by hand with real, per-job
+  // rates) - this is only for a rough, instant approximation before an
+  // admin-built estimate exists.
+  const [estimateRates, setEstimateRatesRaw] = useState([
+    { id: 'r1', name: 'Laminate', rate: '1000' },
+    { id: 'r2', name: 'Without Laminate', rate: '700' },
+  ]);
   const [partnerPin, setPartnerPin] = useState('');
   const [staff, setStaff] = useState([]);
   const [expenses, setExpenses] = useState([]);
@@ -3050,29 +3058,31 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
   const savedDesigns = job.savedDesigns || [];
 
   // Instant estimate calculator: a customer-side, self-service rough
-  // total based on their own measurements and material choice, using
-  // the global per-sqft rates admin sets in Settings - separate from
-  // the actual estimate (which admin still builds by hand, per real
-  // item, once they've visited/reviewed the project). This just gives
-  // an early ballpark before that happens.
+  // total based on their own measurements and which rate type applies
+  // (Framing, Box, Basket, Drawer, TV Cabinet, Partition, etc. - admin's
+  // own configured list, not just a fixed laminate/without-laminate
+  // split), using the per-sqft rates admin sets in Settings - separate
+  // from the actual estimate (which admin still builds by hand, per
+  // real item, once they've visited/reviewed the project). This just
+  // gives an early ballpark before that happens.
   const [showCalculator, setShowCalculator] = useState(false);
   const [calcItems, setCalcItems] = useState([]);
   const [calcCategory, setCalcCategory] = useState(categories[0]);
   const [calcLength, setCalcLength] = useState('');
   const [calcHeight, setCalcHeight] = useState('');
-  const [calcLaminate, setCalcLaminate] = useState(true);
+  const rates = (estimateRates && estimateRates.length > 0) ? estimateRates : [{ id: 'r1', name: 'Laminate', rate: '1000' }, { id: 'r2', name: 'Without Laminate', rate: '700' }];
+  const [calcRateId, setCalcRateId] = useState(rates[0]?.id);
 
-  const rates = estimateRates || { laminate: '1000', withoutLaminate: '700' };
   const calcItemAmount = (it) => {
     const sqft = (Number(it.length) * Number(it.height)) / 144;
-    const rate = it.laminate ? Number(rates.laminate) : Number(rates.withoutLaminate);
-    return Math.round(sqft * rate);
+    const rateEntry = rates.find((r) => r.id === it.rateId);
+    return Math.round(sqft * Number(rateEntry?.rate || 0));
   };
   const calcTotal = calcItems.reduce((s, it) => s + calcItemAmount(it), 0);
 
   const addCalcItem = () => {
     if (!calcLength || !calcHeight) { showToast('Length aur Height dono bharein', true); return; }
-    setCalcItems((prev) => [...prev, { id: uid(), category: calcCategory, length: calcLength, height: calcHeight, laminate: calcLaminate }]);
+    setCalcItems((prev) => [...prev, { id: uid(), category: calcCategory, length: calcLength, height: calcHeight, rateId: calcRateId }]);
     setCalcLength(''); setCalcHeight('');
   };
   const removeCalcItem = (id) => setCalcItems((prev) => prev.filter((it) => it.id !== id));
@@ -3160,10 +3170,11 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
               <input style={styles.input} inputMode='decimal' placeholder='Length (inch)' value={calcLength} onChange={(e) => setCalcLength(e.target.value)} />
               <input style={styles.input} inputMode='decimal' placeholder='Height (inch)' value={calcHeight} onChange={(e) => setCalcHeight(e.target.value)} />
             </div>
-            <div style={{ ...styles.hintText, marginTop: 8 }}>Material</div>
+            <div style={{ ...styles.hintText, marginTop: 8 }}>Type</div>
             <div style={styles.chipRow}>
-              <button onClick={() => setCalcLaminate(true)} style={{ ...styles.chip, ...(calcLaminate ? styles.chipActive : {}) }}>Laminate</button>
-              <button onClick={() => setCalcLaminate(false)} style={{ ...styles.chip, ...(!calcLaminate ? styles.chipActive : {}) }}>Without Laminate</button>
+              {rates.map((r) => (
+                <button key={r.id} onClick={() => setCalcRateId(r.id)} style={{ ...styles.chip, ...(calcRateId === r.id ? styles.chipActive : {}) }}>{r.name}</button>
+              ))}
             </div>
             <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={addCalcItem}><Plus size={14} /> Item Add Karein</button>
 
@@ -3172,7 +3183,7 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
                 {calcItems.map((it) => (
                   <div key={it.id} style={styles.itemRow}>
                     <div style={{ flex: 1 }}>
-                      <div style={styles.itemDesc}>{it.category} - {it.laminate ? 'Laminate' : 'Without Laminate'}</div>
+                      <div style={styles.itemDesc}>{it.category} - {rates.find((r) => r.id === it.rateId)?.name || '-'}</div>
                       <div style={styles.itemSub}>{it.length}" x {it.height}" ({((Number(it.length) * Number(it.height)) / 144).toFixed(1)} sqft)</div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -6783,10 +6794,25 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
   const [staffError, setStaffError] = useState('');
   const [newPartnerPin, setNewPartnerPin] = useState('');
   const [partnerPinError, setPartnerPinError] = useState('');
-  const [laminateRate, setLaminateRate] = useState(estimateRates?.laminate || '1000');
-  const [withoutLaminateRate, setWithoutLaminateRate] = useState(estimateRates?.withoutLaminate || '700');
-  const saveEstimateRates = () => {
-    setEstimateRates({ laminate: laminateRate, withoutLaminate: withoutLaminateRate });
+  // Local editable copy of the rates list - changes only get persisted
+  // (a Firestore write) when "Rates Save Karein" is tapped, not on
+  // every keystroke while typing a rate value.
+  const [rateDrafts, setRateDrafts] = useState(estimateRates && estimateRates.length > 0 ? estimateRates : []);
+  const [newRateName, setNewRateName] = useState('');
+  const [newRateValue, setNewRateValue] = useState('');
+  const addRateType = () => {
+    if (!newRateName.trim() || !newRateValue.trim()) { showToast('Naam aur rate dono bharein', true); return; }
+    setRateDrafts((prev) => [...prev, { id: uid(), name: newRateName.trim(), rate: newRateValue.trim() }]);
+    setNewRateName(''); setNewRateValue('');
+  };
+  const updateRateDraft = (id, field, value) => {
+    setRateDrafts((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+  };
+  const removeRateDraft = (id) => {
+    setRateDrafts((prev) => prev.filter((r) => r.id !== id));
+  };
+  const saveRates = () => {
+    setEstimateRates(rateDrafts);
     showToast('Rates save ho gaye');
   };
   const [showKarigarPerformance, setShowKarigarPerformance] = useState(false);
@@ -7018,12 +7044,22 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
           <Calculator size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Customer Estimate Calculator Rates</div>
         </div>
-        <div style={styles.plainTextMuted}>Ye rates customer ke Requirements tab ke "Instant Estimate Calculator" mein use hote hain - per square foot.</div>
-        <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Laminate Rate (₹ per sqft)</div>
-        <input style={styles.input} inputMode='decimal' value={laminateRate} onChange={(e) => setLaminateRate(e.target.value)} />
-        <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Without Laminate Rate (₹ per sqft)</div>
-        <input style={styles.input} inputMode='decimal' value={withoutLaminateRate} onChange={(e) => setWithoutLaminateRate(e.target.value)} />
-        <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={saveEstimateRates}><CheckCircle2 size={14} /> Rates Save Karein</button>
+        <div style={styles.plainTextMuted}>Har alag cheez ka apna rate (₹ per sqft) - Framing, Box, Basket, Drawer, TV Cabinet, Partition, jo bhi chahiye. Customer ke "Instant Estimate Calculator" mein use hota hai.</div>
+
+        {rateDrafts.map((r) => (
+          <div key={r.id} style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+            <input style={{ ...styles.input, flex: 1.3 }} placeholder='Naam' value={r.name} onChange={(e) => updateRateDraft(r.id, 'name', e.target.value)} />
+            <input style={{ ...styles.input, flex: 1 }} inputMode='decimal' placeholder='₹/sqft' value={r.rate} onChange={(e) => updateRateDraft(r.id, 'rate', e.target.value)} />
+            <button style={styles.iconBtnSmall} onClick={() => removeRateDraft(r.id)}><Trash2 size={14} color='#C7CCDC' /></button>
+          </div>
+        ))}
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <input style={{ ...styles.input, flex: 1.3 }} placeholder='Naya naam (jaise Basket)' value={newRateName} onChange={(e) => setNewRateName(e.target.value)} />
+          <input style={{ ...styles.input, flex: 1 }} inputMode='decimal' placeholder='₹/sqft' value={newRateValue} onChange={(e) => setNewRateValue(e.target.value)} />
+        </div>
+        <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addRateType}><Plus size={14} /> Naya Rate Type Add Karein</button>
+        <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={saveRates}><CheckCircle2 size={14} /> Sab Rates Save Karein</button>
       </div>
 
       <div style={{ ...styles.card, marginTop: 12 }}>
