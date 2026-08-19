@@ -3,14 +3,35 @@
   "short_name": "Shree Krushn PVC",
   "description": "Shree Krushn PVC Furniture - design gallery, requirements, live work tracking",
   "start_url": "/",
+  "id": "/",
   "display": "standalone",
   "background_color": "#FFFFFF",
   "theme_color": "#0F1B3D",
+  "orientation": "portrait",
   "icons": [
     {
-      "src": "/logo.jpeg",
-      "sizes": "320x320",
-      "type": "image/jpeg"
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
