@@ -7,7 +7,7 @@ import {
   Camera, Send, ArrowLeft, SlidersHorizontal, Lock,
   Home, Sparkles, AlertTriangle, Link2, Check, Package, FileText,
   UserPlus, Users, Download, Eye, EyeOff, TrendingUp,
-  Bell, ThumbsUp, XCircle, AlertCircle
+  Bell, ThumbsUp, XCircle, AlertCircle, Calculator
 } from 'lucide-react';
 
 /* ===========================================================
@@ -845,6 +845,12 @@ export default function App() {
   const [customers, setCustomers] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [adminPin, setAdminPin] = useState(DEFAULT_PIN);
+  // Default per-sqft rates used by the customer-facing quick estimate
+  // calculator (Requirements tab) - admin can adjust these in Settings.
+  // Separate from actual estimate items (which admin builds by hand
+  // with real, per-job rates) - this is only for giving the customer a
+  // rough, instant approximation before an admin-built estimate exists.
+  const [estimateRates, setEstimateRatesRaw] = useState({ laminate: '1000', withoutLaminate: '700' });
   const [partnerPin, setPartnerPin] = useState('');
   const [staff, setStaff] = useState([]);
   const [expenses, setExpenses] = useState([]);
@@ -867,10 +873,10 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [galleryCatList, c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att] = await Promise.all([
+        const [galleryCatList, c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates] = await Promise.all([
           safeGet('gallery_categories'), safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
-          safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'),
+          safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
         ]);
         // Gallery is split one Firestore document PER CATEGORY (see
         // persistGallery) rather than one combined document, so total
@@ -956,6 +962,7 @@ export default function App() {
         if (notifs) setNotificationsRaw(JSON.parse(notifs));
         if (tmpl) setItemTemplatesRaw(JSON.parse(tmpl));
         if (att) setAttendanceRaw(JSON.parse(att));
+        if (estRates) setEstimateRatesRaw(JSON.parse(estRates));
         // Runs after the app is already usable (not inside the
         // try/finally above), so migrating a large old gallery never
         // delays showing the login/home screen. This writes each
@@ -1309,6 +1316,11 @@ export default function App() {
     try { await window.storage.set('admin_pin', pin, true); }
     catch (e) { showToast('PIN save failed', true); }
   }, []);
+  const persistEstimateRates = useCallback(async (rates) => {
+    setEstimateRatesRaw(rates);
+    try { await window.storage.set('estimate_rates', JSON.stringify(rates), true); }
+    catch (e) { showToast('Rates save failed', true); }
+  }, []);
   const persistPartnerPin = useCallback(async (pin) => {
     setPartnerPin(pin);
     try { await window.storage.set('partner_pin', pin, true); }
@@ -1474,6 +1486,7 @@ export default function App() {
           notifications={notifications} markNotificationRead={markNotificationRead} markAllNotificationsRead={markAllNotificationsRead}
           itemTemplates={itemTemplates} setItemTemplates={setItemTemplates}
           attendance={attendance}
+          estimateRates={estimateRates} setEstimateRates={persistEstimateRates}
           pushNotification={pushNotification}
           allData={{ customers, jobs, gallery, staff, expenses }}
           staffName={session.staffName}
@@ -1577,6 +1590,7 @@ export default function App() {
         categories={categories}
         brochures={brochures}
         testimonials={featuredTestimonials}
+        estimateRates={estimateRates}
         notifications={myNotifications}
         markNotificationRead={markNotificationRead}
         markAllNotificationsRead={markAllNotificationsRead}
@@ -2123,7 +2137,7 @@ function StageBadge({ status, size }) {
 
 /* ===================== CUSTOMER APP ===================== */
 /* Everything below receives ONLY this one customer's data - never a list of others. */
-function CustomerApp({ customer, gallery, job, appointmentItemOptions, categories, brochures, testimonials, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
+function CustomerApp({ customer, gallery, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
   // A brand-new customer (no appointment booked yet) lands straight on
   // the appointment tab instead of home, since booking a visit is the
   // one thing every new customer needs to do first - skipping this extra
@@ -2186,7 +2200,7 @@ function CustomerApp({ customer, gallery, job, appointmentItemOptions, categorie
       {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} onLogout={onLogout} />}
       {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
       {tab === 'gallery' && <GalleryBrowser gallery={gallery} brochures={brochures} categories={categories} testimonials={testimonials} job={job} onSaveJob={onSaveJob} showToast={showToast} />}
-      {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} customer={customer} gallery={gallery} />}
+      {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} customer={customer} gallery={gallery} estimateRates={estimateRates} />}
       {tab === 'estimate' && (
         <div style={{ padding: '12px 16px' }}>
           <div style={styles.sectionTitle}>Estimate</div>
@@ -3026,7 +3040,7 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
   );
 }
 
-function RequirementsPanel({ job, onSave, showToast, categories, customer, gallery }) {
+function RequirementsPanel({ job, onSave, showToast, categories, customer, gallery, estimateRates }) {
   const [category, setCategory] = useState(categories[0]);
   const [text, setText] = useState('');
   const [dimensions, setDimensions] = useState('');
@@ -3034,6 +3048,34 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
   const [showForm, setShowForm] = useState((job.requirements || []).length === 0);
   const [lightbox, setLightbox] = useState(null);
   const savedDesigns = job.savedDesigns || [];
+
+  // Instant estimate calculator: a customer-side, self-service rough
+  // total based on their own measurements and material choice, using
+  // the global per-sqft rates admin sets in Settings - separate from
+  // the actual estimate (which admin still builds by hand, per real
+  // item, once they've visited/reviewed the project). This just gives
+  // an early ballpark before that happens.
+  const [showCalculator, setShowCalculator] = useState(false);
+  const [calcItems, setCalcItems] = useState([]);
+  const [calcCategory, setCalcCategory] = useState(categories[0]);
+  const [calcLength, setCalcLength] = useState('');
+  const [calcHeight, setCalcHeight] = useState('');
+  const [calcLaminate, setCalcLaminate] = useState(true);
+
+  const rates = estimateRates || { laminate: '1000', withoutLaminate: '700' };
+  const calcItemAmount = (it) => {
+    const sqft = (Number(it.length) * Number(it.height)) / 144;
+    const rate = it.laminate ? Number(rates.laminate) : Number(rates.withoutLaminate);
+    return Math.round(sqft * rate);
+  };
+  const calcTotal = calcItems.reduce((s, it) => s + calcItemAmount(it), 0);
+
+  const addCalcItem = () => {
+    if (!calcLength || !calcHeight) { showToast('Length aur Height dono bharein', true); return; }
+    setCalcItems((prev) => [...prev, { id: uid(), category: calcCategory, length: calcLength, height: calcHeight, laminate: calcLaminate }]);
+    setCalcLength(''); setCalcHeight('');
+  };
+  const removeCalcItem = (id) => setCalcItems((prev) => prev.filter((it) => it.id !== id));
 
   // photoRef only stores a photoId (see FavoritesButton's addToProject
   // for why - the image itself already lives in the gallery's own
@@ -3096,6 +3138,53 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
         </div>
         {!showForm && (
           <button style={styles.roundAddBtn} onClick={() => setShowForm(true)}><Plus size={18} color='#FFF' /></button>
+        )}
+      </div>
+
+      <div style={{ ...styles.formCard, marginTop: 14, background: '#FFF9EE', borderColor: BRAND.gold }}>
+        <button style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }} onClick={() => setShowCalculator((s) => !s)}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 13.5, color: BRAND.navy }}><Calculator size={16} color={BRAND.gold} /> Instant Estimate Calculator</div>
+          {showCalculator ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+        {!showCalculator && <div style={styles.plainTextMuted}>Apni measurements daal ke turant approx price dekhein</div>}
+        {showCalculator && (
+          <div style={{ marginTop: 10 }}>
+            <div style={styles.plainTextMuted}>Ye ek approx estimate hai, final estimate admin banayenge site visit ke baad.</div>
+            <div style={{ ...styles.hintText, marginTop: 10 }}>Item</div>
+            <div style={styles.chipRow}>
+              {categories.map((c) => (
+                <button key={c} onClick={() => setCalcCategory(c)} style={{ ...styles.chip, ...(calcCategory === c ? styles.chipActive : {}) }}>{c}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <input style={styles.input} inputMode='decimal' placeholder='Length (inch)' value={calcLength} onChange={(e) => setCalcLength(e.target.value)} />
+              <input style={styles.input} inputMode='decimal' placeholder='Height (inch)' value={calcHeight} onChange={(e) => setCalcHeight(e.target.value)} />
+            </div>
+            <div style={{ ...styles.hintText, marginTop: 8 }}>Material</div>
+            <div style={styles.chipRow}>
+              <button onClick={() => setCalcLaminate(true)} style={{ ...styles.chip, ...(calcLaminate ? styles.chipActive : {}) }}>Laminate</button>
+              <button onClick={() => setCalcLaminate(false)} style={{ ...styles.chip, ...(!calcLaminate ? styles.chipActive : {}) }}>Without Laminate</button>
+            </div>
+            <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={addCalcItem}><Plus size={14} /> Item Add Karein</button>
+
+            {calcItems.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                {calcItems.map((it) => (
+                  <div key={it.id} style={styles.itemRow}>
+                    <div style={{ flex: 1 }}>
+                      <div style={styles.itemDesc}>{it.category} - {it.laminate ? 'Laminate' : 'Without Laminate'}</div>
+                      <div style={styles.itemSub}>{it.length}" x {it.height}" ({((Number(it.length) * Number(it.height)) / 144).toFixed(1)} sqft)</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={styles.itemDesc}>{currency(calcItemAmount(it))}</div>
+                      <button style={styles.iconBtnSmall} onClick={() => removeCalcItem(it.id)}><Trash2 size={13} color='#C7CCDC' /></button>
+                    </div>
+                  </div>
+                ))}
+                <div style={styles.totalBar}><span>Approx Total</span><span style={styles.totalAmt}>{currency(calcTotal)}</span></div>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -3859,7 +3948,7 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
   );
 }
 
-function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, staffName, isPartner, onLogout, showToast, pushNotification }) {
+function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, staffName, isPartner, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
@@ -3921,7 +4010,7 @@ function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs,
       {tab === 'settings' && (
         isPartner
           ? <PartnerSettings staffName={staffName} onLogout={onLogout} />
-          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} attendance={attendance} onLogout={onLogout} showToast={showToast} />
+          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} onLogout={onLogout} showToast={showToast} />
       )}
 
       <BottomNav
@@ -4583,6 +4672,29 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
   const [visitConfirmTime, setVisitConfirmTime] = useState('');
   const additionalVisits = job.additionalVisits || [];
 
+  // Admin booking directly (e.g. customer called in instead of using
+  // the app) - no separate "requested" step needed since admin IS the
+  // one confirming it, so this goes straight to 'confirmed'.
+  const [bookDate, setBookDate] = useState('');
+  const [bookTime, setBookTime] = useState('');
+  const [bookAddress, setBookAddress] = useState(job.address || '');
+
+  const bookDirectly = () => {
+    if (!bookDate || !bookAddress.trim()) { showToast('Date aur address zaroori hai', true); return; }
+    const nextAppt = {
+      preferredDate: bookDate, preferredTime: bookTime, address: bookAddress.trim(),
+      status: 'confirmed', confirmedDate: bookDate, confirmedTime: bookTime,
+      requestedAt: new Date().toISOString(), bookedByAdmin: true,
+    };
+    let next = { ...job, appointment: nextAppt, address: bookAddress.trim() };
+    next = logActivity(next, 'Admin ne appointment book ki: ' + formatDate(bookDate) + (bookTime ? (', ' + formatTime12h(bookTime)) : ''));
+    onSave(next);
+    if (pushNotification) {
+      pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(bookDate) + (bookTime ? (' - ' + formatTime12h(bookTime)) : '') + ' ke liye book ho gayi hai', job.id);
+    }
+    showToast('Appointment book ho gayi');
+  };
+
   const confirmAdditionalVisit = (visit) => {
     if (!visitConfirmDate) { showToast('Date select karein', true); return; }
     const next = { ...job, additionalVisits: additionalVisits.map((v) => (v.id === visit.id ? { ...v, status: 'confirmed', confirmedDate: visitConfirmDate, confirmedTime: visitConfirmTime } : v)) };
@@ -4595,7 +4707,19 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
   };
 
   if (!appt) {
-    return <div style={styles.emptySmall}>Customer ne abhi tak koi appointment request nahi ki.</div>;
+    return (
+      <div style={{ padding: '12px 16px' }}>
+        <div style={styles.emptySmall}>Customer ne abhi tak koi appointment request nahi ki.</div>
+        <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Aap khud se book karein</div>
+        <div style={styles.plainTextMuted}>Agar customer ne call karke bataya hai, to seedha yahan se book kar sakte hain.</div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <input style={styles.input} type='date' value={bookDate} onChange={(e) => setBookDate(e.target.value)} />
+          <input style={styles.input} type='time' value={bookTime} onChange={(e) => setBookTime(e.target.value)} />
+        </div>
+        <input style={{ ...styles.input, marginTop: 8 }} placeholder='Address' value={bookAddress} onChange={(e) => setBookAddress(e.target.value)} />
+        <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={bookDirectly}>Appointment Book Karein</button>
+      </div>
+    );
   }
 
   const st = APPT_STATUS[appt.status] || APPT_STATUS.requested;
@@ -4661,7 +4785,16 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
         <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0, background: '#B5562E' }} onClick={() => confirm(true)}><Calendar size={14} /> Reschedule</button>
       </div>
       {(appt.status === 'confirmed' || appt.status === 'rescheduled') && (
-        <button style={styles.addBtn} onClick={markCompleted}><CheckCircle2 size={14} /> Mark visit completed</button>
+        <>
+          <button style={styles.addBtn} onClick={markCompleted}><CheckCircle2 size={14} /> Mark visit completed</button>
+          <a
+            href={whatsAppShareUrl(job.phone, 'Namaste ' + job.customerName + ',\n\nAapki visit confirm ho gayi hai:\n' + formatDate(appt.confirmedDate) + (appt.confirmedTime ? (' - ' + formatTime12h(appt.confirmedTime)) : '') + '\n\nAddress: ' + (appt.address || job.address || '-') + '\n\n- ' + BUSINESS.name)}
+            target='_blank' rel='noopener noreferrer'
+            style={{ ...styles.addBtn, background: '#25D366', color: '#FFF', textDecoration: 'none', justifyContent: 'center' }}
+          >
+            <Send size={14} /> WhatsApp Par Bhejein
+          </a>
+        </>
       )}
 
       {additionalVisits.length > 0 && (
@@ -6639,7 +6772,7 @@ function AdminProfitReport({ jobs, expenses }) {
 }
 
 /* ---- Admin settings ---- */
-function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, brochures, addBrochure, removeBrochure, allData, jobs, attendance, onLogout, showToast }) {
+function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, brochures, addBrochure, removeBrochure, allData, jobs, attendance, estimateRates, setEstimateRates, onLogout, showToast }) {
   const [current, setCurrent] = useState('');
   const [next1, setNext1] = useState('');
   const [next2, setNext2] = useState('');
@@ -6650,6 +6783,12 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
   const [staffError, setStaffError] = useState('');
   const [newPartnerPin, setNewPartnerPin] = useState('');
   const [partnerPinError, setPartnerPinError] = useState('');
+  const [laminateRate, setLaminateRate] = useState(estimateRates?.laminate || '1000');
+  const [withoutLaminateRate, setWithoutLaminateRate] = useState(estimateRates?.withoutLaminate || '700');
+  const saveEstimateRates = () => {
+    setEstimateRates({ laminate: laminateRate, withoutLaminate: withoutLaminateRate });
+    showToast('Rates save ho gaye');
+  };
   const [showKarigarPerformance, setShowKarigarPerformance] = useState(false);
 
   if (showKarigarPerformance) {
@@ -6872,6 +7011,19 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
           <input style={{ ...styles.input, marginTop: 10 }} placeholder='Nayi category ka naam' value={newGalleryCategory} onChange={(e) => setNewGalleryCategory(e.target.value)} />
           <button style={styles.addBtn} onClick={addGalleryCategory}><Plus size={14} /> Category add karein</button>
         </div>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Calculator size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Customer Estimate Calculator Rates</div>
+        </div>
+        <div style={styles.plainTextMuted}>Ye rates customer ke Requirements tab ke "Instant Estimate Calculator" mein use hote hain - per square foot.</div>
+        <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Laminate Rate (₹ per sqft)</div>
+        <input style={styles.input} inputMode='decimal' value={laminateRate} onChange={(e) => setLaminateRate(e.target.value)} />
+        <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Without Laminate Rate (₹ per sqft)</div>
+        <input style={styles.input} inputMode='decimal' value={withoutLaminateRate} onChange={(e) => setWithoutLaminateRate(e.target.value)} />
+        <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={saveEstimateRates}><CheckCircle2 size={14} /> Rates Save Karein</button>
       </div>
 
       <div style={{ ...styles.card, marginTop: 12 }}>
