@@ -314,7 +314,7 @@ function buildEstimateWhatsAppText(job) {
    Kept as simple positioned text rather than pulling in the autotable
    plugin, since a receipt only needs a handful of lines, not a full
    data table. ---- */
-function generateReceiptPdf(job, payment) {
+function buildReceiptPdfDoc(job, payment) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   let y = 20;
@@ -394,7 +394,35 @@ function generateReceiptPdf(job, payment) {
   doc.setFont(undefined, 'italic');
   doc.text('Thank you for your business.', pageWidth / 2, y, { align: 'center' });
 
+  return doc;
+}
+
+function generateReceiptPdf(job, payment) {
+  const doc = buildReceiptPdfDoc(job, payment);
   doc.save('Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf');
+}
+
+// Shares the payment receipt PDF directly to WhatsApp (or any app the
+// phone offers) using the Web Share API with an actual file attached -
+// same approach as shareEstimatePdf, so "payment received" also lands
+// in the chat as a real PDF attachment rather than a plain-text
+// message. Falls back to a plain download (with a toast explaining
+// why) wherever file sharing isn't supported.
+async function shareReceiptPdf(job, payment, showToast) {
+  const doc = buildReceiptPdfDoc(job, payment);
+  const fileName = 'Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf';
+  const blob = doc.output('blob');
+  const file = new File([blob], fileName, { type: 'application/pdf' });
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: 'Payment Receipt - ' + job.customerName });
+      return;
+    } catch (e) {
+      // user cancelled the share sheet, or it failed - fall through to download
+    }
+  }
+  doc.save(fileName);
+  if (showToast) showToast('Receipt download ho gaya - WhatsApp mein manually attach karein');
 }
 
 /* ---- Estimate PDF via screenshot: captures the ACTUAL rendered
@@ -848,18 +876,72 @@ export default function App() {
         // persistGallery) rather than one combined document, so total
         // photo capacity isn't capped by a single 1MiB document once
         // photo count climbs into the hundreds. 'gallery_categories'
-        // just lists which category documents exist; falls back to the
-        // item-category list if that hasn't been written yet (e.g. a
-        // fresh install with no gallery photos at all), so there's
-        // always SOME list to fetch against.
+        // just lists which category documents exist.
+        //
+        // If that list is missing, this is EITHER a genuinely fresh
+        // install with no photos yet, OR - critically - an account that
+        // still has all its photos sitting in the OLD single combined
+        // 'gallery' document from before this split existed. Falling
+        // straight back to itemCategories (an empty starting point) in
+        // that second case would make every existing photo in every
+        // category other than whichever one someone next happens to add
+        // to silently vanish from view forever: the FIRST photo added
+        // under the new system writes 'gallery_categories' with only
+        // that one category in it, and every future load then only
+        // knows to look for that one category's document - the old
+        // combined document's other categories still physically exist
+        // in Firestore, just permanently unreferenced. So the old
+        // document is checked FIRST, and if it has data, that's what
+        // loads (nothing is lost) and a background migration (below)
+        // copies it into the new per-category format so this doesn't
+        // need to run again next time.
         const itemCategories = cats ? JSON.parse(cats) : DEFAULT_CATEGORIES;
-        const galleryCategories = galleryCatList ? JSON.parse(galleryCatList) : itemCategories;
-        const galleryEntries = await Promise.all(
-          galleryCategories.map(async (cat) => [cat, await safeGet('gallery_cat_' + cat)])
-        );
-        const galleryObj = {};
-        for (const [cat, val] of galleryEntries) {
-          if (val) { try { galleryObj[cat] = JSON.parse(val); } catch (e) { /* skip corrupt entry */ } }
+        let galleryObj = {};
+        let oldGalleryToMigrate = null;
+        if (galleryCatList) {
+          const galleryCategories = JSON.parse(galleryCatList);
+          const galleryEntries = await Promise.all(
+            galleryCategories.map(async (cat) => [cat, await safeGet('gallery_cat_' + cat)])
+          );
+          for (const [cat, val] of galleryEntries) {
+            if (val) { try { galleryObj[cat] = JSON.parse(val); } catch (e) { /* skip corrupt entry */ } }
+          }
+        } else {
+          const oldGalleryRaw = await safeGet('gallery');
+          if (oldGalleryRaw) {
+            try {
+              galleryObj = JSON.parse(oldGalleryRaw);
+              // An even earlier storage format (before photos moved to
+              // Firebase Storage) kept each photo's actual url in its
+              // OWN small 'gallery_photo_<id>' document, with only
+              // {id, caption} in the combined document itself - so a
+              // photo recovered from that old combined document can be
+              // missing its url entirely. Filling those in here (from
+              // whichever of those old per-photo documents still exist)
+              // means the migration below writes complete, working
+              // photo entries instead of ones that would show as
+              // broken images despite now being "found" again.
+              const idsNeedingUrl = [];
+              for (const cat of Object.keys(galleryObj)) {
+                for (const p of galleryObj[cat] || []) {
+                  if (!p.url) idsNeedingUrl.push(p.id);
+                }
+              }
+              if (idsNeedingUrl.length > 0) {
+                const fetched = await Promise.all(idsNeedingUrl.map((id) => safeGet('gallery_photo_' + id)));
+                const recoveredById = {};
+                idsNeedingUrl.forEach((id, i) => {
+                  if (fetched[i]) { try { recoveredById[id] = JSON.parse(fetched[i]); } catch (e) { /* skip */ } }
+                });
+                for (const cat of Object.keys(galleryObj)) {
+                  galleryObj[cat] = (galleryObj[cat] || []).map((p) => (
+                    !p.url && recoveredById[p.id] ? { ...p, url: recoveredById[p.id].url, origUrl: recoveredById[p.id].origUrl } : p
+                  ));
+                }
+              }
+              oldGalleryToMigrate = galleryObj;
+            } catch (e) { galleryObj = {}; }
+          }
         }
         setGallery(galleryObj);
         if (c) setCustomers(JSON.parse(c));
@@ -874,6 +956,48 @@ export default function App() {
         if (notifs) setNotificationsRaw(JSON.parse(notifs));
         if (tmpl) setItemTemplatesRaw(JSON.parse(tmpl));
         if (att) setAttendanceRaw(JSON.parse(att));
+        // Runs after the app is already usable (not inside the
+        // try/finally above), so migrating a large old gallery never
+        // delays showing the login/home screen. This writes each
+        // category from the old combined document into its own new
+        // 'gallery_cat_<X>' document, then finally writes
+        // 'gallery_categories' listing all of them - only ONCE that
+        // full list is written does any device start relying on the
+        // new format, so a second admin opening the app mid-migration
+        // still safely falls back to the old document rather than
+        // seeing a half-migrated, partial category list.
+        if (oldGalleryToMigrate) {
+          (async () => {
+            try {
+              await Promise.all(
+                Object.keys(oldGalleryToMigrate).map(async (cat) => {
+                  // Any photo still holding raw base64 data (from
+                  // before photos moved to Firebase Storage) gets
+                  // uploaded here too, same as a normal add would - a
+                  // migration that just copied that data as-is into the
+                  // new per-category document would recreate the exact
+                  // 1MiB-document problem this whole split was meant to
+                  // solve, just one document later.
+                  const catPhotos = await mapWithConcurrencyLimit(oldGalleryToMigrate[cat] || [], 5, async (p) => {
+                    if (p.url && p.url.startsWith('data:')) {
+                      const uploaded = await window.fileStorage.upload('gallery_' + p.id, p.url);
+                      if (uploaded && !uploaded.error) {
+                        return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: uploaded.url, origUrl: p.origUrl || null };
+                      }
+                    }
+                    return p;
+                  });
+                  await window.storage.set('gallery_cat_' + cat, JSON.stringify(catPhotos), true);
+                })
+              );
+              await window.storage.set('gallery_categories', JSON.stringify(Object.keys(oldGalleryToMigrate)), true);
+            } catch (e) {
+              // Best effort - if this fails, the old combined document
+              // is untouched and still there, so nothing is lost; the
+              // next app load will just try the migration again.
+            }
+          })();
+        }
       } finally {
         setLoaded(true);
       }
@@ -4711,7 +4835,10 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
                 <div style={styles.itemDesc}>{currency(p.amount)}</div>
                 <div style={styles.itemSub}>{formatDate(p.date)} {p.note && ('- ' + p.note)}</div>
               </div>
-              <button style={styles.cardActionBtn} onClick={() => generateReceiptPdf(job, p)}><FileText size={13} /> Receipt</button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF' }} onClick={() => shareReceiptPdf(job, p, showToast)}><Send size={13} /> WhatsApp</button>
+                <button style={styles.cardActionBtn} onClick={() => generateReceiptPdf(job, p)}><FileText size={13} /> Receipt</button>
+              </div>
             </div>
           ))}
         </div>
@@ -5507,6 +5634,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                   <div style={styles.itemDesc}>{currency(p.amount)}</div>
                   <div style={styles.itemSub}>{formatDate(p.date)} {p.note && ('- ' + p.note)}</div>
                 </div>
+                <button style={{ ...styles.iconBtnSmall, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => shareReceiptPdf(job, p, showToast)}><Send size={14} color='#25D366' /></button>
                 <button style={styles.iconBtnSmall} onClick={() => generateReceiptPdf(job, p)}><FileText size={14} color='#3D6B66' /></button>
                 <button style={styles.iconBtnSmall} onClick={() => removePayment(p.id)}><Trash2 size={14} color='#C7CCDC' /></button>
               </div>
