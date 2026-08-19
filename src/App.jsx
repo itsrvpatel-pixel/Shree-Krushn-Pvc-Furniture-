@@ -88,6 +88,106 @@ async function mapWithConcurrencyLimit(items, limit, fn) {
   return results;
 }
 
+// Merges a local write against the FRESHEST server data for an
+// id-keyed array collection (jobs, customers, expenses, staff, etc.) -
+// protects against one device's stale local snapshot silently
+// overwriting another device's concurrent additions/edits/deletes.
+// With more than one admin device active, each one's local copy of a
+// collection can fall a little behind whatever another device just
+// saved; writing that local snapshot as the new document would
+// silently discard anything added or changed elsewhere in the
+// meantime - a new customer registration, a payment someone just
+// recorded, anything. Only entries THIS write actually changes
+// (compared to what this device knew about before the edit, via
+// prevLocal) get applied on top of the current server data, so a
+// concurrent change from elsewhere is never overwritten no matter how
+// far behind this device's local copy had drifted.
+async function mergeIdArrayWithFreshServer(storageKey, next, prevLocal) {
+  const prevById = {};
+  prevLocal.forEach((item) => { prevById[item.id] = item; });
+  const nextById = {};
+  next.forEach((item) => { nextById[item.id] = item; });
+  const changedOrAdded = next.filter((item) => JSON.stringify(item) !== JSON.stringify(prevById[item.id]));
+  const removedIds = prevLocal.filter((item) => !nextById[item.id]).map((item) => item.id);
+
+  let freshItems = prevLocal;
+  try {
+    const raw = await window.storage.get(storageKey, true);
+    if (raw && raw.value) freshItems = JSON.parse(raw.value);
+  } catch (e) { /* fall back to this device's own local copy */ }
+
+  const mergedById = {};
+  freshItems.forEach((item) => { mergedById[item.id] = item; });
+  changedOrAdded.forEach((item) => { mergedById[item.id] = item; });
+  removedIds.forEach((id) => { delete mergedById[id]; });
+  return Object.values(mergedById);
+}
+
+// One job's array-type sub-fields (payments, items, extra work, notes,
+// photos, requirements, activity, additional visits) merged by their
+// OWN id, rather than one whole job object replacing another. The
+// record-level merge above already protects "two admins editing
+// DIFFERENT jobs" - this covers the narrower but higher-stakes case of
+// two admins editing the SAME job at close to the same time (one
+// records a payment, the other adds an estimate item, say): without
+// this, whichever save landed second would silently overwrite the
+// other's change to that job, even though the record-level fix alone
+// would correctly preserve every OTHER job. Scalar fields (status,
+// discount, etc.) still follow simple "local edit wins" semantics,
+// since those genuinely can't be merged the way a list of distinct
+// entries can.
+function mergeJobFields(freshJob, localPrevJob, localNextJob) {
+  if (!freshJob) return localNextJob;
+  if (JSON.stringify(freshJob) === JSON.stringify(localPrevJob)) return localNextJob;
+  const listFields = ['payments', 'items', 'extraWork', 'projectNotes', 'progressPhotos', 'requirements', 'activity', 'additionalVisits', 'estimateDrafts', 'savedDesigns'];
+  const merged = { ...freshJob, ...localNextJob };
+  for (const field of listFields) {
+    const freshList = freshJob[field] || [];
+    const localPrevList = localPrevJob[field] || [];
+    const localNextList = localNextJob[field] || [];
+    const localPrevById = {};
+    localPrevList.forEach((it) => { if (it && it.id) localPrevById[it.id] = it; });
+    const localChangedOrAdded = localNextList.filter((it) => it && it.id && JSON.stringify(it) !== JSON.stringify(localPrevById[it.id]));
+    const localRemovedIds = localPrevList.filter((it) => it && it.id && !localNextList.some((x) => x.id === it.id)).map((it) => it.id);
+    const fieldMergedById = {};
+    freshList.forEach((it) => { if (it && it.id) fieldMergedById[it.id] = it; });
+    localChangedOrAdded.forEach((it) => { fieldMergedById[it.id] = it; });
+    localRemovedIds.forEach((id) => { delete fieldMergedById[id]; });
+    merged[field] = Object.values(fieldMergedById);
+  }
+  return merged;
+}
+
+// Same record-level protection as mergeIdArrayWithFreshServer, plus
+// field-level merging (via mergeJobFields above) for any job that
+// someone else ALSO changed concurrently - see mergeJobFields for why
+// jobs specifically need this extra layer.
+async function mergeJobsWithFreshServer(next, prevLocal) {
+  const prevById = {};
+  prevLocal.forEach((j) => { prevById[j.id] = j; });
+  const nextById = {};
+  next.forEach((j) => { nextById[j.id] = j; });
+  const changedOrAdded = next.filter((j) => JSON.stringify(j) !== JSON.stringify(prevById[j.id]));
+  const removedIds = prevLocal.filter((j) => !nextById[j.id]).map((j) => j.id);
+
+  let freshJobs = prevLocal;
+  try {
+    const raw = await window.storage.get('jobs', true);
+    if (raw && raw.value) freshJobs = JSON.parse(raw.value);
+  } catch (e) { /* fall back to this device's own local copy */ }
+
+  const freshById = {};
+  freshJobs.forEach((j) => { freshById[j.id] = j; });
+
+  const mergedById = {};
+  freshJobs.forEach((j) => { mergedById[j.id] = j; });
+  changedOrAdded.forEach((j) => {
+    mergedById[j.id] = mergeJobFields(freshById[j.id], prevById[j.id], j);
+  });
+  removedIds.forEach((id) => { delete mergedById[id]; });
+  return Object.values(mergedById);
+}
+
 function currency(n) {
   const v = Number(n) || 0;
   return '₹' + v.toLocaleString('en-IN', { maximumFractionDigits: 0 });
@@ -845,19 +945,20 @@ export default function App() {
   const [customers, setCustomers] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [adminPin, setAdminPin] = useState(DEFAULT_PIN);
-  // Default per-sqft rates used by the customer-facing quick estimate
-  // calculator (Requirements tab) - admin manages this list in
-  // Settings. Not just a single "with/without laminate" split, since
-  // real furniture work breaks down into named components with very
-  // different rates (framing, box, basket, drawer, TV cabinet,
-  // partition, etc.) - each admin's own list, fully editable, since
-  // this varies a lot business to business. Separate from actual
-  // estimate items (which admin builds by hand with real, per-job
-  // rates) - this is only for a rough, instant approximation before an
-  // admin-built estimate exists.
+  // Default rates used by the customer-facing quick estimate calculator
+  // (Requirements tab) - admin manages this list in Settings. Each
+  // entry has a `unit`: 'sqft' (calculated from Length x Height, for
+  // things like framing/box/TV cabinet/partition) or 'piece' (a flat
+  // rate x quantity, for things like baskets/drawers that are counted
+  // individually rather than measured by area) - real furniture
+  // components genuinely mix both pricing styles, so the calculator
+  // needs to ask for different inputs depending on which type is
+  // selected. Separate from actual estimate items (which admin builds
+  // by hand with real, per-job rates) - this is only for a rough,
+  // instant approximation before an admin-built estimate exists.
   const [estimateRates, setEstimateRatesRaw] = useState([
-    { id: 'r1', name: 'Laminate', rate: '1000' },
-    { id: 'r2', name: 'Without Laminate', rate: '700' },
+    { id: 'r1', name: 'Laminate', rate: '1000', unit: 'sqft' },
+    { id: 'r2', name: 'Without Laminate', rate: '700', unit: 'sqft' },
   ]);
   const [partnerPin, setPartnerPin] = useState('');
   const [staff, setStaff] = useState([]);
@@ -1278,10 +1379,15 @@ export default function App() {
     }
   }, [gallery]);
   const persistCustomers = useCallback(async (next) => {
+    const prevLocalCustomers = customers;
     setCustomers(next);
-    try { await window.storage.set('customers', JSON.stringify(next), true); }
+    try {
+      const merged = await mergeIdArrayWithFreshServer('customers', next, prevLocalCustomers);
+      await window.storage.set('customers', JSON.stringify(merged), true);
+      setCustomers(merged);
+    }
     catch (e) { showToast('Save failed', true); }
-  }, []);
+  }, [customers]);
   // Tracks when the LOCAL app last wrote to `jobs` (a delete, an edit,
   // approving something, etc.) so the background poll below can tell the
   // difference between "Firestore genuinely has nothing new" and "our
@@ -1306,11 +1412,31 @@ export default function App() {
   // like they "worked, then vanished": local state updates optimistically
   // regardless, so without checking this, a failed write is invisible
   // until a later background poll replaces it with the real data).
+  //
+  // Merges against the FRESHEST server data rather than blindly writing
+  // this device's local `next` array as-is - the same fix as
+  // persistGallery's fetchFreshCategory, applied here because jobs
+  // carries the business's actual data (payments, estimates,
+  // appointments, every customer's project) and is exactly as exposed
+  // to the same risk: if two admin devices are both active, each
+  // device's local `jobs` snapshot can fall behind whatever the OTHER
+  // device just saved. Writing that stale snapshot as the new 'jobs'
+  // document would silently discard anything the other device added or
+  // changed in between - a new customer registration, a payment someone
+  // just recorded, anything. Comparing this write's intended changes
+  // against this device's OWN prior local state (not the fresh server
+  // data) isolates exactly what THIS save is meant to change, then
+  // applies only that on top of the current server data - so a
+  // concurrent change from elsewhere is never overwritten, no matter
+  // how far behind this device's local copy had drifted.
   const persistJobs = useCallback(async (next) => {
     jobsWriteInFlightRef.current = true;
+    const prevLocalJobs = jobs;
     setJobs(next);
     try {
-      await window.storage.set('jobs', JSON.stringify(next), true);
+      const merged = await mergeJobsWithFreshServer(next, prevLocalJobs);
+      await window.storage.set('jobs', JSON.stringify(merged), true);
+      setJobs(merged);
       return true;
     } catch (e) {
       showToast('Save failed', true);
@@ -1318,7 +1444,7 @@ export default function App() {
     } finally {
       jobsWriteInFlightRef.current = false;
     }
-  }, []);
+  }, [jobs]);
   const persistPin = useCallback(async (pin) => {
     setAdminPin(pin);
     try { await window.storage.set('admin_pin', pin, true); }
@@ -1335,10 +1461,15 @@ export default function App() {
     catch (e) { showToast('Partner PIN save failed', true); }
   }, []);
   const persistExpenses = useCallback(async (next) => {
+    const prevLocalExpenses = expenses;
     setExpenses(next);
-    try { await window.storage.set('expenses', JSON.stringify(next), true); }
+    try {
+      const merged = await mergeIdArrayWithFreshServer('expenses', next, prevLocalExpenses);
+      await window.storage.set('expenses', JSON.stringify(merged), true);
+      setExpenses(merged);
+    }
     catch (e) { showToast('Save failed', true); }
-  }, []);
+  }, [expenses]);
   const persistAppointmentItemOptions = useCallback(async (next) => {
     setAppointmentItemOptions(next);
     try { await window.storage.set('appointment_item_options', JSON.stringify(next), true); }
@@ -1433,10 +1564,15 @@ export default function App() {
     } catch (e) { /* best effort */ }
   }, [brochures]);
   const persistStaff = useCallback(async (next) => {
+    const prevLocalStaff = staff;
     setStaff(next);
-    try { await window.storage.set('staff', JSON.stringify(next), true); }
+    try {
+      const merged = await mergeIdArrayWithFreshServer('staff', next, prevLocalStaff);
+      await window.storage.set('staff', JSON.stringify(merged), true);
+      setStaff(merged);
+    }
     catch (e) { showToast('Staff save failed', true); }
-  }, []);
+  }, [staff]);
 
   if (!loaded) {
     return (
@@ -3058,32 +3194,49 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
   const savedDesigns = job.savedDesigns || [];
 
   // Instant estimate calculator: a customer-side, self-service rough
-  // total based on their own measurements and which rate type applies
-  // (Framing, Box, Basket, Drawer, TV Cabinet, Partition, etc. - admin's
-  // own configured list, not just a fixed laminate/without-laminate
-  // split), using the per-sqft rates admin sets in Settings - separate
-  // from the actual estimate (which admin still builds by hand, per
-  // real item, once they've visited/reviewed the project). This just
-  // gives an early ballpark before that happens.
+  // total based on their own measurements/quantities and which rate
+  // type applies (Framing, Box, Basket, Drawer, TV Cabinet, Partition,
+  // etc. - admin's own configured list, not just a fixed
+  // laminate/without-laminate split), using the rates admin sets in
+  // Settings - separate from the actual estimate (which admin still
+  // builds by hand, per real item, once they've visited/reviewed the
+  // project). This just gives an early ballpark before that happens.
   const [showCalculator, setShowCalculator] = useState(false);
   const [calcItems, setCalcItems] = useState([]);
   const [calcCategory, setCalcCategory] = useState(categories[0]);
   const [calcLength, setCalcLength] = useState('');
   const [calcHeight, setCalcHeight] = useState('');
-  const rates = (estimateRates && estimateRates.length > 0) ? estimateRates : [{ id: 'r1', name: 'Laminate', rate: '1000' }, { id: 'r2', name: 'Without Laminate', rate: '700' }];
+  const [calcQty, setCalcQty] = useState('1');
+  const rates = (estimateRates && estimateRates.length > 0) ? estimateRates : [{ id: 'r1', name: 'Laminate', rate: '1000', unit: 'sqft' }, { id: 'r2', name: 'Without Laminate', rate: '700', unit: 'sqft' }];
   const [calcRateId, setCalcRateId] = useState(rates[0]?.id);
+  const calcSelectedRate = rates.find((r) => r.id === calcRateId);
+  const calcIsPieceType = calcSelectedRate?.unit === 'piece';
 
+  // Piece-priced items (baskets, drawers) are just quantity x rate - no
+  // measurement needed, since they're counted individually rather than
+  // measured by area, unlike sqft-priced items (framing, box, TV
+  // cabinet, partition) which need Length x Height.
   const calcItemAmount = (it) => {
-    const sqft = (Number(it.length) * Number(it.height)) / 144;
     const rateEntry = rates.find((r) => r.id === it.rateId);
-    return Math.round(sqft * Number(rateEntry?.rate || 0));
+    if (!rateEntry) return 0;
+    if (rateEntry.unit === 'piece') {
+      return Math.round(Number(it.qty || 0) * Number(rateEntry.rate));
+    }
+    const sqft = (Number(it.length) * Number(it.height)) / 144;
+    return Math.round(sqft * Number(rateEntry.rate));
   };
   const calcTotal = calcItems.reduce((s, it) => s + calcItemAmount(it), 0);
 
   const addCalcItem = () => {
-    if (!calcLength || !calcHeight) { showToast('Length aur Height dono bharein', true); return; }
-    setCalcItems((prev) => [...prev, { id: uid(), category: calcCategory, length: calcLength, height: calcHeight, rateId: calcRateId }]);
-    setCalcLength(''); setCalcHeight('');
+    if (calcIsPieceType) {
+      if (!calcQty || Number(calcQty) <= 0) { showToast('Quantity bharein', true); return; }
+      setCalcItems((prev) => [...prev, { id: uid(), category: calcCategory, qty: calcQty, rateId: calcRateId }]);
+      setCalcQty('1');
+    } else {
+      if (!calcLength || !calcHeight) { showToast('Length aur Height dono bharein', true); return; }
+      setCalcItems((prev) => [...prev, { id: uid(), category: calcCategory, length: calcLength, height: calcHeight, rateId: calcRateId }]);
+      setCalcLength(''); setCalcHeight('');
+    }
   };
   const removeCalcItem = (id) => setCalcItems((prev) => prev.filter((it) => it.id !== id));
 
@@ -3166,16 +3319,20 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
                 <button key={c} onClick={() => setCalcCategory(c)} style={{ ...styles.chip, ...(calcCategory === c ? styles.chipActive : {}) }}>{c}</button>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <input style={styles.input} inputMode='decimal' placeholder='Length (inch)' value={calcLength} onChange={(e) => setCalcLength(e.target.value)} />
-              <input style={styles.input} inputMode='decimal' placeholder='Height (inch)' value={calcHeight} onChange={(e) => setCalcHeight(e.target.value)} />
-            </div>
             <div style={{ ...styles.hintText, marginTop: 8 }}>Type</div>
             <div style={styles.chipRow}>
               {rates.map((r) => (
                 <button key={r.id} onClick={() => setCalcRateId(r.id)} style={{ ...styles.chip, ...(calcRateId === r.id ? styles.chipActive : {}) }}>{r.name}</button>
               ))}
             </div>
+            {calcIsPieceType ? (
+              <input style={{ ...styles.input, marginTop: 8 }} inputMode='numeric' placeholder='Kitne piece (nang)' value={calcQty} onChange={(e) => setCalcQty(e.target.value)} />
+            ) : (
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input style={styles.input} inputMode='decimal' placeholder='Length (inch)' value={calcLength} onChange={(e) => setCalcLength(e.target.value)} />
+                <input style={styles.input} inputMode='decimal' placeholder='Height (inch)' value={calcHeight} onChange={(e) => setCalcHeight(e.target.value)} />
+              </div>
+            )}
             <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={addCalcItem}><Plus size={14} /> Item Add Karein</button>
 
             {calcItems.length > 0 && (
@@ -3184,7 +3341,7 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
                   <div key={it.id} style={styles.itemRow}>
                     <div style={{ flex: 1 }}>
                       <div style={styles.itemDesc}>{it.category} - {rates.find((r) => r.id === it.rateId)?.name || '-'}</div>
-                      <div style={styles.itemSub}>{it.length}" x {it.height}" ({((Number(it.length) * Number(it.height)) / 144).toFixed(1)} sqft)</div>
+                      <div style={styles.itemSub}>{it.qty ? (it.qty + ' piece') : (it.length + '" x ' + it.height + '" (' + ((Number(it.length) * Number(it.height)) / 144).toFixed(1) + ' sqft)')}</div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={styles.itemDesc}>{currency(calcItemAmount(it))}</div>
@@ -6800,9 +6957,10 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
   const [rateDrafts, setRateDrafts] = useState(estimateRates && estimateRates.length > 0 ? estimateRates : []);
   const [newRateName, setNewRateName] = useState('');
   const [newRateValue, setNewRateValue] = useState('');
+  const [newRateUnit, setNewRateUnit] = useState('sqft');
   const addRateType = () => {
     if (!newRateName.trim() || !newRateValue.trim()) { showToast('Naam aur rate dono bharein', true); return; }
-    setRateDrafts((prev) => [...prev, { id: uid(), name: newRateName.trim(), rate: newRateValue.trim() }]);
+    setRateDrafts((prev) => [...prev, { id: uid(), name: newRateName.trim(), rate: newRateValue.trim(), unit: newRateUnit }]);
     setNewRateName(''); setNewRateValue('');
   };
   const updateRateDraft = (id, field, value) => {
@@ -7047,16 +7205,29 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
         <div style={styles.plainTextMuted}>Har alag cheez ka apna rate (₹ per sqft) - Framing, Box, Basket, Drawer, TV Cabinet, Partition, jo bhi chahiye. Customer ke "Instant Estimate Calculator" mein use hota hai.</div>
 
         {rateDrafts.map((r) => (
-          <div key={r.id} style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
-            <input style={{ ...styles.input, flex: 1.3 }} placeholder='Naam' value={r.name} onChange={(e) => updateRateDraft(r.id, 'name', e.target.value)} />
-            <input style={{ ...styles.input, flex: 1 }} inputMode='decimal' placeholder='₹/sqft' value={r.rate} onChange={(e) => updateRateDraft(r.id, 'rate', e.target.value)} />
-            <button style={styles.iconBtnSmall} onClick={() => removeRateDraft(r.id)}><Trash2 size={14} color='#C7CCDC' /></button>
+          <div key={r.id} style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid ' + BRAND.line }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input style={{ ...styles.input, flex: 1.3 }} placeholder='Naam' value={r.name} onChange={(e) => updateRateDraft(r.id, 'name', e.target.value)} />
+              <input style={{ ...styles.input, flex: 1 }} inputMode='decimal' placeholder={r.unit === 'piece' ? '₹/piece' : '₹/sqft'} value={r.rate} onChange={(e) => updateRateDraft(r.id, 'rate', e.target.value)} />
+              <button style={styles.iconBtnSmall} onClick={() => removeRateDraft(r.id)}><Trash2 size={14} color='#C7CCDC' /></button>
+            </div>
+            <div style={{ ...styles.chipRow, marginTop: 6 }}>
+              <button onClick={() => updateRateDraft(r.id, 'unit', 'sqft')} style={{ ...styles.chip, ...((r.unit || 'sqft') === 'sqft' ? styles.chipActive : {}) }}>Sqft ke hisaab se</button>
+              <button onClick={() => updateRateDraft(r.id, 'unit', 'piece')} style={{ ...styles.chip, ...(r.unit === 'piece' ? styles.chipActive : {}) }}>Per Piece (Nang)</button>
+            </div>
           </div>
         ))}
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <input style={{ ...styles.input, flex: 1.3 }} placeholder='Naya naam (jaise Basket)' value={newRateName} onChange={(e) => setNewRateName(e.target.value)} />
-          <input style={{ ...styles.input, flex: 1 }} inputMode='decimal' placeholder='₹/sqft' value={newRateValue} onChange={(e) => setNewRateValue(e.target.value)} />
+        <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed ' + BRAND.line }}>
+          <div style={styles.fieldLabel}>Naya Rate Type</div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <input style={{ ...styles.input, flex: 1.3 }} placeholder='Naam (jaise Basket)' value={newRateName} onChange={(e) => setNewRateName(e.target.value)} />
+            <input style={{ ...styles.input, flex: 1 }} inputMode='decimal' placeholder={newRateUnit === 'piece' ? '₹/piece' : '₹/sqft'} value={newRateValue} onChange={(e) => setNewRateValue(e.target.value)} />
+          </div>
+          <div style={{ ...styles.chipRow, marginTop: 6 }}>
+            <button onClick={() => setNewRateUnit('sqft')} style={{ ...styles.chip, ...(newRateUnit === 'sqft' ? styles.chipActive : {}) }}>Sqft ke hisaab se</button>
+            <button onClick={() => setNewRateUnit('piece')} style={{ ...styles.chip, ...(newRateUnit === 'piece' ? styles.chipActive : {}) }}>Per Piece (Nang)</button>
+          </div>
         </div>
         <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addRateType}><Plus size={14} /> Naya Rate Type Add Karein</button>
         <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={saveRates}><CheckCircle2 size={14} /> Sab Rates Save Karein</button>
