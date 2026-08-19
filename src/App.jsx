@@ -1952,7 +1952,7 @@ function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, 
     <div style={styles.loginWrap}>
       <div style={styles.loginBgAccent} />
       <div style={styles.loginBrand}>
-        <img src='/logo.jpeg' alt='Shree Krushn PVC Furniture logo' style={styles.loginLogo} />
+        <img src='/icon-512.png' alt='Shree Krushn PVC Furniture logo' style={styles.loginLogo} />
         <div style={styles.brandName}>SHREE KRUSHN</div>
         <div style={styles.brandNameSub}>PVC FURNITURE</div>
         <div style={styles.brandSub}>Design gallery - Requirements - Live work tracking</div>
