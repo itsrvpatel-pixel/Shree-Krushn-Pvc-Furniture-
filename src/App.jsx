@@ -5982,13 +5982,50 @@ function AdminGallery({ gallery, setGallery, categories, setCategories, showToas
   const allPhotos = [...(gallery[activeCat] || [])].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   const photos = allPhotos.filter((p) => !query.trim() || (p.caption || '').toLowerCase().includes(query.toLowerCase()));
 
+  // Fetches a category's CURRENT state directly from Firestore, rather
+  // than trusting this device's local `gallery` state - shared by every
+  // gallery-modifying action below. With more than one admin possibly
+  // adding/editing/removing photos around the same time, each device's
+  // local copy can be a little behind whatever another device just
+  // saved; building a write on that stale snapshot means it REPLACES
+  // the whole category with this device's outdated view, silently
+  // dropping whatever anyone else changed in between - which is exactly
+  // what repeated "photos disappearing" across multiple admin sessions
+  // looks like. Falls back to the local snapshot only if the fetch
+  // itself fails, so a flaky connection doesn't block the action
+  // entirely.
+  const fetchFreshCategory = async (cat, localFallback) => {
+    try {
+      const raw = await window.storage.get('gallery_cat_' + cat, true);
+      if (raw && raw.value) {
+        const parsed = JSON.parse(raw.value);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) { /* fall back to local state below */ }
+    return localFallback;
+  };
+
   const addPhotosFromPanel = async (photos) => {
     // Building the full new-photo list here and calling setGallery ONCE
     // is what actually fixes the multi-upload bug: this closure's
     // `allPhotos` is a single fresh snapshot for the whole batch, so
     // every photo in `photos` lands correctly instead of only the last
     // one surviving.
-    //
+    const newEntries = photos.map((p) => ({ id: uid(), url: p.url, origUrl: p.origUrl, caption: p.caption, createdAt: new Date().toISOString() }));
+    // Re-fetches the CURRENT category directly from Firestore right
+    // before merging in the new photos, instead of trusting this
+    // device's local `gallery` state (`allPhotos`) as the base - with
+    // more than one admin adding photos around the same time, each
+    // device's local copy can be a little behind whatever the OTHER
+    // device just saved. Building the write from a stale local snapshot
+    // means the write REPLACES the whole category with "my old photos +
+    // my new ones", silently dropping whatever the other admin added in
+    // between - which is exactly what repeated "photos disappearing"
+    // across multiple admin sessions looks like. Fetching fresh here
+    // means the merge is always built on top of whatever is actually in
+    // Firestore at this exact moment, not a potentially-outdated cache.
+    const freshCategoryPhotos = await fetchFreshCategory(activeCat, allPhotos);
+    const next = { ...gallery, [activeCat]: [...newEntries, ...freshCategoryPhotos] };
     // Awaiting setGallery (= persistGallery, an async function) before
     // showing "added" matters just as much: persistGallery does the
     // real Firestore writes in the background, and if ANY of them fail
@@ -5997,13 +6034,7 @@ function AdminGallery({ gallery, setGallery, categories, setCategories, showToas
     // already updating local state optimistically. Without awaiting
     // here, this function's OWN success toast fired immediately, before
     // that outcome was known, telling the user it worked even when it
-    // hadn't - and since the local view was never rolled back on
-    // failure, the photos stayed visible until the next background
-    // refresh replaced them with the real (photo-less) server data,
-    // which is exactly what "upload hoke automatically gayab ho jaana"
-    // looks like from the user's side.
-    const newEntries = photos.map((p) => ({ id: uid(), url: p.url, origUrl: p.origUrl, caption: p.caption, createdAt: new Date().toISOString() }));
-    const next = { ...gallery, [activeCat]: [...newEntries, ...allPhotos] };
+    // hadn't.
     const ok = await setGallery(next);
     if (ok) {
       showToast(photos.length + ' photo' + (photos.length !== 1 ? 's' : '') + ' added to ' + activeCat);
@@ -6017,7 +6048,11 @@ function AdminGallery({ gallery, setGallery, categories, setCategories, showToas
     const urls = bulkText.split(NEWLINE).map((l) => l.trim()).filter(Boolean);
     if (urls.length === 0) return;
     const newPhotos = urls.map((u) => ({ id: uid(), url: toDirectImageUrl(u), origUrl: u, caption: '', createdAt: new Date().toISOString() }));
-    const next = { ...gallery, [activeCat]: [...newPhotos, ...allPhotos] };
+    // Same fresh-fetch-before-merge fix as addPhotosFromPanel above -
+    // see that comment for why building this from local `allPhotos`
+    // alone risks silently dropping another admin's concurrent additions.
+    const freshCategoryPhotos = await fetchFreshCategory(activeCat, allPhotos);
+    const next = { ...gallery, [activeCat]: [...newPhotos, ...freshCategoryPhotos] };
     const ok = await setGallery(next);
     if (ok) {
       setBulkText('');
@@ -6026,15 +6061,21 @@ function AdminGallery({ gallery, setGallery, categories, setCategories, showToas
     }
   };
 
-  const removePhoto = (id) => setGallery({ ...gallery, [activeCat]: allPhotos.filter((p) => p.id !== id) });
+  const removePhoto = async (id) => {
+    const freshCategoryPhotos = await fetchFreshCategory(activeCat, allPhotos);
+    setGallery({ ...gallery, [activeCat]: freshCategoryPhotos.filter((p) => p.id !== id) });
+  };
 
   const saveEditedPhoto = async (photo, newCaption, newCategory) => {
+    const freshCategoryPhotos = await fetchFreshCategory(activeCat, allPhotos);
     if (newCategory === activeCat) {
-      await setGallery({ ...gallery, [activeCat]: allPhotos.map((p) => (p.id === photo.id ? { ...p, caption: newCaption } : p)) });
+      await setGallery({ ...gallery, [activeCat]: freshCategoryPhotos.map((p) => (p.id === photo.id ? { ...p, caption: newCaption } : p)) });
     } else {
-      // Move to a different category: remove from current, append to target.
-      const remaining = allPhotos.filter((p) => p.id !== photo.id);
-      const targetPhotos = gallery[newCategory] || [];
+      // Move to a different category: remove from current, append to
+      // target - fetches BOTH categories' fresh state, since this
+      // touches two documents at once.
+      const remaining = freshCategoryPhotos.filter((p) => p.id !== photo.id);
+      const targetPhotos = await fetchFreshCategory(newCategory, gallery[newCategory] || []);
       const ok = await setGallery({
         ...gallery,
         [activeCat]: remaining,
