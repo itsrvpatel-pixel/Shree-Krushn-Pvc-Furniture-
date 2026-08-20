@@ -26,6 +26,13 @@ const BRAND = {
 };
 
 const DEFAULT_CATEGORIES = ['Kitchen', 'Wardrobe', 'Dressing Table', 'Bathroom Cabinet', 'TV Unit', 'Bed', 'Color/POP Work', 'Electrical Work', 'Other'];
+// A special, always-present gallery bucket (not part of the admin's
+// configured item-category list) for dumping a large mixed batch of
+// photos in one upload instead of having to switch categories and
+// upload separately for each one - photos land here first, then get
+// individually moved into their real category afterward using the
+// existing per-photo "move to category" edit action.
+const UNCATEGORIZED = 'Uncategorized';
 const BHK_OPTIONS = ['1 BHK', '2 BHK', '3 BHK', '4 BHK', '4+ BHK', 'Individual Room', 'Shop/Office'];
 const EXPENSE_TYPES = ['Karigar Payment', 'Material', 'Transport', 'Other'];
 
@@ -294,7 +301,7 @@ function jobTotal(job) {
   // rejected extra work items are excluded: nothing is owed for a
   // request still awaiting a price, awaiting the customer's decision, or
   // one they turned down.
-  const approvedExtraWork = (job.extraWork || []).filter((e) => e.status === 'approved').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const approvedExtraWork = (job.extraWork || []).filter((e) => e.status === 'approved' && !e.mergedIntoEstimate).reduce((s, e) => s + (Number(e.amount) || 0), 0);
   // Discount is a flat rupee amount admin can apply to the whole
   // estimate (e.g. a negotiated final price) - subtracted last, after
   // items and approved extra work, and never allowed to push the total
@@ -388,12 +395,12 @@ function buildEstimateWhatsAppText(job) {
     const dims = sqft !== null ? (' (' + it.length + "'x" + it.height + "' = " + sqft.toFixed(2) + ' sqft)') : '';
     lines.push((i + 1) + '. ' + it.desc + dims + ' - ' + currency(estimateItemAmount(it)));
   });
-  (job.extraWork || []).filter((e) => e.status === 'approved').forEach((e, i) => {
+  (job.extraWork || []).filter((e) => e.status === 'approved' && !e.mergedIntoEstimate).forEach((e, i) => {
     lines.push(((job.items || []).length + i + 1) + '. ' + e.desc + ' (Extra Work) - ' + currency(e.amount));
   });
   lines.push('');
   if (Number(job.discount) > 0) {
-    const subtotal = (job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0) + (job.extraWork || []).filter((e) => e.status === 'approved').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    const subtotal = (job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0) + (job.extraWork || []).filter((e) => e.status === 'approved' && !e.mergedIntoEstimate).reduce((s, e) => s + (Number(e.amount) || 0), 0);
     lines.push('Subtotal: ' + currency(subtotal));
     lines.push('Discount: -' + currency(job.discount));
   }
@@ -414,34 +421,72 @@ function buildEstimateWhatsAppText(job) {
    Kept as simple positioned text rather than pulling in the autotable
    plugin, since a receipt only needs a handful of lines, not a full
    data table. ---- */
-function buildReceiptPdfDoc(job, payment) {
+// Fetches a same-origin image (the app icon, used as the PDF logo) and
+// converts it to a base64 data URI - jsPDF's addImage needs the actual
+// image bytes, not a URL, and this keeps the logo out of the app's own
+// source code (a large inline base64 string there caused real
+// corruption problems before - see Logo component's history) by
+// loading it fresh from the same small PNG file the rest of the app
+// already uses for its icon.
+async function loadImageAsDataUrl(url) {
+  const res = await fetch(url);
+  const blob = await res.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function buildReceiptPdfDoc(job, payment) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
-  let y = 20;
 
-  doc.setFontSize(16);
+  // Navy header band with the logo and business name, matching the
+  // app's own brand colors - a plain black-text-on-white header (the
+  // old design) didn't look distinctly "this business", especially
+  // once printed or viewed as a thumbnail in WhatsApp.
+  const navy = [15, 27, 61];
+  const gold = [168, 151, 95];
+  doc.setFillColor(...navy);
+  doc.rect(0, 0, pageWidth, 38, 'F');
+
+  try {
+    const logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
+    doc.addImage(logoDataUrl, 'PNG', 15, 7, 24, 24);
+  } catch (e) {
+    // Logo fetch failed (offline, blocked, etc.) - the receipt is still
+    // fully valid and usable without it, just without the image.
+  }
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(15);
   doc.setFont(undefined, 'bold');
-  doc.text(BUSINESS.name, pageWidth / 2, y, { align: 'center' });
-  y += 7;
-  doc.setFontSize(10);
+  doc.text(BUSINESS.name, 44, 17);
+  doc.setFontSize(8.5);
   doc.setFont(undefined, 'normal');
-  doc.text(BUSINESS.addressLine, pageWidth / 2, y, { align: 'center' });
-  y += 5;
-  doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, pageWidth / 2, y, { align: 'center' });
-  y += 10;
-  doc.setLineWidth(0.5);
-  doc.line(15, y, pageWidth - 15, y);
-  y += 10;
+  doc.text(BUSINESS.addressLine, 44, 23);
+  doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, 44, 28);
 
+  let y = 50;
+  doc.setTextColor(...navy);
   doc.setFontSize(14);
   doc.setFont(undefined, 'bold');
   doc.text('PAYMENT RECEIPT', pageWidth / 2, y, { align: 'center' });
+  y += 3;
+  doc.setDrawColor(...gold);
+  doc.setLineWidth(0.8);
+  doc.line(pageWidth / 2 - 22, y, pageWidth / 2 + 22, y);
   y += 12;
 
+  doc.setTextColor(60, 60, 60);
   doc.setFontSize(11);
   doc.setFont(undefined, 'normal');
   doc.text('Customer:', 15, y);
+  doc.setFont(undefined, 'bold');
   doc.text(job.customerName, 70, y);
+  doc.setFont(undefined, 'normal');
   y += 7;
   if (job.phone) {
     doc.text('Phone:', 15, y);
@@ -453,24 +498,38 @@ function buildReceiptPdfDoc(job, payment) {
   y += 7;
   doc.text('Receipt No:', 15, y);
   doc.text(payment.id.slice(-8).toUpperCase(), 70, y);
-  y += 12;
+  y += 10;
 
+  doc.setDrawColor(...navy);
   doc.setLineWidth(0.2);
   doc.line(15, y, pageWidth - 15, y);
   y += 10;
 
+  // Amount received in a highlighted gold-bordered box - the single
+  // most important number on the page, so it gets visual weight
+  // instead of blending in with the rest of the text.
+  doc.setFillColor(248, 250, 251);
+  doc.setDrawColor(...gold);
+  doc.setLineWidth(0.5);
+  doc.roundedRect(15, y, pageWidth - 30, 16, 2, 2, 'FD');
+  doc.setTextColor(...navy);
   doc.setFontSize(12);
   doc.setFont(undefined, 'bold');
-  doc.text('Amount Received:', 15, y);
-  doc.text('Rs. ' + Number(payment.amount).toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
-  y += 8;
+  doc.text('Amount Received', 20, y + 10);
+  doc.setFontSize(14);
+  doc.setTextColor(...navy);
+  doc.text('Rs. ' + Number(payment.amount).toLocaleString('en-IN'), pageWidth - 20, y + 10.5, { align: 'right' });
+  y += 22;
+
   if (payment.note) {
-    doc.setFontSize(10);
-    doc.setFont(undefined, 'normal');
+    doc.setFontSize(9.5);
+    doc.setFont(undefined, 'italic');
+    doc.setTextColor(100, 100, 100);
     doc.text('Note: ' + payment.note, 15, y);
     y += 8;
   }
-  y += 4;
+  y += 2;
+  doc.setDrawColor(220, 220, 220);
   doc.line(15, y, pageWidth - 15, y);
   y += 10;
 
@@ -479,6 +538,7 @@ function buildReceiptPdfDoc(job, payment) {
   const dueNow = jobDue(job);
   doc.setFontSize(10);
   doc.setFont(undefined, 'normal');
+  doc.setTextColor(80, 80, 80);
   doc.text('Project Total:', 15, y);
   doc.text('Rs. ' + total.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
   y += 6;
@@ -486,19 +546,21 @@ function buildReceiptPdfDoc(job, payment) {
   doc.text('Rs. ' + paidTillNow.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
   y += 6;
   doc.setFont(undefined, 'bold');
+  doc.setTextColor(...navy);
   doc.text('Balance Due:', 15, y);
   doc.text('Rs. ' + dueNow.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
   y += 16;
 
   doc.setFontSize(9);
   doc.setFont(undefined, 'italic');
+  doc.setTextColor(120, 120, 120);
   doc.text('Thank you for your business.', pageWidth / 2, y, { align: 'center' });
 
   return doc;
 }
 
-function generateReceiptPdf(job, payment) {
-  const doc = buildReceiptPdfDoc(job, payment);
+async function generateReceiptPdf(job, payment) {
+  const doc = await buildReceiptPdfDoc(job, payment);
   doc.save('Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf');
 }
 
@@ -509,7 +571,7 @@ function generateReceiptPdf(job, payment) {
 // message. Falls back to a plain download (with a toast explaining
 // why) wherever file sharing isn't supported.
 async function shareReceiptPdf(job, payment, showToast) {
-  const doc = buildReceiptPdfDoc(job, payment);
+  const doc = await buildReceiptPdfDoc(job, payment);
   const fileName = 'Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf';
   const blob = doc.output('blob');
   const file = new File([blob], fileName, { type: 'application/pdf' });
@@ -865,24 +927,29 @@ function openOrDownloadPdf(url, filename) {
 function BrochureList({ brochures, showToast, canManage, onDelete }) {
   const [loadingId, setLoadingId] = useState(null);
 
-  // Two distinct kinds of PDF, shown as two distinct sections rather
-  // than mixed into one list: the business's own "About Us" / PVC
-  // furniture benefits document (docType 'profile' - normally just one
-  // file, so it's shown as a single featured card, not a grouped list),
-  // and laminate/material color catalogs from various supplier
-  // companies (docType 'catalog', grouped by company like before) -
-  // customer taps a company name to see just that company's colors.
+  // Three distinct kinds of PDF, shown as three distinct sections:
+  // the business's own "About Us" / PVC furniture benefits document
+  // (docType 'profile' - normally just one file, shown as a single
+  // featured card, not a grouped list), fluted panel catalogs
+  // (docType 'fluted', grouped by company), and laminate color
+  // catalogs (docType 'catalog', grouped by company) - customer taps a
+  // company name to see just that company's colors, and fluted/laminate
+  // stay visually separate since they're different product lines, not
+  // interchangeable options of the same one.
   const profileDocs = (brochures || []).filter((b) => b.docType === 'profile');
-  const catalogDocs = (brochures || []).filter((b) => b.docType !== 'profile');
-  const groupedCatalogs = useMemo(() => {
+  const flutedDocs = (brochures || []).filter((b) => b.docType === 'fluted');
+  const catalogDocs = (brochures || []).filter((b) => b.docType !== 'profile' && b.docType !== 'fluted');
+  const groupByCompany = (docs) => {
     const g = {};
-    catalogDocs.forEach((b) => {
+    docs.forEach((b) => {
       const co = b.company || 'Other';
       if (!g[co]) g[co] = [];
       g[co].push(b);
     });
     return g;
-  }, [catalogDocs]);
+  };
+  const groupedFluted = useMemo(() => groupByCompany(flutedDocs), [flutedDocs]);
+  const groupedCatalogs = useMemo(() => groupByCompany(catalogDocs), [catalogDocs]);
 
   const openBrochure = (b) => {
     if (!b.url) { showToast(b.name + ' ka link missing hai - purani entry ho sakti hai, dobara upload karein', true); return; }
@@ -923,9 +990,20 @@ function BrochureList({ brochures, showToast, canManage, onDelete }) {
           {profileDocs.map((b) => <BrochureRow key={b.id} b={b} />)}
         </div>
       )}
+      {Object.keys(groupedFluted).length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={styles.reqGroupHeader}>Fluted Panel Catalog</div>
+          {Object.entries(groupedFluted).map(([company, list]) => (
+            <div key={company} style={{ marginBottom: 14, marginTop: 8 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: BRAND.gold, marginBottom: 4 }}>{company}</div>
+              {list.map((b) => <BrochureRow key={b.id} b={b} />)}
+            </div>
+          ))}
+        </div>
+      )}
       {Object.keys(groupedCatalogs).length > 0 && (
         <div>
-          <div style={styles.reqGroupHeader}>Laminate & Material Colors</div>
+          <div style={styles.reqGroupHeader}>Laminate Catalog</div>
           {Object.entries(groupedCatalogs).map(([company, list]) => (
             <div key={company} style={{ marginBottom: 14, marginTop: 8 }}>
               <div style={{ fontSize: 11.5, fontWeight: 800, color: BRAND.gold, marginBottom: 4 }}>{company}</div>
@@ -2978,6 +3056,7 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
   const notes = job.projectNotes || [];
   const isAdmin = authorRole === 'admin';
   const [openFolder, setOpenFolder] = useState(null);
+  const [lightbox, setLightbox] = useState(null);
 
   // Note types (Color/Design/Reference/Handle/Measurement/Other) let a
   // note within an item's folder be labeled with WHAT KIND of detail it
@@ -2999,7 +3078,7 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
   // anything item-specific to tag a note against yet.
   const itemOptions = useMemo(() => {
     const fromItems = (job.items || []).map((it) => it.desc).filter(Boolean);
-    const fromExtraWork = (job.extraWork || []).filter((e) => e.status === 'approved').map((e) => e.desc).filter(Boolean);
+    const fromExtraWork = (job.extraWork || []).filter((e) => e.status === 'approved' && !e.mergedIntoEstimate).map((e) => e.desc).filter(Boolean);
     const combined = [...new Set([...fromItems, ...fromExtraWork])];
     if (combined.length > 0) return combined;
     return (categories && categories.length > 0) ? categories : ['General'];
@@ -3190,7 +3269,14 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
                       )}
                     </div>
                     {n.text && <div style={{ ...styles.itemDesc, marginTop: 4 }}>{n.text}</div>}
-                    {n.photo && <img src={n.photo.url} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140, marginTop: 8 }} />}
+                    {n.photo && (
+                      <button
+                        style={{ border: 'none', padding: 0, background: 'none', cursor: 'pointer', width: '100%', display: 'block', marginTop: 8 }}
+                        onClick={() => setLightbox({ photos: [{ id: n.id, url: n.photo.url, origUrl: n.photo.origUrl, caption: n.text }], index: 0 })}
+                      >
+                        <SmartImg src={n.photo.url} origUrl={n.photo.origUrl} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140 }} />
+                      </button>
+                    )}
                     {n.locked ? (
                       <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
                         <ThumbsUp size={14} /> Approved - sirf admin change kar sakta hai
@@ -3207,6 +3293,7 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
           </div>
         );
       })}
+      {lightbox && <Lightbox data={lightbox} onClose={() => setLightbox(null)} setLightbox={setLightbox} />}
     </div>
   );
 }
@@ -3582,7 +3669,7 @@ function EstimateView({ job, onSave, showToast }) {
         </div>
       )}
 
-      {((job.items || []).length > 0 || (job.extraWork || []).some((e) => e.status === 'approved')) && (
+      {((job.items || []).length > 0 || (job.extraWork || []).some((e) => e.status === 'approved' && !e.mergedIntoEstimate)) && (
         <div style={{ marginTop: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={styles.sectionTitle}>Estimate Details</div>
@@ -3621,7 +3708,7 @@ function EstimateView({ job, onSave, showToast }) {
                     </tr>
                   );
                 })}
-                {(job.extraWork || []).filter((e) => e.status === 'approved').map((e, i) => (
+                {(job.extraWork || []).filter((e) => e.status === 'approved' && !e.mergedIntoEstimate).map((e, i) => (
                   <tr key={e.id} style={{ background: '#FBF6EC' }}>
                     <td style={styles.qtd}>{(job.items || []).length + i + 1}</td>
                     <td style={{ ...styles.qtd, textAlign: 'left' }}>{e.desc} <span style={styles.reqCatBadge}>Extra Work</span></td>
@@ -3953,6 +4040,7 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
   const [msgText, setMsgText] = useState('');
+  const [lightbox, setLightbox] = useState(null);
 
   // Attendance: a check-in/check-out button on the karigar's home screen,
   // one record per calendar day (dateKey), so tapping it twice in the
@@ -4061,7 +4149,14 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
                       {n.noteType && <span style={{ fontSize: 10, fontWeight: 800, color: BRAND.gold }}>{n.noteType}</span>}
                     </div>
                     {n.text && <div style={{ ...styles.itemDesc, marginTop: 4 }}>{n.text}</div>}
-                    {n.photo && <img src={n.photo.url} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140, marginTop: 8 }} />}
+                    {n.photo && (
+                      <button
+                        style={{ border: 'none', padding: 0, background: 'none', cursor: 'pointer', width: '100%', display: 'block', marginTop: 8 }}
+                        onClick={() => setLightbox({ photos: [{ id: n.id, url: n.photo.url, origUrl: n.photo.origUrl, caption: n.text }], index: 0 })}
+                      >
+                        <SmartImg src={n.photo.url} origUrl={n.photo.origUrl} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140 }} />
+                      </button>
+                    )}
                     {n.locked && (
                       <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
                         <ThumbsUp size={14} /> Approved
@@ -4101,6 +4196,7 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
             </div>
           </div>
         </div>
+        {lightbox && <Lightbox data={lightbox} onClose={() => setLightbox(null)} setLightbox={setLightbox} />}
       </div>
     );
   }
@@ -4200,7 +4296,7 @@ function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs,
       {tab === 'settings' && (
         isPartner
           ? <PartnerSettings staffName={staffName} onLogout={onLogout} />
-          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} onLogout={onLogout} showToast={showToast} />
+          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} onLogout={onLogout} showToast={showToast} />
       )}
 
       <BottomNav
@@ -5138,7 +5234,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
           <input style={styles.input} placeholder='Discount ₹' inputMode='decimal' value={job.discount || ''} onChange={(e) => onSave({ ...job, discount: e.target.value })} />
           {Number(job.discount) > 0 && (
             <div style={styles.hintText}>
-              Subtotal: {currency((job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0) + (job.extraWork || []).filter((e) => e.status === 'approved').reduce((s, e) => s + (Number(e.amount) || 0), 0))} - Discount: {currency(job.discount)}
+              Subtotal: {currency((job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0) + (job.extraWork || []).filter((e) => e.status === 'approved' && !e.mergedIntoEstimate).reduce((s, e) => s + (Number(e.amount) || 0), 0))} - Discount: {currency(job.discount)}
             </div>
           )}
         </div>
@@ -5493,7 +5589,7 @@ function QuotationPreview({ job, onClose, showToast }) {
                       </tr>
                     );
                   })}
-                  {(job.extraWork || []).filter((e) => e.status === 'approved').map((e, i) => (
+                  {(job.extraWork || []).filter((e) => e.status === 'approved' && !e.mergedIntoEstimate).map((e, i) => (
                     <tr key={e.id}>
                       <td style={styles.qtd}>{(job.items || []).length + i + 1}</td>
                       <td style={{ ...styles.qtd, textAlign: 'left' }}>{e.desc} (Extra Work)</td>
@@ -5513,7 +5609,7 @@ function QuotationPreview({ job, onClose, showToast }) {
                 <div style={styles.quoteTotalRow}>
                   <span>Subtotal</span>
                   <span style={styles.quoteTotalAmt}>
-                    {currency((job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0) + (job.extraWork || []).filter((e) => e.status === 'approved').reduce((s, e) => s + (Number(e.amount) || 0), 0))}
+                    {currency((job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0) + (job.extraWork || []).filter((e) => e.status === 'approved' && !e.mergedIntoEstimate).reduce((s, e) => s + (Number(e.amount) || 0), 0))}
                   </span>
                 </div>
                 <div style={styles.quoteTotalRow}>
@@ -5649,16 +5745,16 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     setNewExtraWorkItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
   };
   const removeItemFromNewExtraWork = (id) => setNewExtraWork((f) => ({ ...f, items: f.items.filter((it) => it.id !== id) }));
-  const addExtraWork = () => {
+  const addExtraWork = (selfApprove) => {
     if (newExtraWork.items.length === 0) { showToast('Kam se kam ek item add karein', true); return; }
     const amount = newExtraWork.items.reduce((s, it) => s + estimateItemAmount(it), 0);
     const desc = newExtraWork.title.trim() || newExtraWork.items.map((it) => it.desc).join(', ');
-    const entry = { id: uid(), desc, items: newExtraWork.items, amount, addedBy: 'admin', status: 'pending_customer_approval', createdAt: new Date().toISOString() };
+    const entry = { id: uid(), desc, items: newExtraWork.items, amount, addedBy: 'admin', status: selfApprove ? 'approved' : 'pending_customer_approval', createdAt: new Date().toISOString(), respondedAt: selfApprove ? new Date().toISOString() : null };
     let next = { ...job, extraWork: [entry, ...extraWork] };
-    next = logActivity(next, 'Extra work added: ' + entry.desc + ' (' + currency(entry.amount) + ')');
+    next = logActivity(next, (selfApprove ? 'Extra work add ho gaya: ' : 'Extra work added: ') + entry.desc + ' (' + currency(entry.amount) + ')');
     onSave(next);
     setNewExtraWork({ title: '', items: [] });
-    showToast('Extra work added, customer approval ke liye bheja gaya');
+    showToast(selfApprove ? 'Extra work add ho gaya aur estimate mein shaamil ho gaya' : 'Extra work added, customer approval ke liye bheja gaya');
   };
   // Pricing a customer-requested item (which arrives with only a text
   // description, no amount) works the same itemized way - admin builds
@@ -5690,6 +5786,30 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     showToast('Price set, customer approval ke liye bheja gaya');
   };
   const removeExtraWork = (id) => onSave({ ...job, extraWork: extraWork.filter((e) => e.id !== id) });
+  // Folds an approved extra-work entry's line items into the main
+  // estimate (job.items), so once work is done, the final estimate
+  // reads as ONE consolidated list instead of the base items plus a
+  // permanently-separate "extra work" total tacked on alongside it -
+  // useful once the job is wrapping up and the estimate needs to
+  // reflect everything that was actually built. The entry stays in
+  // extraWork history (marked mergedIntoEstimate) rather than being
+  // deleted, so the "why did the estimate grow" trail is still there;
+  // every approved-total calculation above now excludes merged entries
+  // specifically so the amount isn't counted twice (once via items,
+  // once via the separate extra-work total).
+  const mergeExtraWorkIntoEstimate = (entry) => {
+    const itemsToAdd = (entry.items && entry.items.length > 0)
+      ? entry.items.map((it) => ({ ...it, id: uid() }))
+      : [{ id: uid(), desc: entry.desc, length: '', height: '', qty: '1', rate: String(entry.amount) }];
+    let next = {
+      ...job,
+      items: [...(job.items || []), ...itemsToAdd],
+      extraWork: extraWork.map((e) => (e.id === entry.id ? { ...e, mergedIntoEstimate: true } : e)),
+    };
+    next = logActivity(next, 'Extra work estimate mein merge kiya: ' + entry.desc + ' (' + currency(entry.amount) + ')');
+    onSave(next);
+    showToast('Estimate mein merge ho gaya');
+  };
 
   const addPhotosFromPanel = async (photos) => {
     // Same fix as KarigarApp's addPhotos: each photo is uploaded to
@@ -5844,7 +5964,10 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
               {newExtraWork.items.length > 0 && (
                 <div style={styles.totalBar}><span>Extra Work Total</span><span style={styles.totalAmt}>{currency(newExtraWork.items.reduce((s, it) => s + estimateItemAmount(it), 0))}</span></div>
               )}
-              <button style={styles.addBtn} onClick={addExtraWork}><Plus size={14} /> Extra work add karein</button>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button style={{ ...styles.addBtn, flex: 1, marginTop: 0 }} onClick={() => addExtraWork(false)}><Send size={14} /> Customer Approval Bhejein</button>
+                <button style={{ ...styles.addBtn, flex: 1, marginTop: 0, background: BRAND.navy, color: '#FFF', border: 'none' }} onClick={() => addExtraWork(true)}><CheckCircle2 size={14} /> Seedha Add Karein</button>
+              </div>
             </div>
 
             <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Extra work history ({extraWork.length})</div>
@@ -5914,6 +6037,12 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                   <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
                     <ThumbsUp size={14} /> Approved - {currency(e.amount)}
                   </div>
+                )}
+                {e.status === 'approved' && !e.mergedIntoEstimate && (
+                  <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => mergeExtraWorkIntoEstimate(e)}><FileText size={13} /> Estimate Mein Merge Karein</button>
+                )}
+                {e.mergedIntoEstimate && (
+                  <div style={{ ...styles.itemSub, marginTop: 6 }}>Estimate ke items mein merge ho chuka hai</div>
                 )}
                 {e.status === 'rejected' && (
                   <div style={{ ...styles.estimateStatusBanner, background: '#FFEBEE', color: '#C62828', marginTop: 8 }}>
@@ -6007,6 +6136,12 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
 
         {tab === 'photos' && (
           <div>
+            {(job.workPercent || 0) > 0 && (
+              <div style={{ ...styles.deliveryDateBanner, marginBottom: 12 }}>
+                <Hammer size={15} color={BRAND.gold} />
+                <span>Kaam <b>{job.workPercent}%</b> complete ho gaya hai</span>
+              </div>
+            )}
             <div style={styles.fieldLabel}>Progress photos</div>
             <div style={styles.photoGrid}>
               {(job.progressPhotos || []).map((p) => (
@@ -6428,6 +6563,12 @@ function AdminGallery({ gallery, setGallery, categories, setCategories, showToas
       <div style={styles.plainTextMuted}>Categories add/remove karne ke liye Settings mein jaayein.</div>
 
       <div style={styles.chipRow}>
+        <button
+          onClick={() => setActiveCat(UNCATEGORIZED)}
+          style={{ ...styles.chip, ...(activeCat === UNCATEGORIZED ? styles.chipActive : {}), borderStyle: 'dashed' }}
+        >
+          Uncategorized ({(gallery[UNCATEGORIZED] || []).length})
+        </button>
         {categories.map((c) => {
           const count = (gallery[c] || []).length;
           return <button key={c} onClick={() => setActiveCat(c)} style={{ ...styles.chip, ...(activeCat === c ? styles.chipActive : {}) }}>{c} ({count})</button>;
@@ -6436,6 +6577,9 @@ function AdminGallery({ gallery, setGallery, categories, setCategories, showToas
 
       <div style={{ marginTop: 12 }}>
         <div style={styles.fieldLabel}>Add photo to '{activeCat}'</div>
+        {activeCat === UNCATEGORIZED && (
+          <div style={styles.plainTextMuted}>Bahut saari mixed photos ek saath daalne ke liye yahan add karein - baad mein har photo ko sahi category mein move kar sakte hain (photo par tap karke "Edit" se).</div>
+        )}
         <PhotoAddPanel addLabel='Add photo' showToast={showToast} onAdd={addPhotosFromPanel} />
         <button style={styles.linkBtn2} onClick={() => setShowBulk((s) => !s)}>{showBulk ? 'Hide bulk add' : 'Bulk add (many URLs at once) ->'}</button>
         {showBulk && (
@@ -7000,7 +7144,7 @@ function AdminProfitReport({ jobs, expenses }) {
 }
 
 /* ---- Admin settings ---- */
-function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, brochures, addBrochure, removeBrochure, allData, jobs, attendance, estimateRates, setEstimateRates, onLogout, showToast }) {
+function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, brochures, addBrochure, removeBrochure, allData, jobs, attendance, estimateRates, setEstimateRates, onLogout, showToast }) {
   const [current, setCurrent] = useState('');
   const [next1, setNext1] = useState('');
   const [next2, setNext2] = useState('');
@@ -7011,6 +7155,61 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
   const [staffError, setStaffError] = useState('');
   const [newPartnerPin, setNewPartnerPin] = useState('');
   const [partnerPinError, setPartnerPinError] = useState('');
+  // Old (pre-migration) photos sometimes still hold a raw base64 data:
+  // URI rather than a real Storage URL - if the migration's upload
+  // attempt for that specific photo failed (corrupted/truncated data,
+  // a network hiccup at migration time, etc.), the broken data: URI
+  // gets left in place as-is, and a broken/truncated data: URI is
+  // exactly what shows as "Load nahi hui" in the gallery - a real
+  // https:// Storage link essentially never fails to load once it's
+  // uploaded, so a data: URI still present here IS the failure. This
+  // scans for exactly that, so it's clear which specific photos need a
+  // fresh manual re-upload (their original data is genuinely gone if
+  // truncated) rather than "the gallery is broken" being a mystery.
+  const [brokenScan, setBrokenScan] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const diagnoseGalleryPhotos = () => {
+    setScanning(true);
+    const issues = [];
+    for (const cat of Object.keys(gallery || {})) {
+      for (const p of (gallery[cat] || [])) {
+        if (!p.url) {
+          issues.push({ cat, id: p.id, caption: p.caption, kind: 'missing', detail: 'URL bilkul missing hai' });
+        } else if (p.url.startsWith('data:')) {
+          const looksTruncated = p.url.length < 2000;
+          issues.push({ cat, id: p.id, caption: p.caption, kind: 'data-uri', detail: looksTruncated ? 'Purana data corrupt/adhoora hai - dobara upload karna hoga' : 'Storage par upload nahi ho payi thi - retry se theek ho sakti hai' });
+        }
+      }
+    }
+    setBrokenScan(issues);
+    setScanning(false);
+  };
+  const retryBrokenUploads = async () => {
+    if (!brokenScan) return;
+    const retryable = brokenScan.filter((i) => i.kind === 'data-uri' && i.detail.includes('retry'));
+    if (retryable.length === 0) { showToast('Retry karne layak koi photo nahi mili', true); return; }
+    setRetrying(true);
+    let successCount = 0;
+    const nextGallery = { ...gallery };
+    for (const issue of retryable) {
+      const photo = (nextGallery[issue.cat] || []).find((p) => p.id === issue.id);
+      if (!photo) continue;
+      try {
+        const uploaded = await window.fileStorage.upload('gallery_' + photo.id, photo.url);
+        if (uploaded && !uploaded.error) {
+          nextGallery[issue.cat] = nextGallery[issue.cat].map((p) => (p.id === photo.id ? { ...p, url: uploaded.url } : p));
+          successCount++;
+        }
+      } catch (e) { /* leave this one for the next retry attempt */ }
+    }
+    if (successCount > 0) {
+      await setGallery(nextGallery);
+    }
+    setRetrying(false);
+    showToast(successCount + ' / ' + retryable.length + ' photos fix ho gayi');
+    diagnoseGalleryPhotos();
+  };
   // Local editable copy of the rates list - changes only get persisted
   // (a Firestore write) when "Rates Save Karein" is tapped, not on
   // every keystroke while typing a rate value.
@@ -7259,6 +7458,45 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
 
       <div style={{ ...styles.card, marginTop: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <AlertTriangle size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Gallery Photo Check</div>
+        </div>
+        <div style={styles.plainTextMuted}>Agar kuch purani photos "Load nahi hui" dikha rahi hain, yahan check karein kaunsi aur kyun.</div>
+        <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={diagnoseGalleryPhotos} disabled={scanning}>
+          <Search size={14} /> {scanning ? 'Check ho raha hai...' : 'Gallery Check Karein'}
+        </button>
+        {brokenScan && (
+          <div style={{ marginTop: 10 }}>
+            {brokenScan.length === 0 ? (
+              <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32' }}>
+                <CheckCircle2 size={14} /> Koi kharab photo nahi mili
+              </div>
+            ) : (
+              <>
+                <div style={{ ...styles.estimateStatusBanner, background: '#FFF3E0', color: '#E65100' }}>
+                  <AlertCircle size={14} /> {brokenScan.length} photo(s) mein masla mila
+                </div>
+                {brokenScan.some((i) => i.kind === 'data-uri' && i.detail.includes('retry')) && (
+                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={retryBrokenUploads} disabled={retrying}>
+                    <Send size={14} /> {retrying ? 'Retry ho raha hai...' : 'Automatic Retry Karein'}
+                  </button>
+                )}
+                {brokenScan.map((i) => (
+                  <div key={i.cat + '_' + i.id} style={{ ...styles.itemRow, marginTop: 6 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={styles.itemDesc}>{i.cat}{i.caption ? (' - ' + i.caption) : ''}</div>
+                      <div style={styles.itemSub}>{i.detail}</div>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <Calculator size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Customer Estimate Calculator Rates</div>
         </div>
@@ -7359,18 +7597,22 @@ function PartnerSettings({ staffName, onLogout }) {
    single Firestore document can hold - a scanned/compressed PDF, or one
    split into fewer pages, is needed to fit under this limit. ---- */
 function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
-  // Two kinds of PDF: our own "Company Details" document (PVC furniture
-  // benefits, business info - always tagged to the business's own name,
-  // no separate company field needed), or a "Laminate Catalog" from a
-  // material supplier (needs a company name, since there are several -
-  // Kaka and others). Picking one up front decides which fields show
+  // Three kinds of PDF: our own "Company Details" document (PVC
+  // furniture benefits, business info - always tagged to the
+  // business's own name, no separate company field needed), a "Fluted
+  // Panel Catalog" and a "Laminate Catalog" from a material supplier
+  // (each needs a company name, since there are several suppliers).
+  // Fluted and laminate are kept as separate types (not just separate
+  // company names under one catalog type) since they're different
+  // product lines the business sells, not interchangeable finishes of
+  // the same thing. Picking one up front decides which fields show
   // next and how the saved PDF gets grouped in BrochureList.
   const [docType, setDocType] = useState('catalog');
   const knownCompanies = useMemo(() => {
     const set = new Set();
-    (brochures || []).forEach((b) => { if (b.docType !== 'profile' && b.company) set.add(b.company); });
+    (brochures || []).forEach((b) => { if (b.docType === docType && b.company) set.add(b.company); });
     return Array.from(set);
-  }, [brochures]);
+  }, [brochures, docType]);
   const [company, setCompany] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = React.useRef(null);
@@ -7379,7 +7621,7 @@ function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
-    if (docType === 'catalog' && !company.trim()) { showToast('Company ka naam likhein', true); return; }
+    if (docType !== 'profile' && !company.trim()) { showToast('Company ka naam likhein', true); return; }
     if (file.type !== 'application/pdf') { showToast('Sirf PDF file select karein', true); return; }
     setUploading(true);
     try {
@@ -7408,15 +7650,17 @@ function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
   };
 
   const canUpload = docType === 'profile' || company.trim();
+  const typeLabel = docType === 'profile' ? 'Company Details' : docType === 'fluted' ? 'Fluted Panel Catalog' : 'Laminate Catalog';
 
   return (
     <div>
       <div style={styles.fieldLabel}>PDF Kis Type Ki Hai</div>
       <div style={styles.chipRow}>
-        <button onClick={() => setDocType('profile')} style={{ ...styles.chip, ...(docType === 'profile' ? styles.chipActive : {}) }}>Company Details</button>
-        <button onClick={() => setDocType('catalog')} style={{ ...styles.chip, ...(docType === 'catalog' ? styles.chipActive : {}) }}>Laminate Catalog</button>
+        <button onClick={() => { setDocType('profile'); setCompany(''); }} style={{ ...styles.chip, ...(docType === 'profile' ? styles.chipActive : {}) }}>Company Details</button>
+        <button onClick={() => { setDocType('fluted'); setCompany(''); }} style={{ ...styles.chip, ...(docType === 'fluted' ? styles.chipActive : {}) }}>Fluted Catalog</button>
+        <button onClick={() => { setDocType('catalog'); setCompany(''); }} style={{ ...styles.chip, ...(docType === 'catalog' ? styles.chipActive : {}) }}>Laminate Catalog</button>
       </div>
-      {docType === 'catalog' && (
+      {docType !== 'profile' && (
         <>
           <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Company</div>
           {knownCompanies.length > 0 && (
@@ -7431,7 +7675,7 @@ function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
       )}
       <input ref={fileInputRef} type='file' accept='application/pdf' style={{ display: 'none' }} onChange={handleFilePicked} />
       <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading || !canUpload}>
-        <FileText size={14} /> {uploading ? 'Uploading...' : (docType === 'profile' ? 'Upload Company Details PDF' : 'Upload PDF for ' + (company || '...'))}
+        <FileText size={14} /> {uploading ? 'Uploading...' : (docType === 'profile' ? 'Upload Company Details PDF' : 'Upload ' + typeLabel + ' for ' + (company || '...'))}
       </button>
     </div>
   );
