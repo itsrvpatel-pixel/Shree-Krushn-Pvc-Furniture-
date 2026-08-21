@@ -107,7 +107,21 @@ async function del(key) {
 async function uploadDataUri(key, dataUri) {
   try {
     const storageRef = ref(storage, "files/" + key);
-    await uploadString(storageRef, dataUri, "data_url");
+    // Cache-Control set explicitly to a full year, public - without this,
+    // Firebase Storage's default caching behavior isn't tuned for "this
+    // exact file, at this exact URL, is permanent and never changes" (a
+    // photo/PDF here is uploaded once under a unique key and never
+    // overwritten in place - editing a caption or moving categories
+    // never touches the file itself, only its metadata elsewhere), so
+    // browsers were re-downloading the full image over the network on
+    // every fresh page load instead of serving it instantly from their
+    // own disk cache. This is what actually fixes "leaving the app and
+    // coming back reloads every photo from scratch" - a real app
+    // restart can't preserve JS memory, but the browser's own HTTP
+    // cache survives across restarts once files are properly marked
+    // cacheable, so a second visit (even after fully closing the app)
+    // still loads previously-seen photos instantly.
+    await uploadString(storageRef, dataUri, "data_url", { cacheControl: "public, max-age=31536000, immutable" });
     const url = await getDownloadURL(storageRef);
     return { key, url };
   } catch (e) {
