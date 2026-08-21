@@ -1057,6 +1057,17 @@ function BrochureList({ brochures, showToast, canManage, onDelete }) {
 export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [gallery, setGallery] = useState({});
+  // Gallery data (photos across every category) is lazy-loaded - see
+  // loadGalleryData below - rather than fetched during the app's
+  // initial load like everything else. With photo counts meant to
+  // scale into the thousands, eagerly fetching every category's full
+  // metadata on every single app open (even for someone who never
+  // visits the Gallery tab that session) was adding real, avoidable
+  // delay to the very first thing anyone sees. galleryLoadedRef tracks
+  // whether this has run yet this session, so re-visiting the tab
+  // doesn't re-fetch every time.
+  const galleryLoadedRef = useRef(false);
+  const [galleryLoading, setGalleryLoading] = useState(false);
   const [customers, setCustomers] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [adminPin, setAdminPin] = useState(DEFAULT_PIN);
@@ -1104,113 +1115,187 @@ export default function App() {
   }, []);
   const [toast, setToast] = useState(null);
 
+  // Gallery loading, extracted into its own callable function rather
+  // than being part of the initial app-load effect - see
+  // galleryLoadedRef's comment above for why. Handles the full
+  // migration/repair logic exactly as before (see the extensive
+  // comments below), just triggered on-demand (from CustomerApp's or
+  // AdminApp's gallery tab) instead of unconditionally on every app
+  // open.
+  const loadGalleryData = useCallback(async () => {
+    if (galleryLoadedRef.current) return;
+    galleryLoadedRef.current = true;
+    setGalleryLoading(true);
+    try {
+      const galleryCatList = await safeGet('gallery_categories');
+      // Gallery is split one Firestore document PER CATEGORY (see
+      // persistGallery) rather than one combined document, so total
+      // photo capacity isn't capped by a single 1MiB document once
+      // photo count climbs into the hundreds. 'gallery_categories'
+      // just lists which category documents exist.
+      //
+      // If that list is missing, this is EITHER a genuinely fresh
+      // install with no photos yet, OR - critically - an account that
+      // still has all its photos sitting in the OLD single combined
+      // 'gallery' document from before this split existed. Falling
+      // straight back to itemCategories (an empty starting point) in
+      // that second case would make every existing photo in every
+      // category other than whichever one someone next happens to add
+      // to silently vanish from view forever: the FIRST photo added
+      // under the new system writes 'gallery_categories' with only
+      // that one category in it, and every future load then only
+      // knows to look for that one category's document - the old
+      // combined document's other categories still physically exist
+      // in Firestore, just permanently unreferenced. So the old
+      // document is checked FIRST, and if it has data, that's what
+      // loads (nothing is lost) and a background migration (below)
+      // copies it into the new per-category format so this doesn't
+      // need to run again next time.
+      const itemCategories = categories.length > 0 ? categories : DEFAULT_CATEGORIES;
+      let galleryObj = {};
+      let oldGalleryToMigrate = null;
+      let repairCategoriesList = null;
+      if (galleryCatList) {
+        const galleryCategories = JSON.parse(galleryCatList);
+        const galleryEntries = await Promise.all(
+          galleryCategories.map(async (cat) => [cat, await safeGet('gallery_cat_' + cat)])
+        );
+        for (const [cat, val] of galleryEntries) {
+          if (val) { try { galleryObj[cat] = JSON.parse(val); } catch (e) { /* skip corrupt entry */ } }
+        }
+      } else {
+        // Before concluding "never migrated, fall back to the old
+        // document", sanity-check by trying the CURRENT per-category
+        // documents directly - if 'gallery_categories' itself simply
+        // failed to read this one time (a transient network blip,
+        // safeGet's own 10s timeout, etc.) while the per-category
+        // documents underneath it are actually fine, falling back to
+        // the pre-migration document would be a serious regression:
+        // it would silently undo every delete and addition made since
+        // migration first completed, reviving old deleted photos and
+        // losing recently-added ones - exactly the "deleted photos
+        // came back, new ones vanished" failure mode this guards
+        // against. Only a genuinely fresh/never-migrated install (no
+        // per-category data found for ANY known category) reaches the
+        // old-document fallback below.
+        const sanityCheckEntries = await Promise.all(
+          itemCategories.map(async (cat) => [cat, await safeGet('gallery_cat_' + cat)])
+        );
+        const foundAnyNewFormatData = sanityCheckEntries.some(([, val]) => val);
+        if (foundAnyNewFormatData) {
+          for (const [cat, val] of sanityCheckEntries) {
+            if (val) { try { galleryObj[cat] = JSON.parse(val); } catch (e) { /* skip corrupt entry */ } }
+          }
+          repairCategoriesList = Object.keys(galleryObj);
+        } else {
+        const oldGalleryRaw = await safeGet('gallery');
+        if (oldGalleryRaw) {
+          try {
+            galleryObj = JSON.parse(oldGalleryRaw);
+            // An even earlier storage format (before photos moved to
+            // Firebase Storage) kept each photo's actual url in its
+            // OWN small 'gallery_photo_<id>' document, with only
+            // {id, caption} in the combined document itself - so a
+            // photo recovered from that old combined document can be
+            // missing its url entirely. Filling those in here (from
+            // whichever of those old per-photo documents still exist)
+            // means the migration below writes complete, working
+            // photo entries instead of ones that would show as
+            // broken images despite now being "found" again.
+            const idsNeedingUrl = [];
+            for (const cat of Object.keys(galleryObj)) {
+              for (const p of galleryObj[cat] || []) {
+                if (!p.url) idsNeedingUrl.push(p.id);
+              }
+            }
+            if (idsNeedingUrl.length > 0) {
+              const fetched = await Promise.all(idsNeedingUrl.map((id) => safeGet('gallery_photo_' + id)));
+              const recoveredById = {};
+              idsNeedingUrl.forEach((id, i) => {
+                if (fetched[i]) { try { recoveredById[id] = JSON.parse(fetched[i]); } catch (e) { /* skip */ } }
+              });
+              for (const cat of Object.keys(galleryObj)) {
+                galleryObj[cat] = (galleryObj[cat] || []).map((p) => (
+                  !p.url && recoveredById[p.id] ? { ...p, url: recoveredById[p.id].url, origUrl: recoveredById[p.id].origUrl } : p
+                ));
+              }
+            }
+            oldGalleryToMigrate = galleryObj;
+          } catch (e) { galleryObj = {}; }
+        }
+        }
+      }
+      setGallery(galleryObj);
+      // Runs after the gallery is already showing (not inside the
+      // try/finally above), so migrating a large old gallery never
+      // delays the tab from opening. This writes each category from
+      // the old combined document into its own new 'gallery_cat_<X>'
+      // document, then finally writes 'gallery_categories' listing all
+      // of them - only ONCE that full list is written does any device
+      // start relying on the new format, so a second admin opening the
+      // app mid-migration still safely falls back to the old document
+      // rather than seeing a half-migrated, partial category list.
+      if (oldGalleryToMigrate) {
+        (async () => {
+          try {
+            await Promise.all(
+              Object.keys(oldGalleryToMigrate).map(async (cat) => {
+                // Any photo still holding raw base64 data (from
+                // before photos moved to Firebase Storage) gets
+                // uploaded here too, same as a normal add would - a
+                // migration that just copied that data as-is into the
+                // new per-category document would recreate the exact
+                // 1MiB-document problem this whole split was meant to
+                // solve, just one document later.
+                const catPhotos = await mapWithConcurrencyLimit(oldGalleryToMigrate[cat] || [], 5, async (p) => {
+                  if (p.url && p.url.startsWith('data:')) {
+                    const uploaded = await window.fileStorage.upload('gallery_' + p.id, p.url);
+                    if (uploaded && !uploaded.error) {
+                      return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: uploaded.url, origUrl: p.origUrl || null };
+                    }
+                  }
+                  return p;
+                });
+                await window.storage.set('gallery_cat_' + cat, JSON.stringify(catPhotos), true);
+              })
+            );
+            await window.storage.set('gallery_categories', JSON.stringify(Object.keys(oldGalleryToMigrate)), true);
+          } catch (e) {
+            // Best effort - if this fails, the old combined document
+            // is untouched and still there, so nothing is lost; the
+            // next app load will just try the migration again.
+          }
+        })();
+      } else if (repairCategoriesList) {
+        // 'gallery_categories' itself was missing/unreadable, but the
+        // sanity check above found real per-category data already in
+        // place - migration already happened, this document just
+        // needs to be (re)written pointing at what's actually there,
+        // not rebuilt from old data. A lightweight repair, not a full
+        // re-migration.
+        (async () => {
+          try {
+            await window.storage.set('gallery_categories', JSON.stringify(repairCategoriesList), true);
+          } catch (e) {
+            // Best effort - the next load's sanity check will just
+            // find the same per-category data again and retry this.
+          }
+        })();
+      }
+    } finally {
+      setGalleryLoading(false);
+    }
+  }, [categories]);
+
   useEffect(() => {
     (async () => {
       try {
-        const [galleryCatList, c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev] = await Promise.all([
-          safeGet('gallery_categories'), safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
+        const [c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev] = await Promise.all([
+          safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
           safeGet('archived_reviews'),
         ]);
-        // Gallery is split one Firestore document PER CATEGORY (see
-        // persistGallery) rather than one combined document, so total
-        // photo capacity isn't capped by a single 1MiB document once
-        // photo count climbs into the hundreds. 'gallery_categories'
-        // just lists which category documents exist.
-        //
-        // If that list is missing, this is EITHER a genuinely fresh
-        // install with no photos yet, OR - critically - an account that
-        // still has all its photos sitting in the OLD single combined
-        // 'gallery' document from before this split existed. Falling
-        // straight back to itemCategories (an empty starting point) in
-        // that second case would make every existing photo in every
-        // category other than whichever one someone next happens to add
-        // to silently vanish from view forever: the FIRST photo added
-        // under the new system writes 'gallery_categories' with only
-        // that one category in it, and every future load then only
-        // knows to look for that one category's document - the old
-        // combined document's other categories still physically exist
-        // in Firestore, just permanently unreferenced. So the old
-        // document is checked FIRST, and if it has data, that's what
-        // loads (nothing is lost) and a background migration (below)
-        // copies it into the new per-category format so this doesn't
-        // need to run again next time.
-        const itemCategories = cats ? JSON.parse(cats) : DEFAULT_CATEGORIES;
-        let galleryObj = {};
-        let oldGalleryToMigrate = null;
-        let repairCategoriesList = null;
-        if (galleryCatList) {
-          const galleryCategories = JSON.parse(galleryCatList);
-          const galleryEntries = await Promise.all(
-            galleryCategories.map(async (cat) => [cat, await safeGet('gallery_cat_' + cat)])
-          );
-          for (const [cat, val] of galleryEntries) {
-            if (val) { try { galleryObj[cat] = JSON.parse(val); } catch (e) { /* skip corrupt entry */ } }
-          }
-        } else {
-          // Before concluding "never migrated, fall back to the old
-          // document", sanity-check by trying the CURRENT per-category
-          // documents directly - if 'gallery_categories' itself simply
-          // failed to read this one time (a transient network blip,
-          // safeGet's own 10s timeout, etc.) while the per-category
-          // documents underneath it are actually fine, falling back to
-          // the pre-migration document would be a serious regression:
-          // it would silently undo every delete and addition made since
-          // migration first completed, reviving old deleted photos and
-          // losing recently-added ones - exactly the "deleted photos
-          // came back, new ones vanished" failure mode this guards
-          // against. Only a genuinely fresh/never-migrated install (no
-          // per-category data found for ANY known category) reaches the
-          // old-document fallback below.
-          const sanityCheckEntries = await Promise.all(
-            itemCategories.map(async (cat) => [cat, await safeGet('gallery_cat_' + cat)])
-          );
-          const foundAnyNewFormatData = sanityCheckEntries.some(([, val]) => val);
-          if (foundAnyNewFormatData) {
-            for (const [cat, val] of sanityCheckEntries) {
-              if (val) { try { galleryObj[cat] = JSON.parse(val); } catch (e) { /* skip corrupt entry */ } }
-            }
-            repairCategoriesList = Object.keys(galleryObj);
-          } else {
-          const oldGalleryRaw = await safeGet('gallery');
-          if (oldGalleryRaw) {
-            try {
-              galleryObj = JSON.parse(oldGalleryRaw);
-              // An even earlier storage format (before photos moved to
-              // Firebase Storage) kept each photo's actual url in its
-              // OWN small 'gallery_photo_<id>' document, with only
-              // {id, caption} in the combined document itself - so a
-              // photo recovered from that old combined document can be
-              // missing its url entirely. Filling those in here (from
-              // whichever of those old per-photo documents still exist)
-              // means the migration below writes complete, working
-              // photo entries instead of ones that would show as
-              // broken images despite now being "found" again.
-              const idsNeedingUrl = [];
-              for (const cat of Object.keys(galleryObj)) {
-                for (const p of galleryObj[cat] || []) {
-                  if (!p.url) idsNeedingUrl.push(p.id);
-                }
-              }
-              if (idsNeedingUrl.length > 0) {
-                const fetched = await Promise.all(idsNeedingUrl.map((id) => safeGet('gallery_photo_' + id)));
-                const recoveredById = {};
-                idsNeedingUrl.forEach((id, i) => {
-                  if (fetched[i]) { try { recoveredById[id] = JSON.parse(fetched[i]); } catch (e) { /* skip */ } }
-                });
-                for (const cat of Object.keys(galleryObj)) {
-                  galleryObj[cat] = (galleryObj[cat] || []).map((p) => (
-                    !p.url && recoveredById[p.id] ? { ...p, url: recoveredById[p.id].url, origUrl: recoveredById[p.id].origUrl } : p
-                  ));
-                }
-              }
-              oldGalleryToMigrate = galleryObj;
-            } catch (e) { galleryObj = {}; }
-          }
-          }
-        }
-        setGallery(galleryObj);
         if (c) setCustomers(JSON.parse(c));
         if (j) setJobs(JSON.parse(j));
         if (p) setAdminPin(p);
@@ -1225,63 +1310,6 @@ export default function App() {
         if (att) setAttendanceRaw(JSON.parse(att));
         if (estRates) setEstimateRatesRaw(JSON.parse(estRates));
         if (archRev) setArchivedReviewsRaw(JSON.parse(archRev));
-        // Runs after the app is already usable (not inside the
-        // try/finally above), so migrating a large old gallery never
-        // delays showing the login/home screen. This writes each
-        // category from the old combined document into its own new
-        // 'gallery_cat_<X>' document, then finally writes
-        // 'gallery_categories' listing all of them - only ONCE that
-        // full list is written does any device start relying on the
-        // new format, so a second admin opening the app mid-migration
-        // still safely falls back to the old document rather than
-        // seeing a half-migrated, partial category list.
-        if (oldGalleryToMigrate) {
-          (async () => {
-            try {
-              await Promise.all(
-                Object.keys(oldGalleryToMigrate).map(async (cat) => {
-                  // Any photo still holding raw base64 data (from
-                  // before photos moved to Firebase Storage) gets
-                  // uploaded here too, same as a normal add would - a
-                  // migration that just copied that data as-is into the
-                  // new per-category document would recreate the exact
-                  // 1MiB-document problem this whole split was meant to
-                  // solve, just one document later.
-                  const catPhotos = await mapWithConcurrencyLimit(oldGalleryToMigrate[cat] || [], 5, async (p) => {
-                    if (p.url && p.url.startsWith('data:')) {
-                      const uploaded = await window.fileStorage.upload('gallery_' + p.id, p.url);
-                      if (uploaded && !uploaded.error) {
-                        return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: uploaded.url, origUrl: p.origUrl || null };
-                      }
-                    }
-                    return p;
-                  });
-                  await window.storage.set('gallery_cat_' + cat, JSON.stringify(catPhotos), true);
-                })
-              );
-              await window.storage.set('gallery_categories', JSON.stringify(Object.keys(oldGalleryToMigrate)), true);
-            } catch (e) {
-              // Best effort - if this fails, the old combined document
-              // is untouched and still there, so nothing is lost; the
-              // next app load will just try the migration again.
-            }
-          })();
-        } else if (repairCategoriesList) {
-          // 'gallery_categories' itself was missing/unreadable, but the
-          // sanity check above found real per-category data already in
-          // place - migration already happened, this document just
-          // needs to be (re)written pointing at what's actually there,
-          // not rebuilt from old data. A lightweight repair, not a full
-          // re-migration.
-          (async () => {
-            try {
-              await window.storage.set('gallery_categories', JSON.stringify(repairCategoriesList), true);
-            } catch (e) {
-              // Best effort - the next load's sanity check will just
-              // find the same per-category data again and retry this.
-            }
-          })();
-        }
       } finally {
         setLoaded(true);
       }
@@ -1300,19 +1328,27 @@ export default function App() {
     if (!loaded) return;
     const poll = setInterval(async () => {
       try {
-        const [galleryCatList, j, br, cats, aio] = await Promise.all([
-          safeGet('gallery_categories'), safeGet('jobs'), safeGet('brochures'), safeGet('categories'), safeGet('appointment_item_options'),
+        const [j, br, cats, aio] = await Promise.all([
+          safeGet('jobs'), safeGet('brochures'), safeGet('categories'), safeGet('appointment_item_options'),
         ]);
-        if (galleryCatList && !galleryWriteInFlightRef.current) {
-          const galleryCategories = JSON.parse(galleryCatList);
-          const galleryEntries = await Promise.all(
-            galleryCategories.map(async (cat) => [cat, await safeGet('gallery_cat_' + cat)])
-          );
-          const galleryObj = {};
-          for (const [cat, val] of galleryEntries) {
-            if (val) { try { galleryObj[cat] = JSON.parse(val); } catch (e) { /* skip corrupt entry */ } }
+        // Only polls gallery data if it's actually been loaded this
+        // session (someone visited the Gallery tab) - see
+        // galleryLoadedRef's comment for why fetching it unconditionally
+        // on every poll tick, for users who never open Gallery at all,
+        // was pure wasted network/parse work.
+        if (galleryLoadedRef.current) {
+          const galleryCatList = await safeGet('gallery_categories');
+          if (galleryCatList && !galleryWriteInFlightRef.current) {
+            const galleryCategories = JSON.parse(galleryCatList);
+            const galleryEntries = await Promise.all(
+              galleryCategories.map(async (cat) => [cat, await safeGet('gallery_cat_' + cat)])
+            );
+            const galleryObj = {};
+            for (const [cat, val] of galleryEntries) {
+              if (val) { try { galleryObj[cat] = JSON.parse(val); } catch (e) { /* skip corrupt entry */ } }
+            }
+            setGallery(galleryObj);
           }
-          setGallery(galleryObj);
         }
         // Skip applying this poll's jobs result while a local write
         // (delete, edit, approval, photo add, etc.) is still in flight -
@@ -1796,6 +1832,7 @@ export default function App() {
         <style>{fontImport}</style>
         <AdminApp
           gallery={gallery} setGallery={persistGallery}
+          loadGalleryData={loadGalleryData} galleryLoading={galleryLoading}
           customers={customers} setCustomers={persistCustomers}
           jobs={jobs} setJobs={persistJobs}
           adminPin={adminPin} setAdminPin={persistPin}
@@ -1913,6 +1950,7 @@ export default function App() {
       <CustomerApp
         customer={customer}
         gallery={gallery}
+        loadGalleryData={loadGalleryData} galleryLoading={galleryLoading}
         job={myJob}
         appointmentItemOptions={appointmentItemOptions}
         categories={categories}
@@ -2464,7 +2502,7 @@ function StageBadge({ status, size }) {
 
 /* ===================== CUSTOMER APP ===================== */
 /* Everything below receives ONLY this one customer's data - never a list of others. */
-function CustomerApp({ customer, gallery, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
+function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
   // A brand-new customer (no appointment booked yet) lands straight on
   // the appointment tab instead of home, since booking a visit is the
   // one thing every new customer needs to do first - skipping this extra
@@ -2473,6 +2511,13 @@ function CustomerApp({ customer, gallery, job, appointmentItemOptions, categorie
   // appointment already on file still land on home as before.
   const [tab, setTab] = useState(job.appointment ? 'home' : 'appointment');
   const [showProfile, setShowProfile] = useState(false);
+
+  // Gallery data loads lazily - see loadGalleryData's definition (top
+  // level of App) for why - triggered here the first time this
+  // customer actually opens the Gallery tab, not on every app open.
+  useEffect(() => {
+    if (tab === 'gallery' && loadGalleryData) loadGalleryData();
+  }, [tab, loadGalleryData]);
 
   if (showProfile) {
     return (
@@ -2526,7 +2571,7 @@ function CustomerApp({ customer, gallery, job, appointmentItemOptions, categorie
 
       {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} onLogout={onLogout} />}
       {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
-      {tab === 'gallery' && <GalleryBrowser gallery={gallery} brochures={brochures} categories={categories} testimonials={testimonials} job={job} onSaveJob={onSaveJob} showToast={showToast} />}
+      {tab === 'gallery' && <GalleryBrowser gallery={gallery} galleryLoading={galleryLoading} brochures={brochures} categories={categories} testimonials={testimonials} job={job} onSaveJob={onSaveJob} showToast={showToast} />}
       {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} customer={customer} gallery={gallery} estimateRates={estimateRates} />}
       {tab === 'estimate' && (
         <div style={{ padding: '12px 16px' }}>
@@ -2650,13 +2695,22 @@ function QuickTile({ icon, label, onClick }) {
 }
 
 /* ---- Gallery browser ---- */
-function GalleryBrowser({ gallery, brochures, categories, testimonials, job, onSaveJob, showToast }) {
+function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testimonials, job, onSaveJob, showToast }) {
   const [activeCat, setActiveCat] = useState(null);
   const [lightbox, setLightbox] = useState(null);
   const [showBrochures, setShowBrochures] = useState(false);
   const [showTestimonials, setShowTestimonials] = useState(false);
   const [query, setQuery] = useState('');
   const [showAllPhotos, setShowAllPhotos] = useState(false);
+
+  if (galleryLoading && Object.keys(gallery || {}).length === 0) {
+    return (
+      <div style={{ padding: '40px 16px', textAlign: 'center' }}>
+        <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid ' + BRAND.line, borderTopColor: BRAND.gold, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <div style={{ ...styles.plainTextMuted, marginTop: 12 }}>Gallery load ho rahi hai...</div>
+      </div>
+    );
+  }
 
   // All photos across every category, newest first - lets a customer
   // browse everything in one flat grid instead of having to know (or
@@ -4312,10 +4366,16 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
   );
 }
 
-function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, archivedReviews, setArchivedReviews, staffName, isPartner, onLogout, showToast, pushNotification }) {
+function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, archivedReviews, setArchivedReviews, staffName, isPartner, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
+  // Gallery data loads lazily - see loadGalleryData's definition (top
+  // level of App) for why - triggered here the first time admin
+  // actually opens the Gallery tab, not on every app open.
+  useEffect(() => {
+    if (tab === 'gallery' && loadGalleryData) loadGalleryData();
+  }, [tab, loadGalleryData]);
   // Notifications don't have individual user accounts to key reads by, so
   // admin/staff/partner share one "viewer" bucket per role - simple, and
   // matches how they already share visibility into the same jobs list.
@@ -4368,7 +4428,7 @@ function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs,
         />
       )}
       {tab === 'customers' && <AdminCustomers customers={customers} setCustomers={setCustomers} jobs={jobs} setJobs={setJobs} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} onOpenJob={setActiveJobId} showToast={showToast} isPartner={isPartner} />}
-      {tab === 'gallery' && <AdminGallery gallery={gallery} setGallery={setGallery} categories={categories} setCategories={setCategories} showToast={showToast} />}
+      {tab === 'gallery' && <AdminGallery gallery={gallery} galleryLoading={galleryLoading} setGallery={setGallery} categories={categories} setCategories={setCategories} showToast={showToast} />}
       {tab === 'reviews' && <AdminReviews jobs={jobs} setJobs={setJobs} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} showToast={showToast} />}
       {tab === 'expenses' && !isPartner && <AdminExpenses expenses={expenses} setExpenses={setExpenses} jobs={jobs} showToast={showToast} onOpenJob={setActiveJobId} />}
       {tab === 'settings' && (
@@ -6521,12 +6581,21 @@ function PhotoAddPanel({ onAdd, addLabel, showToast }) {
 }
 
 /* ---- Admin gallery manager ---- */
-function AdminGallery({ gallery, setGallery, categories, setCategories, showToast }) {
+function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCategories, showToast }) {
   const [activeCat, setActiveCat] = useState(categories[0]);
   const [bulkText, setBulkText] = useState('');
   const [showBulk, setShowBulk] = useState(false);
   const [query, setQuery] = useState('');
   const [editingPhoto, setEditingPhoto] = useState(null);
+
+  if (galleryLoading && Object.keys(gallery || {}).length === 0) {
+    return (
+      <div style={{ padding: '40px 16px', textAlign: 'center' }}>
+        <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid ' + BRAND.line, borderTopColor: BRAND.gold, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <div style={{ ...styles.plainTextMuted, marginTop: 12 }}>Gallery load ho rahi hai...</div>
+      </div>
+    );
+  }
 
   const allPhotos = [...(gallery[activeCat] || [])].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   const photos = allPhotos.filter((p) => !query.trim() || (p.caption || '').toLowerCase().includes(query.toLowerCase()));
