@@ -1139,6 +1139,7 @@ export default function App() {
         const itemCategories = cats ? JSON.parse(cats) : DEFAULT_CATEGORIES;
         let galleryObj = {};
         let oldGalleryToMigrate = null;
+        let repairCategoriesList = null;
         if (galleryCatList) {
           const galleryCategories = JSON.parse(galleryCatList);
           const galleryEntries = await Promise.all(
@@ -1148,6 +1149,30 @@ export default function App() {
             if (val) { try { galleryObj[cat] = JSON.parse(val); } catch (e) { /* skip corrupt entry */ } }
           }
         } else {
+          // Before concluding "never migrated, fall back to the old
+          // document", sanity-check by trying the CURRENT per-category
+          // documents directly - if 'gallery_categories' itself simply
+          // failed to read this one time (a transient network blip,
+          // safeGet's own 10s timeout, etc.) while the per-category
+          // documents underneath it are actually fine, falling back to
+          // the pre-migration document would be a serious regression:
+          // it would silently undo every delete and addition made since
+          // migration first completed, reviving old deleted photos and
+          // losing recently-added ones - exactly the "deleted photos
+          // came back, new ones vanished" failure mode this guards
+          // against. Only a genuinely fresh/never-migrated install (no
+          // per-category data found for ANY known category) reaches the
+          // old-document fallback below.
+          const sanityCheckEntries = await Promise.all(
+            itemCategories.map(async (cat) => [cat, await safeGet('gallery_cat_' + cat)])
+          );
+          const foundAnyNewFormatData = sanityCheckEntries.some(([, val]) => val);
+          if (foundAnyNewFormatData) {
+            for (const [cat, val] of sanityCheckEntries) {
+              if (val) { try { galleryObj[cat] = JSON.parse(val); } catch (e) { /* skip corrupt entry */ } }
+            }
+            repairCategoriesList = Object.keys(galleryObj);
+          } else {
           const oldGalleryRaw = await safeGet('gallery');
           if (oldGalleryRaw) {
             try {
@@ -1182,6 +1207,7 @@ export default function App() {
               }
               oldGalleryToMigrate = galleryObj;
             } catch (e) { galleryObj = {}; }
+          }
           }
         }
         setGallery(galleryObj);
@@ -1238,6 +1264,21 @@ export default function App() {
               // Best effort - if this fails, the old combined document
               // is untouched and still there, so nothing is lost; the
               // next app load will just try the migration again.
+            }
+          })();
+        } else if (repairCategoriesList) {
+          // 'gallery_categories' itself was missing/unreadable, but the
+          // sanity check above found real per-category data already in
+          // place - migration already happened, this document just
+          // needs to be (re)written pointing at what's actually there,
+          // not rebuilt from old data. A lightweight repair, not a full
+          // re-migration.
+          (async () => {
+            try {
+              await window.storage.set('gallery_categories', JSON.stringify(repairCategoriesList), true);
+            } catch (e) {
+              // Best effort - the next load's sanity check will just
+              // find the same per-category data again and retry this.
             }
           })();
         }
