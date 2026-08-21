@@ -83,6 +83,12 @@
          WhatsApp is a true visual match to what's shown on screen,
          rather than a separately hand-drawn approximation. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+      /* Used by loading spinners (gallery lazy-load, etc.) throughout
+         the app - defined once here since inline <style> attributes
+         can't declare @keyframes themselves. */
+      @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    </style>
   </head>
   <body>
     <!--
