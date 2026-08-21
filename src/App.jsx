@@ -904,23 +904,60 @@ function SmartImg({ src, origUrl, alt, style, onError: onErrorProp }) {
    'url' is the direct HTTPS download link Firebase Storage hands back
    after upload. Opening a brochure is just following that link - no
    separate fetch step needed. ---- */
-function openOrDownloadPdf(url, filename) {
+// Fetches the PDF (from wherever it's actually hosted - Firebase
+// Storage) and opens it as a local blob: URL instead of the original
+// link directly - a customer opening a brochure or estimate PDF would
+// otherwise see the raw storage URL (firebasestorage.googleapis.com/...)
+// in their browser's address bar, which exposes which backend
+// infrastructure the app runs on. A blob: URL is generated entirely
+// in the browser from the downloaded file, so the address bar just
+// shows a local blob reference, never the original hosting domain.
+//
+// The blank tab is opened FIRST, synchronously, before any await -
+// window.open() called after an await has already run is treated by
+// most browsers as no longer tied to the original user tap, and gets
+// silently popup-blocked. Opening blank immediately (still within the
+// click handler's synchronous execution) preserves that "this came
+// from a real tap" status, and the tab's location is then set once the
+// blob is ready. `noopener` is deliberately left off this specific
+// call (unlike other window.open calls in this file) because keeping
+// a reference to the new tab is exactly what's needed to navigate it
+// afterward - this is a same-app blob: URL being loaded into a tab we
+// just opened ourselves, not an arbitrary external link, so the usual
+// tabnabbing concern noopener guards against doesn't apply here.
+async function openOrDownloadPdf(url, filename) {
+  const win = window.open('', '_blank', 'noreferrer');
   try {
-    // window.open is far more reliable than a synthetic <a> click for
-    // cross-origin URLs (Firebase Storage) on mobile browsers, which
-    // sometimes silently swallow the click on a programmatically-created,
-    // download-attributed anchor without any visible error - the tab
-    // just never opens. window.open triggers the browser's normal
-    // new-tab/download handling directly.
-    const win = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!win) {
-      // Popup blocked (rare, since this fires from a direct tap) - fall
-      // back to in-place navigation so the PDF still opens somewhere.
-      window.location.href = url;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('fetch failed');
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    if (win && !win.closed) {
+      win.location.href = blobUrl;
+    } else {
+      window.location.href = blobUrl;
     }
+    // Revoking too soon can break the tab still loading the PDF, so
+    // this waits well past any reasonable load time rather than
+    // revoking immediately.
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
     return true;
   } catch (e) {
-    return false;
+    // Fetch/blob approach failed (network hiccup, host blocks
+    // cross-origin fetch, etc.) - fall back to the original direct-URL
+    // behavior in that same already-open tab, so the PDF still opens,
+    // just without hiding the host in this one fallback case.
+    if (win && !win.closed) {
+      win.location.href = url;
+    } else {
+      try {
+        const win2 = window.open(url, '_blank', 'noopener,noreferrer');
+        if (!win2) window.location.href = url;
+      } catch (e2) {
+        return false;
+      }
+    }
+    return true;
   }
 }
 
@@ -951,10 +988,10 @@ function BrochureList({ brochures, showToast, canManage, onDelete }) {
   const groupedFluted = useMemo(() => groupByCompany(flutedDocs), [flutedDocs]);
   const groupedCatalogs = useMemo(() => groupByCompany(catalogDocs), [catalogDocs]);
 
-  const openBrochure = (b) => {
+  const openBrochure = async (b) => {
     if (!b.url) { showToast(b.name + ' ka link missing hai - purani entry ho sakti hai, dobara upload karein', true); return; }
     setLoadingId(b.id);
-    const ok = openOrDownloadPdf(b.url, b.name);
+    const ok = await openOrDownloadPdf(b.url, b.name);
     if (!ok) showToast('Brochure open nahi ho payi', true);
     setLoadingId(null);
   };
@@ -4296,7 +4333,7 @@ function AdminApp({ gallery, setGallery, customers, setCustomers, jobs, setJobs,
       {tab === 'settings' && (
         isPartner
           ? <PartnerSettings staffName={staffName} onLogout={onLogout} />
-          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} onLogout={onLogout} showToast={showToast} />
+          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} onLogout={onLogout} showToast={showToast} />
       )}
 
       <BottomNav
@@ -7144,7 +7181,7 @@ function AdminProfitReport({ jobs, expenses }) {
 }
 
 /* ---- Admin settings ---- */
-function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, brochures, addBrochure, removeBrochure, allData, jobs, attendance, estimateRates, setEstimateRates, onLogout, showToast }) {
+function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, onLogout, showToast }) {
   const [current, setCurrent] = useState('');
   const [next1, setNext1] = useState('');
   const [next2, setNext2] = useState('');
@@ -7162,32 +7199,53 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
   // gets left in place as-is, and a broken/truncated data: URI is
   // exactly what shows as "Load nahi hui" in the gallery - a real
   // https:// Storage link essentially never fails to load once it's
-  // uploaded, so a data: URI still present here IS the failure. This
-  // scans for exactly that, so it's clear which specific photos need a
-  // fresh manual re-upload (their original data is genuinely gone if
-  // truncated) rather than "the gallery is broken" being a mystery.
-  const [brokenScan, setBrokenScan] = useState(null);
+  // uploaded, so a data: URI still present here IS the failure.
+  //
+  // This scans several parts of the app at once (gallery photos,
+  // brochure PDFs - same broken-upload risk as photos, and jobs that
+  // reference a customer no longer in the customers list, which can
+  // happen if a delete was interrupted partway) and repairs what it
+  // safely can - a re-uploadable data: URI gets retried automatically;
+  // anything it can't safely fix on its own (truly corrupted data, or
+  // a genuinely orphaned job) is reported clearly instead, since
+  // guessing at those risks making things worse, not better.
+  const [scanResults, setScanResults] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [retrying, setRetrying] = useState(false);
-  const diagnoseGalleryPhotos = () => {
+
+  const runSystemCheck = () => {
     setScanning(true);
-    const issues = [];
+    const photoIssues = [];
     for (const cat of Object.keys(gallery || {})) {
       for (const p of (gallery[cat] || [])) {
         if (!p.url) {
-          issues.push({ cat, id: p.id, caption: p.caption, kind: 'missing', detail: 'URL bilkul missing hai' });
+          photoIssues.push({ cat, id: p.id, caption: p.caption, kind: 'missing', detail: 'URL bilkul missing hai' });
         } else if (p.url.startsWith('data:')) {
           const looksTruncated = p.url.length < 2000;
-          issues.push({ cat, id: p.id, caption: p.caption, kind: 'data-uri', detail: looksTruncated ? 'Purana data corrupt/adhoora hai - dobara upload karna hoga' : 'Storage par upload nahi ho payi thi - retry se theek ho sakti hai' });
+          photoIssues.push({ cat, id: p.id, caption: p.caption, kind: 'data-uri', detail: looksTruncated ? 'Purana data corrupt/adhoora hai - dobara upload karna hoga' : 'Storage par upload nahi ho payi thi - retry se theek ho sakti hai' });
         }
       }
     }
-    setBrokenScan(issues);
+
+    const brochureIssues = [];
+    for (const b of (brochures || [])) {
+      if (!b.url) {
+        brochureIssues.push({ id: b.id, name: b.name, detail: 'URL missing hai - dobara upload karna hoga' });
+      } else if (b.url.startsWith('data:')) {
+        brochureIssues.push({ id: b.id, name: b.name, detail: 'Upload poora nahi hua tha - dobara upload karna hoga' });
+      }
+    }
+
+    const customerIds = new Set((customers || []).map((c) => c.id));
+    const orphanedJobs = (jobs || []).filter((j) => j.customerId && !customerIds.has(j.customerId));
+
+    setScanResults({ photoIssues, brochureIssues, orphanedJobs });
     setScanning(false);
   };
+
   const retryBrokenUploads = async () => {
-    if (!brokenScan) return;
-    const retryable = brokenScan.filter((i) => i.kind === 'data-uri' && i.detail.includes('retry'));
+    if (!scanResults) return;
+    const retryable = scanResults.photoIssues.filter((i) => i.kind === 'data-uri' && i.detail.includes('retry'));
     if (retryable.length === 0) { showToast('Retry karne layak koi photo nahi mili', true); return; }
     setRetrying(true);
     let successCount = 0;
@@ -7208,7 +7266,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
     }
     setRetrying(false);
     showToast(successCount + ' / ' + retryable.length + ' photos fix ho gayi');
-    diagnoseGalleryPhotos();
+    runSystemCheck();
   };
   // Local editable copy of the rates list - changes only get persisted
   // (a Firestore write) when "Rates Save Karein" is tapped, not on
@@ -7456,43 +7514,81 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
         </div>
       </div>
 
-      <div style={{ ...styles.card, marginTop: 12 }}>
+      <div style={{ ...styles.card, marginTop: 12, borderColor: BRAND.navy, borderWidth: 1.5 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <AlertTriangle size={16} color={BRAND.gold} />
-          <div style={{ fontWeight: 800, fontSize: 14 }}>Gallery Photo Check</div>
+          <ShieldCheck size={18} color={BRAND.navy} />
+          <div style={{ fontWeight: 800, fontSize: 14.5, color: BRAND.navy }}>System Health Check</div>
         </div>
-        <div style={styles.plainTextMuted}>Agar kuch purani photos "Load nahi hui" dikha rahi hain, yahan check karein kaunsi aur kyun.</div>
-        <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={diagnoseGalleryPhotos} disabled={scanning}>
-          <Search size={14} /> {scanning ? 'Check ho raha hai...' : 'Gallery Check Karein'}
+        <div style={styles.plainTextMuted}>Gallery photos, brochure PDFs, aur customer records check karta hai - jo automatically fix ho sakta hai, karta hai; baaki clearly bata deta hai.</div>
+        <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={runSystemCheck} disabled={scanning}>
+          <Search size={14} /> {scanning ? 'Check ho raha hai...' : 'Poori App Check Karein'}
         </button>
-        {brokenScan && (
-          <div style={{ marginTop: 10 }}>
-            {brokenScan.length === 0 ? (
-              <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32' }}>
-                <CheckCircle2 size={14} /> Koi kharab photo nahi mili
-              </div>
-            ) : (
-              <>
-                <div style={{ ...styles.estimateStatusBanner, background: '#FFF3E0', color: '#E65100' }}>
-                  <AlertCircle size={14} /> {brokenScan.length} photo(s) mein masla mila
+
+        {scanResults && (() => {
+          const totalIssues = scanResults.photoIssues.length + scanResults.brochureIssues.length + scanResults.orphanedJobs.length;
+          const hasRetryable = scanResults.photoIssues.some((i) => i.kind === 'data-uri' && i.detail.includes('retry'));
+          return (
+            <div style={{ marginTop: 10 }}>
+              {totalIssues === 0 ? (
+                <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32' }}>
+                  <CheckCircle2 size={14} /> Sab kuch theek hai - koi masla nahi mila
                 </div>
-                {brokenScan.some((i) => i.kind === 'data-uri' && i.detail.includes('retry')) && (
-                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={retryBrokenUploads} disabled={retrying}>
-                    <Send size={14} /> {retrying ? 'Retry ho raha hai...' : 'Automatic Retry Karein'}
-                  </button>
-                )}
-                {brokenScan.map((i) => (
-                  <div key={i.cat + '_' + i.id} style={{ ...styles.itemRow, marginTop: 6 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={styles.itemDesc}>{i.cat}{i.caption ? (' - ' + i.caption) : ''}</div>
-                      <div style={styles.itemSub}>{i.detail}</div>
+              ) : (
+                <div style={{ ...styles.estimateStatusBanner, background: '#FFF3E0', color: '#E65100' }}>
+                  <AlertCircle size={14} /> {totalIssues} masle mile
+                </div>
+              )}
+              {hasRetryable && (
+                <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={retryBrokenUploads} disabled={retrying}>
+                  <Send size={14} /> {retrying ? 'Retry ho raha hai...' : 'Automatic Retry Karein'}
+                </button>
+              )}
+
+              {scanResults.photoIssues.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={styles.fieldLabel}>Gallery Photos ({scanResults.photoIssues.length})</div>
+                  {scanResults.photoIssues.map((i) => (
+                    <div key={i.cat + '_' + i.id} style={{ ...styles.itemRow, marginTop: 6 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={styles.itemDesc}>{i.cat}{i.caption ? (' - ' + i.caption) : ''}</div>
+                        <div style={styles.itemSub}>{i.detail}</div>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        )}
+                  ))}
+                </div>
+              )}
+
+              {scanResults.brochureIssues.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={styles.fieldLabel}>Brochure PDFs ({scanResults.brochureIssues.length})</div>
+                  {scanResults.brochureIssues.map((i) => (
+                    <div key={i.id} style={{ ...styles.itemRow, marginTop: 6 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={styles.itemDesc}>{i.name}</div>
+                        <div style={styles.itemSub}>{i.detail}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {scanResults.orphanedJobs.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={styles.fieldLabel}>Customer Records ({scanResults.orphanedJobs.length})</div>
+                  <div style={styles.plainTextMuted}>Ye jobs ke customer records delete ho chuke hain, lekin job data abhi bhi bacha hai - shayad delete beech mein ruk gaya tha.</div>
+                  {scanResults.orphanedJobs.map((j) => (
+                    <div key={j.id} style={{ ...styles.itemRow, marginTop: 6 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={styles.itemDesc}>{j.customerName || 'Naam nahi hai'}</div>
+                        <div style={styles.itemSub}>Customer record nahi mila</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       <div style={{ ...styles.card, marginTop: 12 }}>
