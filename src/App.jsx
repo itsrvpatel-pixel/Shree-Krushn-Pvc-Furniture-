@@ -1310,6 +1310,12 @@ export default function App() {
         if (att) setAttendanceRaw(JSON.parse(att));
         if (estRates) setEstimateRatesRaw(JSON.parse(estRates));
         if (archRev) setArchivedReviewsRaw(JSON.parse(archRev));
+        // Gallery loads here too (not just lazily on tab-open) so the
+        // app's overall startup behavior stays exactly as it always
+        // was - loadGalleryData's own galleryLoadedRef guard means
+        // calling it again later (when someone actually opens the
+        // Gallery tab) is a safe no-op if this already ran.
+        loadGalleryData();
       } finally {
         setLoaded(true);
       }
@@ -2511,13 +2517,6 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
   // appointment already on file still land on home as before.
   const [tab, setTab] = useState(job.appointment ? 'home' : 'appointment');
   const [showProfile, setShowProfile] = useState(false);
-
-  // Gallery data loads lazily - see loadGalleryData's definition (top
-  // level of App) for why - triggered here the first time this
-  // customer actually opens the Gallery tab, not on every app open.
-  useEffect(() => {
-    if (tab === 'gallery' && loadGalleryData) loadGalleryData();
-  }, [tab, loadGalleryData]);
 
   if (showProfile) {
     return (
@@ -4370,12 +4369,6 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
-  // Gallery data loads lazily - see loadGalleryData's definition (top
-  // level of App) for why - triggered here the first time admin
-  // actually opens the Gallery tab, not on every app open.
-  useEffect(() => {
-    if (tab === 'gallery' && loadGalleryData) loadGalleryData();
-  }, [tab, loadGalleryData]);
   // Notifications don't have individual user accounts to key reads by, so
   // admin/staff/partner share one "viewer" bucket per role - simple, and
   // matches how they already share visibility into the same jobs list.
