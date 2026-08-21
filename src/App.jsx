@@ -2517,6 +2517,20 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
   // appointment already on file still land on home as before.
   const [tab, setTab] = useState(job.appointment ? 'home' : 'appointment');
   const [showProfile, setShowProfile] = useState(false);
+  // Once the Gallery tab has been visited, it stays MOUNTED (just
+  // hidden via CSS when a different tab is active) instead of being
+  // unmounted/remounted every time someone switches away and back -
+  // conditional JSX rendering ({tab === 'gallery' && <GalleryBrowser
+  // .../>}) fully destroys and rebuilds the whole photo grid on every
+  // single visit, which is what made photos look like they were
+  // "reloading" each time: every <img> became a brand-new DOM element
+  // needing to re-render, even though the browser already had the
+  // image bytes cached. Keeping it mounted after the first visit means
+  // returning to Gallery is instant - it was never actually gone.
+  const [galleryEverVisited, setGalleryEverVisited] = useState(tab === 'gallery');
+  useEffect(() => {
+    if (tab === 'gallery' && !galleryEverVisited) setGalleryEverVisited(true);
+  }, [tab, galleryEverVisited]);
 
   if (showProfile) {
     return (
@@ -2570,7 +2584,11 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
 
       {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} onLogout={onLogout} />}
       {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
-      {tab === 'gallery' && <GalleryBrowser gallery={gallery} galleryLoading={galleryLoading} brochures={brochures} categories={categories} testimonials={testimonials} job={job} onSaveJob={onSaveJob} showToast={showToast} />}
+      {galleryEverVisited && (
+        <div style={{ display: tab === 'gallery' ? 'block' : 'none' }}>
+          <GalleryBrowser gallery={gallery} galleryLoading={galleryLoading} brochures={brochures} categories={categories} testimonials={testimonials} job={job} onSaveJob={onSaveJob} showToast={showToast} />
+        </div>
+      )}
       {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} customer={customer} gallery={gallery} estimateRates={estimateRates} />}
       {tab === 'estimate' && (
         <div style={{ padding: '12px 16px' }}>
@@ -4369,6 +4387,15 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
+  // Once the Gallery tab has been visited, it stays MOUNTED (just
+  // hidden via CSS when a different tab is active) instead of being
+  // unmounted/remounted every time admin switches away and back - see
+  // CustomerApp's matching comment for the full reasoning (this is the
+  // same fix for admin's own gallery management screen).
+  const [galleryEverVisited, setGalleryEverVisited] = useState(tab === 'gallery');
+  useEffect(() => {
+    if (tab === 'gallery' && !galleryEverVisited) setGalleryEverVisited(true);
+  }, [tab, galleryEverVisited]);
   // Notifications don't have individual user accounts to key reads by, so
   // admin/staff/partner share one "viewer" bucket per role - simple, and
   // matches how they already share visibility into the same jobs list.
@@ -4421,7 +4448,11 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
         />
       )}
       {tab === 'customers' && <AdminCustomers customers={customers} setCustomers={setCustomers} jobs={jobs} setJobs={setJobs} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} onOpenJob={setActiveJobId} showToast={showToast} isPartner={isPartner} />}
-      {tab === 'gallery' && <AdminGallery gallery={gallery} galleryLoading={galleryLoading} setGallery={setGallery} categories={categories} setCategories={setCategories} showToast={showToast} />}
+      {galleryEverVisited && (
+        <div style={{ display: tab === 'gallery' ? 'block' : 'none' }}>
+          <AdminGallery gallery={gallery} galleryLoading={galleryLoading} setGallery={setGallery} categories={categories} setCategories={setCategories} showToast={showToast} />
+        </div>
+      )}
       {tab === 'reviews' && <AdminReviews jobs={jobs} setJobs={setJobs} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} showToast={showToast} />}
       {tab === 'expenses' && !isPartner && <AdminExpenses expenses={expenses} setExpenses={setExpenses} jobs={jobs} showToast={showToast} onOpenJob={setActiveJobId} />}
       {tab === 'settings' && (
