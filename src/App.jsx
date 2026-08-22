@@ -2719,6 +2719,19 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
   const [showTestimonials, setShowTestimonials] = useState(false);
   const [query, setQuery] = useState('');
   const [showAllPhotos, setShowAllPhotos] = useState(false);
+  // How many photo cards are actually rendered into the DOM at once,
+  // regardless of how many exist in the current view - a category with
+  // 700 photos rendering all 700 <img>+wrapper elements immediately
+  // was the real slowdown here: loading='lazy' on SmartImg already
+  // defers the actual image byte downloads, but it does nothing about
+  // the cost of constructing and mounting 700 DOM nodes up front,
+  // which is a real, separate performance hit on a budget phone.
+  // Starting small and growing via "Load More" (rather than a fixed
+  // small page forever) means opening a category still feels
+  // instant, while still reaching every photo for someone who
+  // actually scrolls that far.
+  const PHOTO_PAGE_SIZE = 60;
+  const [visibleCount, setVisibleCount] = useState(PHOTO_PAGE_SIZE);
 
   if (galleryLoading && Object.keys(gallery || {}).length === 0) {
     return (
@@ -2752,9 +2765,11 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
     // through - filters the CURRENT view (whichever category, or all
     // photos), not a separate global search.
     const photos = basePhotos.filter((p) => !query.trim() || (p.caption || '').toLowerCase().includes(query.toLowerCase()));
+    const visiblePhotos = photos.slice(0, visibleCount);
+    const hasMore = photos.length > visibleCount;
     return (
       <div style={{ padding: '12px 16px' }}>
-        <button style={styles.backLink} onClick={() => { setActiveCat(null); setShowAllPhotos(false); setQuery(''); }}><ArrowLeft size={13} /> All categories</button>
+        <button style={styles.backLink} onClick={() => { setActiveCat(null); setShowAllPhotos(false); setQuery(''); setVisibleCount(PHOTO_PAGE_SIZE); }}><ArrowLeft size={13} /> All categories</button>
         <div style={styles.catTitle}>{inAllPhotosMode ? 'All Photos' : activeCat} <span style={styles.catCount}>({photos.length})</span></div>
 
         {/* Quick category switcher - lets the customer jump straight to
@@ -2764,9 +2779,9 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
             the extra round trip through "All categories" each time was
             unnecessary friction. */}
         <div style={styles.chipRow}>
-          <button onClick={() => { setActiveCat(null); setShowAllPhotos(true); setQuery(''); }} style={{ ...styles.chip, ...(inAllPhotosMode ? styles.chipActive : {}) }}>All Photos</button>
+          <button onClick={() => { setActiveCat(null); setShowAllPhotos(true); setQuery(''); setVisibleCount(PHOTO_PAGE_SIZE); }} style={{ ...styles.chip, ...(inAllPhotosMode ? styles.chipActive : {}) }}>All Photos</button>
           {categories.map((c) => (
-            <button key={c} onClick={() => { setActiveCat(c); setShowAllPhotos(false); setQuery(''); }} style={{ ...styles.chip, ...(!inAllPhotosMode && activeCat === c ? styles.chipActive : {}) }}>{c}</button>
+            <button key={c} onClick={() => { setActiveCat(c); setShowAllPhotos(false); setQuery(''); setVisibleCount(PHOTO_PAGE_SIZE); }} style={{ ...styles.chip, ...(!inAllPhotosMode && activeCat === c ? styles.chipActive : {}) }}>{c}</button>
           ))}
         </div>
 
@@ -2780,13 +2795,18 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
           </div>
         )}
         <div style={styles.photoGrid}>
-          {photos.map((p, i) => (
+          {visiblePhotos.map((p, i) => (
             <button key={p.id} style={styles.photoThumb} onClick={() => setLightbox({ photos, index: i })}>
               <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption || activeCat} style={styles.photoImg} />
               {inAllPhotosMode && <div style={styles.photoThumbCatTag}>{p.category}</div>}
             </button>
           ))}
         </div>
+        {hasMore && (
+          <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => setVisibleCount((v) => v + PHOTO_PAGE_SIZE)}>
+            Aur Dikhaein ({photos.length - visibleCount} baaki)
+          </button>
+        )}
         {lightbox && <Lightbox data={lightbox} onClose={() => setLightbox(null)} setLightbox={setLightbox} job={job} onSaveDesign={onSaveJob} showToast={showToast} />}
       </div>
     );
@@ -6611,6 +6631,12 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
   const [showBulk, setShowBulk] = useState(false);
   const [query, setQuery] = useState('');
   const [editingPhoto, setEditingPhoto] = useState(null);
+  // Same fix as GalleryBrowser's matching comment - a category with
+  // hundreds of photos rendering every single one into the DOM at once
+  // is what made opening it feel slow, independent of image loading
+  // itself. See GalleryBrowser for the full reasoning.
+  const PHOTO_PAGE_SIZE = 60;
+  const [visibleCount, setVisibleCount] = useState(PHOTO_PAGE_SIZE);
 
   if (galleryLoading && Object.keys(gallery || {}).length === 0) {
     return (
@@ -6623,6 +6649,8 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
 
   const allPhotos = [...(gallery[activeCat] || [])].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   const photos = allPhotos.filter((p) => !query.trim() || (p.caption || '').toLowerCase().includes(query.toLowerCase()));
+  const visiblePhotos = photos.slice(0, visibleCount);
+  const hasMorePhotos = photos.length > visibleCount;
 
   // Fetches a category's CURRENT state directly from Firestore, rather
   // than trusting this device's local `gallery` state - shared by every
@@ -6735,14 +6763,14 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
 
       <div style={styles.chipRow}>
         <button
-          onClick={() => setActiveCat(UNCATEGORIZED)}
+          onClick={() => { setActiveCat(UNCATEGORIZED); setVisibleCount(PHOTO_PAGE_SIZE); }}
           style={{ ...styles.chip, ...(activeCat === UNCATEGORIZED ? styles.chipActive : {}), borderStyle: 'dashed' }}
         >
           Uncategorized ({(gallery[UNCATEGORIZED] || []).length})
         </button>
         {categories.map((c) => {
           const count = (gallery[c] || []).length;
-          return <button key={c} onClick={() => setActiveCat(c)} style={{ ...styles.chip, ...(activeCat === c ? styles.chipActive : {}) }}>{c} ({count})</button>;
+          return <button key={c} onClick={() => { setActiveCat(c); setVisibleCount(PHOTO_PAGE_SIZE); }} style={{ ...styles.chip, ...(activeCat === c ? styles.chipActive : {}) }}>{c} ({count})</button>;
         })}
       </div>
 
@@ -6770,7 +6798,7 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
 
       <div style={{ ...styles.fieldLabel, marginTop: 16 }}>{activeCat} photos ({photos.length}) - edit ke liye tap karein</div>
       <div style={styles.photoGrid}>
-        {photos.map((p) => (
+        {visiblePhotos.map((p) => (
           <div key={p.id} style={styles.progressPhotoCard}>
             <button style={styles.photoEditTapArea} onClick={() => setEditingPhoto(p)}>
               <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption} style={styles.photoImg} />
@@ -6780,6 +6808,11 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
           </div>
         ))}
       </div>
+      {hasMorePhotos && (
+        <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => setVisibleCount((v) => v + PHOTO_PAGE_SIZE)}>
+          Aur Dikhaein ({photos.length - visibleCount} baaki)
+        </button>
+      )}
 
       {editingPhoto && (
         <GalleryPhotoEditDialog
