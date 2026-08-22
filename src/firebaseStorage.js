@@ -24,7 +24,10 @@
 
 import { initializeApp } from "firebase/app";
 import {
+  initializeFirestore,
   getFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   doc,
   getDoc,
   setDoc,
@@ -42,6 +45,12 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
 } from "firebase/auth";
+import {
+  getMessaging,
+  getToken,
+  onMessage,
+  isSupported as isMessagingSupported,
+} from "firebase/messaging";
 
 // Your actual Firebase project config (Shree Krushn PVC Furniture)
 const firebaseConfig = {
@@ -54,7 +63,34 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+// Firestore's own persistent local cache (IndexedDB-backed) - without
+// this, EVERY single read (gallery categories, jobs, customers,
+// everything) went to the network fresh on every single app open, even
+// for data that hadn't changed since last time. This is what actually
+// fixes "gallery reloads every time" at its root, complementing the
+// image cache-control fix (public, max-age, immutable) in
+// uploadDataUri above: that fix makes the PHOTO FILES load instantly
+// from the browser's cache, this fix makes the LIST of which photos
+// exist load instantly too, from Firestore's own local cache, syncing
+// with the server quietly in the background rather than blocking the
+// UI on a network round-trip.
+// persistentMultipleTabManager specifically (not the single-tab
+// default) is required here since more than one admin device/browser
+// tab legitimately uses this same app at once - the default
+// single-tab manager would throw a "failed to obtain exclusive access"
+// error the moment a second tab tried to open. Falls back to plain
+// getFirestore if persistence can't be set up for any reason (private/
+// incognito browsing blocks IndexedDB in some browsers, storage quota
+// issues, etc.) - the app still works fully without it, just without
+// the instant-load benefit on a repeat visit.
+let db;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  });
+} catch (e) {
+  db = getFirestore(app);
+}
 const storage = getStorage(app);
 const auth = getAuth(app);
 
@@ -206,4 +242,82 @@ export function installWindowStorage() {
     sendOtp: (phoneE164, recaptchaContainerId) => sendPhoneOtp(phoneE164, recaptchaContainerId),
     verifyOtp: (confirmationResult, code) => verifyPhoneOtp(confirmationResult, code),
   };
+  window.pushMessaging = {
+    requestPermissionAndGetToken: () => requestPermissionAndGetToken(),
+    onForegroundMessage: (callback) => onForegroundMessage(callback),
+    sendPush: (targetTokens, title, body) => sendPushViaApi(targetTokens, title, body),
+  };
+}
+
+// The VAPID key (a "Web Push certificate") from Firebase Console ->
+// Project Settings (gear icon) -> Cloud Messaging tab -> Web Push
+// certificates -> Generate key pair. This is a PUBLIC key (safe to
+// ship in client code, unlike the service account key api/send-push.js
+// uses) that identifies THIS specific web app to FCM when requesting a
+// device token - notification permission requests will fail without
+// it. Replace the placeholder below once generated.
+const VAPID_KEY = "REPLACE_WITH_YOUR_VAPID_KEY_FROM_FIREBASE_CONSOLE";
+
+// Asks the browser for notification permission, and if granted,
+// registers this specific device/browser with FCM and returns its
+// unique token - the address api/send-push.js uses to actually deliver
+// a notification to THIS device later. Returns null (not an error) if
+// permission is denied, the browser doesn't support push (older
+// Safari, etc.), or the VAPID key hasn't been configured yet - callers
+// should treat a null return as "push just isn't available right now"
+// rather than a failure.
+async function requestPermissionAndGetToken() {
+  try {
+    if (VAPID_KEY.startsWith('REPLACE_WITH')) {
+      console.warn('Push notifications: VAPID_KEY not configured yet in firebaseStorage.js');
+      return null;
+    }
+    const supported = await isMessagingSupported();
+    if (!supported) return null;
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return null;
+    const messaging = getMessaging(app);
+    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: registration });
+    return token || null;
+  } catch (e) {
+    console.error('requestPermissionAndGetToken failed:', e);
+    return null;
+  }
+}
+
+// Foreground messages (the app IS open/focused right now) don't
+// trigger the service worker's onBackgroundMessage - FCM requires this
+// separate handler for that case, since a message arriving while
+// someone is actively looking at the app is usually better shown as an
+// in-app toast/banner than a system notification popping over what
+// they're already doing.
+function onForegroundMessage(callback) {
+  try {
+    const messaging = getMessaging(app);
+    return onMessage(messaging, (payload) => callback(payload));
+  } catch (e) {
+    return () => {};
+  }
+}
+
+// Calls the Vercel serverless function (api/send-push.js) that
+// actually delivers the push via the Firebase Admin SDK - see that
+// file's own comments for the full "why can't this just happen
+// directly from the browser" explanation. targetTokens can be a
+// single token string or an array of tokens (e.g. notifying every
+// admin device at once).
+async function sendPushViaApi(targetTokens, title, body) {
+  try {
+    const tokens = Array.isArray(targetTokens) ? targetTokens : [targetTokens];
+    const res = await fetch('/api/send-push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tokens, title, body }),
+    });
+    return await res.json();
+  } catch (e) {
+    console.error('sendPushViaApi failed:', e);
+    return { error: e.message };
+  }
 }
