@@ -256,7 +256,7 @@ export function installWindowStorage() {
 // uses) that identifies THIS specific web app to FCM when requesting a
 // device token - notification permission requests will fail without
 // it. Replace the placeholder below once generated.
-const VAPID_KEY = "REPLACE_WITH_YOUR_VAPID_KEY_FROM_FIREBASE_CONSOLE";
+const VAPID_KEY = "BPi0tuamcz79EtaO9Am7fYe4AekrKMDMnEh8mLpQDiSknUpSJyfkmLAk-KBfJ0wne5vD3NiX-qa-TxXsi09acZg";
 
 // Asks the browser for notification permission, and if granted,
 // registers this specific device/browser with FCM and returns its
