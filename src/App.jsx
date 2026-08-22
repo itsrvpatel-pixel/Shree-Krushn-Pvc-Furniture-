@@ -2794,10 +2794,10 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
             <p style={styles.emptyBlockText}>{query.trim() ? 'Koi photo match nahi hui.' : 'Is category mein abhi koi photo nahi hai.'}</p>
           </div>
         )}
-        <div style={styles.photoGrid}>
+        <div style={styles.galleryMasonry}>
           {visiblePhotos.map((p, i) => (
-            <button key={p.id} style={styles.photoThumb} onClick={() => setLightbox({ photos, index: i })}>
-              <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption || activeCat} style={styles.photoImg} />
+            <button key={p.id} style={styles.galleryMasonryItem} onClick={() => setLightbox({ photos, index: i })}>
+              <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption || activeCat} style={styles.galleryMasonryImg} />
               {inAllPhotosMode && <div style={styles.photoThumbCatTag}>{p.category}</div>}
             </button>
           ))}
@@ -6797,11 +6797,11 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
       )}
 
       <div style={{ ...styles.fieldLabel, marginTop: 16 }}>{activeCat} photos ({photos.length}) - edit ke liye tap karein</div>
-      <div style={styles.photoGrid}>
+      <div style={styles.galleryMasonry}>
         {visiblePhotos.map((p) => (
-          <div key={p.id} style={styles.progressPhotoCard}>
+          <div key={p.id} style={{ ...styles.progressPhotoCard, breakInside: 'avoid', marginBottom: 6 }}>
             <button style={styles.photoEditTapArea} onClick={() => setEditingPhoto(p)}>
-              <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption} style={styles.photoImg} />
+              <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption} style={styles.galleryMasonryImg} />
             </button>
             <button style={styles.photoDeleteBtn} onClick={() => removePhoto(p.id)}><Trash2 size={12} color='#FFF' /></button>
             {p.caption && <div style={styles.progressCaption}>{p.caption}</div>}
@@ -8028,6 +8028,19 @@ const styles = {
   photoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 8 },
   photoThumb: { border: 'none', padding: 0, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: '#EEF0F5', aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' },
   photoThumbCatTag: { position: 'absolute', bottom: 4, left: 4, right: 4, background: 'rgba(15,27,61,0.75)', color: '#FFF', fontSize: 9, fontWeight: 700, padding: '2px 5px', borderRadius: 5, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  // Google Photos-style masonry grid for the actual design gallery
+  // (browsing/inspiration photos) specifically - NOT used for progress
+  // photo logs elsewhere, which stay in the fixed-square grid above,
+  // since those are more of a checklist than something meant to be
+  // browsed for its visual look. CSS multi-column layout lets each
+  // photo keep its own natural aspect ratio and flow into whichever
+  // column has room next, rather than every photo being forced into an
+  // identical square box - a portrait photo squeezed into a square
+  // (object-fit: contain) leaves visible empty space on two sides,
+  // which is exactly the "white space" look being fixed here.
+  galleryMasonry: { columnCount: 3, columnGap: 6, marginTop: 8 },
+  galleryMasonryItem: { border: 'none', padding: 0, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: '#EEF0F5', display: 'block', width: '100%', marginBottom: 6, breakInside: 'avoid', position: 'relative' },
+  galleryMasonryImg: { width: '100%', height: 'auto', display: 'block', objectFit: 'cover' },
   recentPhotoStrip: { display: 'flex', gap: 8, overflowX: 'auto', marginTop: 8, paddingBottom: 4 },
   recentPhotoThumb: { flexShrink: 0, width: 74, height: 74, border: 'none', padding: 0, borderRadius: 10, overflow: 'hidden', cursor: 'pointer', background: '#EEF0F5' },
   recentPhotoImg: { width: '100%', height: '100%', objectFit: 'cover' },
