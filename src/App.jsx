@@ -1092,6 +1092,12 @@ export default function App() {
   const [appointmentItemOptions, setAppointmentItemOptions] = useState(DEFAULT_CATEGORIES);
   const [categories, setCategoriesRaw] = useState(DEFAULT_CATEGORIES);
   const [notifications, setNotificationsRaw] = useState([]);
+  // Which admin/staff devices have enabled real push notifications
+  // (their FCM tokens) - a genuinely separate concept from the
+  // in-app notification bell above: this list is who api/send-push.js
+  // actually delivers TO. More than one entry is normal and expected,
+  // since more than one admin device is regularly in use.
+  const [adminPushTokens, setAdminPushTokensRaw] = useState([]);
   // Reviews are normally read live off job.review, but a job (and its
   // review with it) gets deleted whenever its customer is deleted -
   // routine cleanup of old customer records, once the list gets long,
@@ -1290,11 +1296,11 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev] = await Promise.all([
+        const [c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens] = await Promise.all([
           safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
-          safeGet('archived_reviews'),
+          safeGet('archived_reviews'), safeGet('admin_push_tokens'),
         ]);
         if (c) setCustomers(JSON.parse(c));
         if (j) setJobs(JSON.parse(j));
@@ -1310,6 +1316,7 @@ export default function App() {
         if (att) setAttendanceRaw(JSON.parse(att));
         if (estRates) setEstimateRatesRaw(JSON.parse(estRates));
         if (archRev) setArchivedReviewsRaw(JSON.parse(archRev));
+        if (adminTokens) setAdminPushTokensRaw(JSON.parse(adminTokens));
         // Gallery loads here too (not just lazily on tab-open) so the
         // app's overall startup behavior stays exactly as it always
         // was - loadGalleryData's own galleryLoadedRef guard means
@@ -1722,6 +1729,13 @@ export default function App() {
     catch (e) { /* best effort - a failed notification save shouldn't block the action that triggered it */ }
   }, []);
   const NOTIFICATION_CAP = 200;
+  // Which notification types are meant for admin's own awareness
+  // (a customer/karigar did something admin needs to see) versus for
+  // a specific customer (admin did something that customer needs to
+  // know) - decides who real push notifications actually get sent to,
+  // alongside the existing in-app bell entry every type already gets.
+  const ADMIN_BOUND_NOTIFICATION_TYPES = ['new_appointment', 'estimate_approved', 'estimate_change_request', 'estimate_cancelled', 'extra_work_requested', 'extra_work_needs_price', 'follow_up_needed', 'customer_birthday', 'karigar_message', 'payment_received'];
+  const CUSTOMER_BOUND_NOTIFICATION_TYPES = ['appointment_confirmed', 'payment_due', 'extra_work_approved', 'extra_work_rejected'];
   const pushNotification = useCallback((type, message, jobId) => {
     setNotificationsRaw((current) => {
       const entry = { id: uid(), type, message, jobId: jobId || null, createdAt: new Date().toISOString(), readBy: [] };
@@ -1729,7 +1743,36 @@ export default function App() {
       window.storage.set('notifications', JSON.stringify(next), true).catch(() => {});
       return next;
     });
-  }, []);
+    // Real push, on top of the always-created in-app bell entry above -
+    // best effort: if a device never enabled push, or the API call
+    // fails for any reason, the in-app notification (which just fired
+    // above) is still there regardless, so nothing is actually lost.
+    if (window.pushMessaging) {
+      if (ADMIN_BOUND_NOTIFICATION_TYPES.includes(type) && adminPushTokens.length > 0) {
+        window.pushMessaging.sendPush(adminPushTokens.map((t) => t.token), BUSINESS.name, message).catch(() => {});
+      } else if (CUSTOMER_BOUND_NOTIFICATION_TYPES.includes(type) && jobId) {
+        const targetJob = jobs.find((j) => j.id === jobId);
+        if (targetJob && targetJob.customerPushToken) {
+          window.pushMessaging.sendPush(targetJob.customerPushToken, BUSINESS.name, message).catch(() => {});
+        }
+      }
+    }
+  }, [adminPushTokens, jobs]);
+  // Registers this admin/staff device's FCM token (once notification
+  // permission is granted) into the shared list every admin push goes
+  // to - safe to call repeatedly (e.g. every login): duplicate tokens
+  // for the same device are skipped rather than piling up.
+  const enableAdminPushNotifications = useCallback(async () => {
+    if (!window.pushMessaging) { showToast('Push notifications is browser mein supported nahi hai', true); return false; }
+    const token = await window.pushMessaging.requestPermissionAndGetToken();
+    if (!token) { showToast('Notification permission nahi mili', true); return false; }
+    if (adminPushTokens.some((t) => t.token === token)) { showToast('Notifications pehle se on hain'); return true; }
+    const next = [...adminPushTokens, { token, addedAt: new Date().toISOString() }];
+    setAdminPushTokensRaw(next);
+    try { await window.storage.set('admin_push_tokens', JSON.stringify(next), true); } catch (e) { /* best effort */ }
+    showToast('Notifications on ho gayi');
+    return true;
+  }, [adminPushTokens, showToast]);
   const markNotificationRead = useCallback((notificationId, viewerKey) => {
     setNotificationsRaw((current) => {
       const next = current.map((n) => (n.id === notificationId && !n.readBy.includes(viewerKey) ? { ...n, readBy: [...n.readBy, viewerKey] } : n));
@@ -1841,6 +1884,7 @@ export default function App() {
           loadGalleryData={loadGalleryData} galleryLoading={galleryLoading}
           customers={customers} setCustomers={persistCustomers}
           jobs={jobs} setJobs={persistJobs}
+          adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications}
           adminPin={adminPin} setAdminPin={persistPin}
           partnerPin={partnerPin} setPartnerPin={persistPartnerPin}
           staff={staff} setStaff={persistStaff}
@@ -2509,14 +2553,37 @@ function StageBadge({ status, size }) {
 /* ===================== CUSTOMER APP ===================== */
 /* Everything below receives ONLY this one customer's data - never a list of others. */
 function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
-  // A brand-new customer (no appointment booked yet) lands straight on
-  // the appointment tab instead of home, since booking a visit is the
-  // one thing every new customer needs to do first - skipping this extra
-  // navigation step removes a whole separate "now go find the booking
-  // tab" step right after registration. Existing customers with an
-  // appointment already on file still land on home as before.
-  const [tab, setTab] = useState(job.appointment ? 'home' : 'appointment');
+  // Registers this customer's own device for push notifications
+  // (visit confirmed, payment due, etc.) - the token is stored
+  // directly on their job record, since that's what pushNotification
+  // (top level of App) looks up when sending a customer-bound
+  // notification.
+  const enableCustomerPushNotifications = async () => {
+    if (!window.pushMessaging) { showToast('Push notifications is browser mein supported nahi hai', true); return; }
+    const token = await window.pushMessaging.requestPermissionAndGetToken();
+    if (!token) { showToast('Notification permission nahi mili', true); return; }
+    const ok = await onSaveJob({ ...job, customerPushToken: token });
+    if (ok) showToast('Notifications on ho gayi');
+  };
+
+  // Everyone lands on Home first, regardless of whether an appointment
+  // is booked yet - someone who just wants to browse the gallery or
+  // try the estimate calculator before deciding to book a visit
+  // shouldn't be forced through the appointment tab first. Home
+  // itself has a clear "Book Visit" prompt for anyone who hasn't
+  // booked yet, so booking is still one tap away, just not the ONLY
+  // thing a new customer can reach.
+  const [tab, setTab] = useState('home');
   const [showProfile, setShowProfile] = useState(false);
+  // Set true right when navigating to Requirements from Home's
+  // "Instant Estimate" tile specifically, so the calculator (normally
+  // collapsed by default inside Requirements) opens straight away
+  // instead of landing on the tab and still needing a second tap to
+  // find it. Consumed and reset back to false by RequirementsPanel
+  // once it's used it, so a later, ordinary visit to Requirements
+  // (e.g. via "Add Requirement") still starts collapsed as usual.
+  const [autoOpenCalculator, setAutoOpenCalculator] = useState(false);
+  const openInstantEstimate = () => { setAutoOpenCalculator(true); setTab('requirements'); };
   // Once the Gallery tab has been visited, it stays MOUNTED (just
   // hidden via CSS when a different tab is active) instead of being
   // unmounted/remounted every time someone switches away and back -
@@ -2542,6 +2609,17 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
             <div style={styles.itemDesc}>{customer?.name || '-'}</div>
             <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Mobile Number</div>
             <div style={styles.itemDesc}>{customer?.phone ? formatPhoneDisplay(customer.phone) : '-'}</div>
+          </div>
+          <div style={{ ...styles.formCard, marginTop: 12 }}>
+            <div style={styles.fieldLabel}>Notifications</div>
+            <div style={styles.plainTextMuted}>App band ho tab bhi updates (visit confirm, payment due, waghera) turant mil jayenge.</div>
+            {job.customerPushToken ? (
+              <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
+                <CheckCircle2 size={14} /> Notifications on hain
+              </div>
+            ) : (
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={enableCustomerPushNotifications}><Bell size={14} /> Notifications On Karein</button>
+            )}
           </div>
           <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
         </div>
@@ -2582,14 +2660,14 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
         }
       />
 
-      {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} onLogout={onLogout} />}
+      {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} onOpenCalculator={openInstantEstimate} onLogout={onLogout} />}
       {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
       {galleryEverVisited && (
         <div style={{ display: tab === 'gallery' ? 'block' : 'none' }}>
           <GalleryBrowser gallery={gallery} galleryLoading={galleryLoading} brochures={brochures} categories={categories} testimonials={testimonials} job={job} onSaveJob={onSaveJob} showToast={showToast} />
         </div>
       )}
-      {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} customer={customer} gallery={gallery} estimateRates={estimateRates} />}
+      {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} customer={customer} gallery={gallery} estimateRates={estimateRates} autoOpenCalculator={autoOpenCalculator} onCalculatorOpened={() => setAutoOpenCalculator(false)} />}
       {tab === 'estimate' && (
         <div style={{ padding: '12px 16px' }}>
           <div style={styles.sectionTitle}>Estimate</div>
@@ -2614,7 +2692,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
   );
 }
 
-function CustomerHome({ job, customer, setTab, onLogout }) {
+function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout }) {
   const st = STATUS[job.status] || STATUS.appointment;
   const total = jobTotal(job);
   const due = jobDue(job);
@@ -2676,6 +2754,7 @@ function CustomerHome({ job, customer, setTab, onLogout }) {
 
       <div style={styles.quickGrid}>
         <QuickTile icon={<Calendar size={20} color={BRAND.navy} />} label='Book Visit' onClick={() => setTab('appointment')} />
+        <QuickTile icon={<Calculator size={20} color={BRAND.navy} />} label='Instant Estimate' onClick={onOpenCalculator} />
         <QuickTile icon={<Grid3x3 size={20} color={BRAND.navy} />} label='Browse Designs' onClick={() => setTab('gallery')} />
         <QuickTile icon={<Edit3 size={20} color={BRAND.navy} />} label='Add Requirement' onClick={() => setTab('requirements')} />
         <QuickTile icon={<Hammer size={20} color={BRAND.navy} />} label='Work Progress' onClick={() => setTab('progress')} />
@@ -2906,18 +2985,76 @@ function Lightbox({ data, onClose, setLightbox, job, onSaveDesign, showToast }) 
     if (showToast) showToast(isSaved ? 'Design saved list se hataya' : 'Design save ho gaya');
   };
 
-  // Touch-swipe navigation: tracks the horizontal drag distance between
-  // touchstart and touchend on the image itself, and treats anything past
-  // a small threshold as a deliberate swipe rather than a tap.
+  // Zoom (double-tap or pinch) so someone can check finishing/texture
+  // detail up close, without the photo ever actually leaving the app -
+  // this is purely a CSS transform on the already-displayed image,
+  // never producing a separate saveable/shareable file. Resets back to
+  // 1x whenever the photo changes (swiping to the next one), so zoom
+  // never carries over onto a different photo.
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }); }, [index]);
+  const lastTapRef = React.useRef(0);
+  const pinchStartDistRef = React.useRef(null);
+  const pinchStartZoomRef = React.useRef(1);
+  const panStartRef = React.useRef(null);
+  const MAX_ZOOM = 4;
+  const DOUBLE_TAP_ZOOM = 2.5;
+
+  const getTouchDistance = (touches) => {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  // Touch-swipe navigation (when NOT zoomed in) and pinch-zoom / pan
+  // (when using two fingers, or dragging while already zoomed) share
+  // the same touch handlers, branching on touch count and current zoom
+  // level - swiping to navigate and panning a zoomed photo are
+  // mutually exclusive at any given moment, so one set of handlers
+  // covers both without them fighting each other.
   const touchStartX = React.useRef(null);
-  const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
+  const onTouchStart = (e) => {
+    if (e.touches.length === 2) {
+      pinchStartDistRef.current = getTouchDistance(e.touches);
+      pinchStartZoomRef.current = zoom;
+    } else if (e.touches.length === 1 && zoom > 1) {
+      panStartRef.current = { x: e.touches[0].clientX - pan.x, y: e.touches[0].clientY - pan.y };
+    } else if (e.touches.length === 1) {
+      touchStartX.current = e.touches[0].clientX;
+      const now = Date.now();
+      if (now - lastTapRef.current < 300) {
+        setZoom((z) => (z > 1 ? 1 : DOUBLE_TAP_ZOOM));
+        setPan({ x: 0, y: 0 });
+      }
+      lastTapRef.current = now;
+    }
+  };
+  const onTouchMove = (e) => {
+    if (e.touches.length === 2 && pinchStartDistRef.current) {
+      const newDist = getTouchDistance(e.touches);
+      const scale = newDist / pinchStartDistRef.current;
+      setZoom(Math.min(MAX_ZOOM, Math.max(1, pinchStartZoomRef.current * scale)));
+    } else if (e.touches.length === 1 && zoom > 1 && panStartRef.current) {
+      setPan({ x: e.touches[0].clientX - panStartRef.current.x, y: e.touches[0].clientY - panStartRef.current.y });
+    }
+  };
   const onTouchEnd = (e) => {
+    pinchStartDistRef.current = null;
+    panStartRef.current = null;
+    if (zoom > 1) return; // currently zoomed - a touch-end here is the end of a pan, not a swipe
     if (touchStartX.current === null) return;
-    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    const deltaX = (e.changedTouches[0] ? e.changedTouches[0].clientX : touchStartX.current) - touchStartX.current;
     const SWIPE_THRESHOLD = 40;
     if (deltaX > SWIPE_THRESHOLD) go(-1);
     else if (deltaX < -SWIPE_THRESHOLD) go(1);
     touchStartX.current = null;
+  };
+  // Double-tap on desktop/mouse (no touch) uses the browser's native
+  // dblclick event instead, same toggle behavior.
+  const onDoubleClick = () => {
+    setZoom((z) => (z > 1 ? 1 : DOUBLE_TAP_ZOOM));
+    setPan({ x: 0, y: 0 });
   };
 
   return (
@@ -2935,16 +3072,21 @@ function Lightbox({ data, onClose, setLightbox, job, onSaveDesign, showToast }) 
       <div
         onClick={(e) => e.stopPropagation()}
         onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        style={styles.lightboxImgWrap}
+        onDoubleClick={onDoubleClick}
+        style={{ ...styles.lightboxImgWrap, overflow: 'hidden', touchAction: zoom > 1 ? 'none' : 'pan-y' }}
       >
-        <SmartImg src={photo.url} origUrl={photo.origUrl} alt={photo.caption} style={styles.lightboxImg} />
+        <SmartImg
+          src={photo.url} origUrl={photo.origUrl} alt={photo.caption}
+          style={{ ...styles.lightboxImg, transform: 'scale(' + zoom + ') translate(' + (pan.x / zoom) + 'px, ' + (pan.y / zoom) + 'px)', transition: zoom === 1 ? 'transform 0.2s ease-out' : 'none', cursor: zoom > 1 ? 'grab' : 'default' }}
+        />
       </div>
       {photos.length > 1 && (
         <button style={{ ...styles.lightboxNav, right: 8 }} onClick={(e) => { e.stopPropagation(); go(1); }}><ChevronRight size={26} color='#FFF' /></button>
       )}
       {photo.caption && <div style={styles.lightboxCaption}>{photo.caption}</div>}
-      {photos.length > 1 && <div style={styles.lightboxSwipeHint}>Swipe left/right ya arrows use karein</div>}
+      <div style={styles.lightboxSwipeHint}>{photos.length > 1 ? 'Swipe left/right ya arrows use karein - zoom ke liye double-tap karein' : 'Zoom ke liye double-tap karein'}</div>
     </div>
   );
 }
@@ -3467,7 +3609,7 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
   );
 }
 
-function RequirementsPanel({ job, onSave, showToast, categories, customer, gallery, estimateRates }) {
+function RequirementsPanel({ job, onSave, showToast, categories, customer, gallery, estimateRates, autoOpenCalculator, onCalculatorOpened }) {
   const [category, setCategory] = useState(categories[0]);
   const [text, setText] = useState('');
   const [dimensions, setDimensions] = useState('');
@@ -3484,7 +3626,13 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
   // Settings - separate from the actual estimate (which admin still
   // builds by hand, per real item, once they've visited/reviewed the
   // project). This just gives an early ballpark before that happens.
-  const [showCalculator, setShowCalculator] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(autoOpenCalculator || false);
+  useEffect(() => {
+    if (autoOpenCalculator) {
+      setShowCalculator(true);
+      if (onCalculatorOpened) onCalculatorOpened();
+    }
+  }, [autoOpenCalculator, onCalculatorOpened]);
   const [calcItems, setCalcItems] = useState([]);
   const [calcLength, setCalcLength] = useState('');
   const [calcHeight, setCalcHeight] = useState('');
@@ -4403,7 +4551,7 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
   );
 }
 
-function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, archivedReviews, setArchivedReviews, staffName, isPartner, onLogout, showToast, pushNotification }) {
+function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, archivedReviews, setArchivedReviews, staffName, isPartner, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
@@ -4478,7 +4626,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
       {tab === 'settings' && (
         isPartner
           ? <PartnerSettings staffName={staffName} onLogout={onLogout} />
-          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} onLogout={onLogout} showToast={showToast} />
+          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications} onLogout={onLogout} showToast={showToast} />
       )}
 
       <BottomNav
@@ -7348,7 +7496,7 @@ function AdminProfitReport({ jobs, expenses }) {
 }
 
 /* ---- Admin settings ---- */
-function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, onLogout, showToast }) {
+function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, adminPushTokens, enableAdminPushNotifications, onLogout, showToast }) {
   const [current, setCurrent] = useState('');
   const [next1, setNext1] = useState('');
   const [next2, setNext2] = useState('');
@@ -7679,6 +7827,18 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
           <input style={{ ...styles.input, marginTop: 10 }} placeholder='Nayi category ka naam' value={newGalleryCategory} onChange={(e) => setNewGalleryCategory(e.target.value)} />
           <button style={styles.addBtn} onClick={addGalleryCategory}><Plus size={14} /> Category add karein</button>
         </div>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Bell size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Push Notifications</div>
+        </div>
+        <div style={styles.plainTextMuted}>App band ho tab bhi (naye appointment, estimate approve, waghera) turant notification mile - is device par on karein.</div>
+        <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={enableAdminPushNotifications}><Bell size={14} /> Is Device Par Notifications On Karein</button>
+        {adminPushTokens.length > 0 && (
+          <div style={{ ...styles.itemSub, marginTop: 8 }}>{adminPushTokens.length} device(s) par notifications on hain</div>
+        )}
       </div>
 
       <div style={{ ...styles.card, marginTop: 12, borderColor: BRAND.navy, borderWidth: 1.5 }}>
