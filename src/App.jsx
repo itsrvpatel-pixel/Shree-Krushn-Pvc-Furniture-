@@ -559,9 +559,13 @@ async function buildReceiptPdfDoc(job, payment) {
   return doc;
 }
 
-async function generateReceiptPdf(job, payment) {
-  const doc = await buildReceiptPdfDoc(job, payment);
-  doc.save('Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf');
+async function generateReceiptPdf(job, payment, showToast) {
+  try {
+    const doc = await buildReceiptPdfDoc(job, payment);
+    doc.save('Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf');
+  } catch (e) {
+    if (showToast) showToast('PDF banane mein dikkat aayi, dobara try karein', true);
+  }
 }
 
 // Shares the payment receipt PDF directly to WhatsApp (or any app the
@@ -571,7 +575,16 @@ async function generateReceiptPdf(job, payment) {
 // message. Falls back to a plain download (with a toast explaining
 // why) wherever file sharing isn't supported.
 async function shareReceiptPdf(job, payment, showToast) {
-  const doc = await buildReceiptPdfDoc(job, payment);
+  let doc;
+  try {
+    doc = await buildReceiptPdfDoc(job, payment);
+  } catch (e) {
+    // Same silent-failure risk as shareEstimatePdf had - see its own
+    // comment for the full explanation. Any failure building the PDF
+    // now surfaces as a toast instead of the button just doing nothing.
+    if (showToast) showToast('PDF banane mein dikkat aayi, dobara try karein', true);
+    return;
+  }
   const fileName = 'Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf';
   const blob = doc.output('blob');
   const file = new File([blob], fileName, { type: 'application/pdf' });
@@ -670,7 +683,21 @@ async function buildEstimatePdfFromDom(elementId) {
 // sharing isn't supported, since there's no reliable way to hand a file
 // to WhatsApp without it.
 async function shareEstimatePdf(job, elementId, showToast) {
-  const doc = await buildEstimatePdfFromDom(elementId);
+  let doc;
+  try {
+    doc = await buildEstimatePdfFromDom(elementId);
+  } catch (e) {
+    // buildEstimatePdfFromDom's own try/finally doesn't catch - any
+    // failure inside it (html2canvas erroring on a slow/odd device,
+    // etc.) was previously propagating all the way up as an unhandled
+    // promise rejection here, since this call was never awaited by its
+    // caller either - which meant tapping the button did nothing
+    // visible at all, not even an error toast. This is what actually
+    // fixes that: whatever goes wrong now surfaces as a real message
+    // instead of silently vanishing.
+    if (showToast) showToast('PDF banane mein dikkat aayi, dobara try karein', true);
+    return;
+  }
   if (!doc) {
     if (showToast) showToast('PDF banane mein dikkat aayi, dobara try karein', true);
     return;
@@ -2592,15 +2619,6 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
   // thing a new customer can reach.
   const [tab, setTab] = useState('home');
   const [showProfile, setShowProfile] = useState(false);
-  // Set true right when navigating to Requirements from Home's
-  // "Instant Estimate" tile specifically, so the calculator (normally
-  // collapsed by default inside Requirements) opens straight away
-  // instead of landing on the tab and still needing a second tap to
-  // find it. Consumed and reset back to false by RequirementsPanel
-  // once it's used it, so a later, ordinary visit to Requirements
-  // (e.g. via "Add Requirement") still starts collapsed as usual.
-  const [autoOpenCalculator, setAutoOpenCalculator] = useState(false);
-  const openInstantEstimate = () => { setAutoOpenCalculator(true); setTab('requirements'); };
   // Once the Gallery tab has been visited, it stays MOUNTED (just
   // hidden via CSS when a different tab is active) instead of being
   // unmounted/remounted every time someone switches away and back -
@@ -2677,14 +2695,15 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
         }
       />
 
-      {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} onOpenCalculator={openInstantEstimate} onLogout={onLogout} />}
+      {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} onOpenCalculator={() => setTab('instant_estimate')} onLogout={onLogout} />}
       {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
       {galleryEverVisited && (
         <div style={{ display: tab === 'gallery' ? 'block' : 'none' }}>
           <GalleryBrowser gallery={gallery} galleryLoading={galleryLoading} brochures={brochures} categories={categories} testimonials={testimonials} job={job} onSaveJob={onSaveJob} showToast={showToast} />
         </div>
       )}
-      {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} customer={customer} gallery={gallery} estimateRates={estimateRates} autoOpenCalculator={autoOpenCalculator} onCalculatorOpened={() => setAutoOpenCalculator(false)} />}
+      {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} customer={customer} gallery={gallery} />}
+      {tab === 'instant_estimate' && <InstantEstimateCalculator estimateRates={estimateRates} showToast={showToast} onBack={() => setTab('home')} />}
       {tab === 'estimate' && (
         <div style={{ padding: '12px 16px' }}>
           <div style={styles.sectionTitle}>Estimate</div>
@@ -3626,30 +3645,18 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
   );
 }
 
-function RequirementsPanel({ job, onSave, showToast, categories, customer, gallery, estimateRates, autoOpenCalculator, onCalculatorOpened }) {
-  const [category, setCategory] = useState(categories[0]);
-  const [text, setText] = useState('');
-  const [dimensions, setDimensions] = useState('');
-  const [priority, setPriority] = useState('normal');
-  const [showForm, setShowForm] = useState((job.requirements || []).length === 0);
-  const [lightbox, setLightbox] = useState(null);
-  const savedDesigns = job.savedDesigns || [];
-
-  // Instant estimate calculator: a customer-side, self-service rough
-  // total based on their own measurements/quantities and which rate
-  // type applies (Framing, Box, Basket, Drawer, TV Cabinet, Partition,
-  // etc. - admin's own configured list, not just a fixed
-  // laminate/without-laminate split), using the rates admin sets in
-  // Settings - separate from the actual estimate (which admin still
-  // builds by hand, per real item, once they've visited/reviewed the
-  // project). This just gives an early ballpark before that happens.
-  const [showCalculator, setShowCalculator] = useState(autoOpenCalculator || false);
-  useEffect(() => {
-    if (autoOpenCalculator) {
-      setShowCalculator(true);
-      if (onCalculatorOpened) onCalculatorOpened();
-    }
-  }, [autoOpenCalculator, onCalculatorOpened]);
+// Standalone Instant Estimate Calculator - its own dedicated screen
+// rather than a collapsible section tucked inside Requirements, since
+// mixing "give me a quick ballpark price" with "let me write out my
+// detailed requirements" in one place made the quick-estimate path
+// harder to find and more cluttered than it needed to be. Reached
+// directly from Home's own "Instant Estimate" tile - a customer who
+// just wants a number doesn't have to wade through the requirements
+// form to get to it. Purely a local session tool - a rough total based
+// on the customer's own measurements/quantities and admin's configured
+// rate types, using the rates admin sets in Settings; nothing here
+// gets saved anywhere or sent to admin, unlike Requirements.
+function InstantEstimateCalculator({ estimateRates, showToast, onBack }) {
   const [calcItems, setCalcItems] = useState([]);
   const [calcLength, setCalcLength] = useState('');
   const [calcHeight, setCalcHeight] = useState('');
@@ -3659,10 +3666,6 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
   const calcSelectedRate = rates.find((r) => r.id === calcRateId);
   const calcIsPieceType = calcSelectedRate?.unit === 'piece';
 
-  // Piece-priced items (baskets, drawers) are just quantity x rate - no
-  // measurement needed, since they're counted individually rather than
-  // measured by area, unlike sqft-priced items (framing, box, TV
-  // cabinet, partition) which need Length x Height.
   const calcItemAmount = (it) => {
     const rateEntry = rates.find((r) => r.id === it.rateId);
     if (!rateEntry) return 0;
@@ -3686,6 +3689,71 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
     }
   };
   const removeCalcItem = (id) => setCalcItems((prev) => prev.filter((it) => it.id !== id));
+
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      {onBack && <button style={styles.backLink} onClick={onBack}><ArrowLeft size={13} /> Home</button>}
+      <div style={{ ...styles.sectionTitle, marginTop: onBack ? 10 : 0 }}>Instant Estimate Calculator</div>
+      <div style={styles.plainTextMuted}>Apni measurements daal ke turant approx price dekhein. Ye ek approx estimate hai, final estimate admin banayenge site visit ke baad.</div>
+
+      <div style={{ ...styles.formCard, marginTop: 14 }}>
+        <div style={styles.hintText}>Item (rate ke saath)</div>
+        <div style={styles.chipRow}>
+          {rates.map((r) => (
+            <button key={r.id} onClick={() => setCalcRateId(r.id)} style={{ ...styles.chip, ...(calcRateId === r.id ? styles.chipActive : {}) }}>
+              {r.name} ({r.unit === 'piece' ? ('₹' + r.rate + '/piece') : ('₹' + r.rate + '/sqft')})
+            </button>
+          ))}
+        </div>
+        {calcIsPieceType ? (
+          <input style={{ ...styles.input, marginTop: 8 }} inputMode='numeric' placeholder='Kitne piece (nang)' value={calcQty} onChange={(e) => setCalcQty(e.target.value)} />
+        ) : (
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <input style={styles.input} inputMode='decimal' placeholder='Length (inch)' value={calcLength} onChange={(e) => setCalcLength(e.target.value)} />
+            <input style={styles.input} inputMode='decimal' placeholder='Height (inch)' value={calcHeight} onChange={(e) => setCalcHeight(e.target.value)} />
+          </div>
+        )}
+        <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={addCalcItem}><Plus size={14} /> Item Add Karein</button>
+
+        {calcItems.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            {calcItems.map((it) => (
+              <div key={it.id} style={styles.itemRow}>
+                <div style={{ flex: 1 }}>
+                  <div style={styles.itemDesc}>{rates.find((r) => r.id === it.rateId)?.name || '-'}</div>
+                  <div style={styles.itemSub}>{it.qty ? (it.qty + ' piece') : (it.length + '" x ' + it.height + '" (' + ((Number(it.length) * Number(it.height)) / 144).toFixed(1) + ' sqft)')}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={styles.itemDesc}>{currency(calcItemAmount(it))}</div>
+                  <button style={styles.iconBtnSmall} onClick={() => removeCalcItem(it.id)}><Trash2 size={13} color='#C7CCDC' /></button>
+                </div>
+              </div>
+            ))}
+            <div style={styles.totalBar}><span>Approx Total</span><span style={styles.totalAmt}>{currency(calcTotal)}</span></div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RequirementsPanel({ job, onSave, showToast, categories, customer, gallery }) {
+  const [category, setCategory] = useState(categories[0]);
+  const [text, setText] = useState('');
+  const [dimensions, setDimensions] = useState('');
+  const [priority, setPriority] = useState('normal');
+  const [showForm, setShowForm] = useState((job.requirements || []).length === 0);
+  const [lightbox, setLightbox] = useState(null);
+  const savedDesigns = job.savedDesigns || [];
+
+  // Instant estimate calculator: a customer-side, self-service rough
+  // total based on their own measurements/quantities and which rate
+  // type applies (Framing, Box, Basket, Drawer, TV Cabinet, Partition,
+  // etc. - admin's own configured list, not just a fixed
+  // laminate/without-laminate split), using the rates admin sets in
+  // Settings - separate from the actual estimate (which admin still
+  // builds by hand, per real item, once they've visited/reviewed the
+  // project). This just gives an early ballpark before that happens.
 
   // photoRef only stores a photoId (see FavoritesButton's addToProject
   // for why - the image itself already lives in the gallery's own
@@ -3751,53 +3819,6 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
         )}
       </div>
 
-      <div style={{ ...styles.formCard, marginTop: 14, background: '#FFF9EE', borderColor: BRAND.gold }}>
-        <button style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }} onClick={() => setShowCalculator((s) => !s)}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 13.5, color: BRAND.navy }}><Calculator size={16} color={BRAND.gold} /> Instant Estimate Calculator</div>
-          {showCalculator ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
-        {!showCalculator && <div style={styles.plainTextMuted}>Apni measurements daal ke turant approx price dekhein</div>}
-        {showCalculator && (
-          <div style={{ marginTop: 10 }}>
-            <div style={styles.plainTextMuted}>Ye ek approx estimate hai, final estimate admin banayenge site visit ke baad.</div>
-            <div style={{ ...styles.hintText, marginTop: 10 }}>Item (rate ke saath)</div>
-            <div style={styles.chipRow}>
-              {rates.map((r) => (
-                <button key={r.id} onClick={() => setCalcRateId(r.id)} style={{ ...styles.chip, ...(calcRateId === r.id ? styles.chipActive : {}) }}>
-                  {r.name} ({r.unit === 'piece' ? ('₹' + r.rate + '/piece') : ('₹' + r.rate + '/sqft')})
-                </button>
-              ))}
-            </div>
-            {calcIsPieceType ? (
-              <input style={{ ...styles.input, marginTop: 8 }} inputMode='numeric' placeholder='Kitne piece (nang)' value={calcQty} onChange={(e) => setCalcQty(e.target.value)} />
-            ) : (
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <input style={styles.input} inputMode='decimal' placeholder='Length (inch)' value={calcLength} onChange={(e) => setCalcLength(e.target.value)} />
-                <input style={styles.input} inputMode='decimal' placeholder='Height (inch)' value={calcHeight} onChange={(e) => setCalcHeight(e.target.value)} />
-              </div>
-            )}
-            <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={addCalcItem}><Plus size={14} /> Item Add Karein</button>
-
-            {calcItems.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                {calcItems.map((it) => (
-                  <div key={it.id} style={styles.itemRow}>
-                    <div style={{ flex: 1 }}>
-                      <div style={styles.itemDesc}>{rates.find((r) => r.id === it.rateId)?.name || '-'}</div>
-                      <div style={styles.itemSub}>{it.qty ? (it.qty + ' piece') : (it.length + '" x ' + it.height + '" (' + ((Number(it.length) * Number(it.height)) / 144).toFixed(1) + ' sqft)')}</div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={styles.itemDesc}>{currency(calcItemAmount(it))}</div>
-                      <button style={styles.iconBtnSmall} onClick={() => removeCalcItem(it.id)}><Trash2 size={13} color='#C7CCDC' /></button>
-                    </div>
-                  </div>
-                ))}
-                <div style={styles.totalBar}><span>Approx Total</span><span style={styles.totalAmt}>{currency(calcTotal)}</span></div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
 
       {showForm && (
         <div style={styles.formCard}>
@@ -3997,7 +4018,7 @@ function EstimateView({ job, onSave, showToast }) {
                 <div style={styles.itemDesc}>{currency(p.amount)}</div>
                 <div style={styles.itemSub}>{formatDate(p.date)}</div>
               </div>
-              <button style={styles.cardActionBtn} onClick={() => generateReceiptPdf(job, p)}><FileText size={13} /> Receipt</button>
+              <button style={styles.cardActionBtn} onClick={() => generateReceiptPdf(job, p, showToast)}><FileText size={13} /> Receipt</button>
             </div>
           ))}
         </div>
@@ -5616,7 +5637,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF' }} onClick={() => shareReceiptPdf(job, p, showToast)}><Send size={13} /> WhatsApp</button>
-                <button style={styles.cardActionBtn} onClick={() => generateReceiptPdf(job, p)}><FileText size={13} /> Receipt</button>
+                <button style={styles.cardActionBtn} onClick={() => generateReceiptPdf(job, p, showToast)}><FileText size={13} /> Receipt</button>
               </div>
             </div>
           ))}
@@ -6447,7 +6468,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                   <div style={styles.itemSub}>{formatDate(p.date)} {p.note && ('- ' + p.note)}</div>
                 </div>
                 <button style={{ ...styles.iconBtnSmall, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => shareReceiptPdf(job, p, showToast)}><Send size={14} color='#25D366' /></button>
-                <button style={styles.iconBtnSmall} onClick={() => generateReceiptPdf(job, p)}><FileText size={14} color='#3D6B66' /></button>
+                <button style={styles.iconBtnSmall} onClick={() => generateReceiptPdf(job, p, showToast)}><FileText size={14} color='#3D6B66' /></button>
                 <button style={styles.iconBtnSmall} onClick={() => removePayment(p.id)}><Trash2 size={14} color='#C7CCDC' /></button>
               </div>
             ))}
