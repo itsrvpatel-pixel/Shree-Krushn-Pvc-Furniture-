@@ -3287,6 +3287,41 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
     return combined.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   }, [gallery, galleryCategories]);
 
+  // Quietly warms the browser's own image cache for every category's
+  // first page of photos, right when the gallery data is ready - not
+  // just the one category currently being viewed. Switching between
+  // categories doesn't keep their DOM elements mounted (that would
+  // mean holding every category's whole photo grid in memory at
+  // once, which doesn't scale well once there are many categories),
+  // so a category being viewed for the first time in this session
+  // genuinely does need its <img> elements freshly created - but
+  // "freshly created DOM element" and "needs a fresh network+decode
+  // round-trip" are two different things: this preloads the actual
+  // image bytes into the browser's own cache ahead of time (using
+  // invisible Image() objects that render nothing), so by the time
+  // someone actually taps into a category, the browser can decode and
+  // paint from cache almost instantly instead of needing to fetch it
+  // for the first time right then - which is what the couple-seconds
+  // delay on first visiting a category was actually waiting on.
+  // preloadedUrlsRef prevents re-triggering this for URLs already
+  // warmed earlier in the session (e.g. when the poll refreshes
+  // gallery data periodically) - only genuinely new photos get a new
+  // Image() request.
+  const preloadedUrlsRef = React.useRef(new Set());
+  useEffect(() => {
+    const PRELOAD_COUNT = 15;
+    for (const cat of galleryCategories) {
+      const photos = (gallery[cat] || []).slice(0, PRELOAD_COUNT);
+      for (const p of photos) {
+        if (p.url && !preloadedUrlsRef.current.has(p.url)) {
+          preloadedUrlsRef.current.add(p.url);
+          const img = new Image();
+          img.src = p.url;
+        }
+      }
+    }
+  }, [galleryCategories, gallery]);
+
   if (galleryLoading && Object.keys(gallery || {}).length === 0) {
     return (
       <div style={{ padding: '40px 16px', textAlign: 'center' }}>
@@ -3334,12 +3369,16 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
             <p style={styles.emptyBlockText}>{query.trim() ? 'Koi photo match nahi hui.' : 'Is category mein abhi koi photo nahi hai.'}</p>
           </div>
         )}
-        <div style={styles.galleryMasonry}>
-          {visiblePhotos.map((p, i) => (
-            <button key={p.id} style={styles.galleryMasonryItem} onClick={() => setLightbox({ photos, index: i })}>
-              <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption || activeCat} style={styles.galleryMasonryImg} />
-              {inAllPhotosMode && <div style={styles.photoThumbCatTag}>{p.category}</div>}
-            </button>
+        <div style={styles.galleryMasonryRow}>
+          {[0, 1, 2].map((colIdx) => (
+            <div key={colIdx} style={styles.galleryMasonryCol}>
+              {visiblePhotos.map((p, i) => ({ p, i })).filter(({ i }) => i % 3 === colIdx).map(({ p, i }) => (
+                <button key={p.id} style={styles.galleryMasonryItem} onClick={() => setLightbox({ photos, index: i })}>
+                  <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption || activeCat} style={styles.galleryMasonryImg} />
+                  {inAllPhotosMode && <div style={styles.photoThumbCatTag}>{p.category}</div>}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
         {hasMore && (
@@ -7570,6 +7609,26 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
   // still safely sitting in Firestore.
   const galleryCategories = [...new Set([...(categories || []), ...Object.keys(gallery || {})])];
 
+  // Same image-preloading fix as GalleryBrowser's matching comment -
+  // warms the browser's cache for every category's first page of
+  // photos, so switching between them in Settings' management view
+  // feels instant after the first pass, instead of each category
+  // needing its own fresh fetch+decode the first time it's opened.
+  const preloadedUrlsRef = React.useRef(new Set());
+  useEffect(() => {
+    const PRELOAD_COUNT = 15;
+    for (const cat of galleryCategories) {
+      const photos = (gallery[cat] || []).slice(0, PRELOAD_COUNT);
+      for (const p of photos) {
+        if (p.url && !preloadedUrlsRef.current.has(p.url)) {
+          preloadedUrlsRef.current.add(p.url);
+          const img = new Image();
+          img.src = p.url;
+        }
+      }
+    }
+  }, [galleryCategories, gallery]);
+
   if (galleryLoading && Object.keys(gallery || {}).length === 0) {
     return (
       <div style={{ padding: '40px 16px', textAlign: 'center' }}>
@@ -7729,14 +7788,18 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
       )}
 
       <div style={{ ...styles.fieldLabel, marginTop: 16 }}>{activeCat} photos ({photos.length}) - edit ke liye tap karein</div>
-      <div style={styles.galleryMasonry}>
-        {visiblePhotos.map((p) => (
-          <div key={p.id} style={{ ...styles.progressPhotoCard, breakInside: 'avoid', marginBottom: 6 }}>
-            <button style={styles.photoEditTapArea} onClick={() => setEditingPhoto(p)}>
-              <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption} style={styles.galleryMasonryImg} />
-            </button>
-            <button style={styles.photoDeleteBtn} onClick={() => removePhoto(p.id)}><Trash2 size={12} color='#FFF' /></button>
-            {p.caption && <div style={styles.progressCaption}>{p.caption}</div>}
+      <div style={styles.galleryMasonryRow}>
+        {[0, 1, 2].map((colIdx) => (
+          <div key={colIdx} style={styles.galleryMasonryCol}>
+            {visiblePhotos.filter((_, i) => i % 3 === colIdx).map((p) => (
+              <div key={p.id} style={{ ...styles.progressPhotoCard }}>
+                <button style={styles.photoEditTapArea} onClick={() => setEditingPhoto(p)}>
+                  <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption} style={styles.galleryMasonryImg} />
+                </button>
+                <button style={styles.photoDeleteBtn} onClick={() => removePhoto(p.id)}><Trash2 size={12} color='#FFF' /></button>
+                {p.caption && <div style={styles.progressCaption}>{p.caption}</div>}
+              </div>
+            ))}
           </div>
         ))}
       </div>
@@ -8396,7 +8459,14 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
       await window.storage.set('gallery_categories', JSON.stringify(mergedList));
       showToast(missing.length + ' category(s) recover ho gayi - app band karke dobara kholein taaki photos dikhein');
     } catch (e) {
-      showToast('Recovery mein dikkat aayi, dobara try karein', true);
+      // Surfaces the actual underlying error (e.g. a Firestore
+      // "permission-denied" code if the security rules don't allow
+      // listing this collection, or the 15s timeout message) instead
+      // of a generic one - this is exactly the diagnostic previously
+      // missing when the button appeared to do nothing at all: the
+      // scan itself was hanging/failing with no visible feedback at
+      // any point.
+      showToast('Recovery mein dikkat aayi: ' + (e.code || e.message || 'unknown error'), true);
     } finally {
       setRecoveringCategories(false);
     }
@@ -9137,8 +9207,22 @@ const styles = {
   // identical square box - a portrait photo squeezed into a square
   // (object-fit: contain) leaves visible empty space on two sides,
   // which is exactly the "white space" look being fixed here.
-  galleryMasonry: { columnCount: 3, columnGap: 6, marginTop: 8 },
-  galleryMasonryItem: { border: 'none', padding: 0, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: '#EEF0F5', display: 'block', width: '100%', marginBottom: 6, breakInside: 'avoid', position: 'relative' },
+  //
+  // NOT CSS column-count (the earlier approach here) - that fills one
+  // ENTIRE column top-to-bottom before starting the next, which put
+  // every one of the newest photos into just column 1 alone before
+  // column 2 ever got anything: visually, one side filled with a
+  // straight run of items while the other columns lagged behind,
+  // rather than newest photos appearing near the top across all
+  // columns together. galleryMasonryRow (flex row of 3 independent
+  // flex-column divs) plus round-robin distribution in JS (see
+  // GalleryBrowser/AdminGallery - item i goes into column i % 3)
+  // fixes the ordering while keeping the exact same visual benefit
+  // (each column is still a simple vertical stack of full-width,
+  // natural-aspect-ratio images, so nothing gets letterboxed).
+  galleryMasonryRow: { display: 'flex', gap: 6, marginTop: 8, alignItems: 'flex-start' },
+  galleryMasonryCol: { display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 0 },
+  galleryMasonryItem: { border: 'none', padding: 0, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: '#EEF0F5', display: 'block', width: '100%', position: 'relative' },
   galleryMasonryImg: { width: '100%', height: 'auto', display: 'block', objectFit: 'cover' },
   recentPhotoStrip: { display: 'flex', gap: 8, overflowX: 'auto', marginTop: 8, paddingBottom: 4 },
   recentPhotoThumb: { flexShrink: 0, width: 74, height: 74, border: 'none', padding: 0, borderRadius: 10, overflow: 'hidden', cursor: 'pointer', background: '#EEF0F5' },
