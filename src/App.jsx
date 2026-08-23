@@ -8367,6 +8367,40 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
   };
   const [scanning, setScanning] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [recoveringCategories, setRecoveringCategories] = useState(false);
+
+  // Genuine data recovery for the exact bug just fixed elsewhere: scans
+  // EVERY document that actually exists in Firestore (not just what
+  // 'gallery_categories' currently remembers), finds any 'gallery_cat_*'
+  // document whose category name isn't in the current list, and adds
+  // it back - this is what recovers a category whose pointer entry was
+  // already lost BEFORE the underlying write-time bug was fixed, since
+  // that fix only prevents this from happening again going forward; it
+  // can't retroactively know about a category the app was never asked
+  // to look for. The photo data itself was never touched - only the
+  // 'gallery_categories' pointer needs mending.
+  const recoverMissingCategories = async () => {
+    setRecoveringCategories(true);
+    try {
+      const allKeys = await window.storage.listAllKeys();
+      const galleryCatKeys = allKeys.filter((k) => k.startsWith('gallery_cat_'));
+      const recoveredNames = galleryCatKeys.map((k) => k.slice('gallery_cat_'.length));
+      const currentRaw = await window.storage.get('gallery_categories');
+      const currentList = currentRaw ? JSON.parse(currentRaw.value) : [];
+      const missing = recoveredNames.filter((name) => !currentList.includes(name));
+      if (missing.length === 0) {
+        showToast('Koi missing category nahi mili - sab theek hai');
+        return;
+      }
+      const mergedList = [...new Set([...currentList, ...recoveredNames])];
+      await window.storage.set('gallery_categories', JSON.stringify(mergedList));
+      showToast(missing.length + ' category(s) recover ho gayi - app band karke dobara kholein taaki photos dikhein');
+    } catch (e) {
+      showToast('Recovery mein dikkat aayi, dobara try karein', true);
+    } finally {
+      setRecoveringCategories(false);
+    }
+  };
 
   const runSystemCheck = () => {
     setScanning(true);
@@ -8739,6 +8773,14 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
         <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={runSystemCheck} disabled={scanning}>
           <Search size={14} /> {scanning ? 'Check ho raha hai...' : 'Poori App Check Karein'}
         </button>
+
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
+          <div style={styles.fieldLabel}>Missing Gallery Categories Recover Karein</div>
+          <div style={styles.plainTextMuted}>Agar koi purani category (jaise "Study Table", "Washbasin") ki photos dikhna band ho gayi hain, is button se dhoondke wapas la sakte hain - photo data kabhi delete nahi hota, sirf list se hat jaata hai.</div>
+          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={recoverMissingCategories} disabled={recoveringCategories}>
+            <Search size={14} /> {recoveringCategories ? 'Dhoondh raha hai...' : 'Missing Categories Recover Karein'}
+          </button>
+        </div>
 
         {scanResults && (() => {
           const totalIssues = scanResults.photoIssues.length + scanResults.brochureIssues.length + scanResults.orphanedJobs.length;
