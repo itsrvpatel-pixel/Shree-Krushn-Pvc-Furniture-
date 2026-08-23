@@ -32,6 +32,8 @@ import {
   getDoc,
   setDoc,
   deleteDoc,
+  collection,
+  getDocs,
 } from "firebase/firestore";
 import {
   getStorage,
@@ -120,6 +122,27 @@ async function set(key, value) {
   } catch (e) {
     console.error("storage.set failed:", key, e);
     return null;
+  }
+}
+
+// Lists every document key that actually exists in the app_data
+// collection - a genuine recovery mechanism for a specific failure
+// mode: 'gallery_categories' is only a POINTER document listing which
+// per-category documents to fetch, so if that pointer ever loses track
+// of a category (the exact bug this recovers from - a routine photo
+// write once truncated it to only the categories the current device
+// happened to have loaded locally), the app has no way to know
+// 'gallery_cat_Study Table' still exists and holds real photos, since
+// it never even asks Firestore for a key it doesn't know to look for.
+// This bypasses that blind spot entirely by listing what's REALLY
+// there, rather than trusting any pointer document's memory of it.
+async function listAllKeys() {
+  try {
+    const snap = await getDocs(collection(db, COLLECTION));
+    return snap.docs.map((d) => d.id);
+  } catch (e) {
+    console.error("storage.listAllKeys failed:", e);
+    return [];
   }
 }
 
@@ -233,6 +256,7 @@ export function installWindowStorage() {
     get: (key) => get(key),
     set: (key, value) => set(key, value),
     delete: (key) => del(key),
+    listAllKeys: () => listAllKeys(),
   };
   window.fileStorage = {
     upload: (key, dataUri) => uploadDataUri(key, dataUri),
@@ -256,7 +280,7 @@ export function installWindowStorage() {
 // uses) that identifies THIS specific web app to FCM when requesting a
 // device token - notification permission requests will fail without
 // it. Replace the placeholder below once generated.
-const VAPID_KEY = "BPi0tuamcz79EtaO9Am7fYe4AekrKMDMnEh8mLpQDiSknUpSJyfkmLAk-KBfJ0wne5vD3NiX-qa-TxXsi09acZg";
+const VAPID_KEY = "REPLACE_WITH_YOUR_VAPID_KEY_FROM_FIREBASE_CONSOLE";
 
 // Asks the browser for notification permission, and if granted,
 // registers this specific device/browser with FCM and returns its
