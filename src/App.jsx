@@ -1519,6 +1519,23 @@ export default function App() {
     setTimeout(() => setToast((t) => (t && t.msg === msg ? null : t)), 2400);
   };
 
+  // Foreground push notifications (the app IS open right now) don't go
+  // through the service worker's background handler at all - FCM
+  // requires this separate listener for that case. Without it, a push
+  // arriving while someone's actively looking at the app would
+  // silently do nothing: no toast, no visible sign it arrived,
+  // even though the SEND succeeded - the notification would only ever
+  // have shown up as a system notification the NEXT time the app
+  // happened to be in the background.
+  useEffect(() => {
+    if (!window.pushMessaging) return;
+    const unsubscribe = window.pushMessaging.onForegroundMessage((payload) => {
+      const body = (payload.notification && payload.notification.body) || '';
+      if (body) showToast(body);
+    });
+    return () => { if (typeof unsubscribe === 'function') unsubscribe(); };
+  }, []);
+
   // Each gallery CATEGORY gets its own Firestore document
   // ('gallery_cat_<CategoryName>') rather than one combined 'gallery'
   // document holding every category's photos together. A photo's full
