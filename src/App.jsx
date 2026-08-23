@@ -1072,7 +1072,15 @@ function isLikelyDriveLink(input) {
    single Firebase Storage upload gets - photos now upload to Storage
    (see persistGallery/window.fileStorage.upload in the App component)
    rather than living inline in Firestore, so this is purely a bandwidth/
-   speed consideration, not a document-size limit workaround. --- */
+   speed consideration, not a document-size limit workaround.
+
+   Back at 650KB (was briefly tried at 300KB to speed up the gallery
+   grid, then reverted) - this IS the full-quality photo a customer sees
+   when they zoom in to inspect texture/finish/detail, which matters
+   more here than shaving grid-load time, now that a genuinely separate,
+   much smaller thumbnail (see generateThumbnail below) handles the
+   grid's speed instead - the two no longer have to share one size
+   tradeoff against each other. --- */
 const MAX_PHOTO_BYTES = 650 * 1024;
 // Brochure PDFs are stored in Firebase Storage (not Firestore - see
 // firebaseStorage.js's fileStorage.upload), which has no meaningful
@@ -1132,6 +1140,35 @@ async function prepareImageForUpload(file) {
   canvas.height = Math.round(height);
   canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL('image/jpeg', 0.6);
+}
+
+// A genuinely separate, small version of a photo for the gallery GRID
+// specifically - the grid only ever displays a photo at roughly a
+// third of a phone's screen width, so downloading the same ~650KB
+// file that a customer would want when actually zoomed in inspecting
+// texture/finish was pure waste for the 95% of the time someone's
+// just browsing the grid, not zoomed into any one photo. This is
+// deliberately small (400px on the longest side, quality 0.7) - at
+// GRID size that's still crisp, and the actual full-quality file
+// (MAX_PHOTO_BYTES above) is what Lightbox/zoom always uses instead,
+// so nothing about the zoomed inspection experience changes.
+const THUMBNAIL_MAX_DIMENSION = 400;
+const THUMBNAIL_QUALITY = 0.7;
+async function generateThumbnail(dataUri) {
+  const img = await loadImageFromDataUri(dataUri);
+  let { width, height } = img;
+  if (width > height && width > THUMBNAIL_MAX_DIMENSION) {
+    height = Math.round((height / width) * THUMBNAIL_MAX_DIMENSION);
+    width = THUMBNAIL_MAX_DIMENSION;
+  } else if (height >= width && height > THUMBNAIL_MAX_DIMENSION) {
+    width = Math.round((width / height) * THUMBNAIL_MAX_DIMENSION);
+    height = THUMBNAIL_MAX_DIMENSION;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+  return canvas.toDataURL('image/jpeg', THUMBNAIL_QUALITY);
 }
 
 const emptyJob = (customerId, customerName, phone) => ({
@@ -1898,11 +1935,26 @@ export default function App() {
       for (const cat of Object.keys(next)) {
         const catMeta = await mapWithConcurrencyLimit(next[cat] || [], 5, async (p) => {
           if (p.url && p.url.startsWith('data:')) {
-            const uploaded = await window.fileStorage.upload('gallery_' + p.id, p.url);
+            // Uploads the full-quality version AND a separate, small
+            // thumbnail from the SAME source image, in parallel - the
+            // grid uses thumbUrl for its fast, lightweight display,
+            // while Lightbox/zoom always uses url (the full-quality
+            // file) so nothing about that inspection experience is
+            // ever affected by this. thumbUrl is optional on the
+            // photo object specifically so OLDER photos (uploaded
+            // before this existed) still work fine without one - see
+            // the SmartImg call sites' `src={p.thumbUrl || p.url}`
+            // fallback in the grid views.
+            const [uploaded, thumbUploaded] = await Promise.all([
+              window.fileStorage.upload('gallery_' + p.id, p.url),
+              generateThumbnail(p.url)
+                .then((thumbDataUri) => window.fileStorage.upload('gallery_thumb_' + p.id, thumbDataUri))
+                .catch(() => null), // thumbnail generation/upload failing is not fatal - falls back to the full url in the grid
+            ]);
             if (!uploaded || uploaded.error) throw new Error(uploaded?.error || 'Photo upload failed: ' + p.id);
-            return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: uploaded.url, origUrl: p.origUrl || null };
+            return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: uploaded.url, thumbUrl: (thumbUploaded && !thumbUploaded.error) ? thumbUploaded.url : null, origUrl: p.origUrl || null };
           }
-          return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: p.url || '', origUrl: p.origUrl || null };
+          return { id: p.id, caption: p.caption || '', createdAt: p.createdAt || null, url: p.url || '', thumbUrl: p.thumbUrl || null, origUrl: p.origUrl || null };
         });
         meta[cat] = catMeta;
         const changed = JSON.stringify(catMeta) !== JSON.stringify(prevGallery[cat] || []);
@@ -3374,7 +3426,7 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
             <div key={colIdx} style={styles.galleryMasonryCol}>
               {visiblePhotos.map((p, i) => ({ p, i })).filter(({ i }) => i % 3 === colIdx).map(({ p, i }) => (
                 <button key={p.id} style={styles.galleryMasonryItem} onClick={() => setLightbox({ photos, index: i })}>
-                  <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption || activeCat} style={styles.galleryMasonryImg} />
+                  <SmartImg src={p.thumbUrl || p.url} origUrl={p.origUrl} alt={p.caption || activeCat} style={styles.galleryMasonryImg} />
                   {inAllPhotosMode && <div style={styles.photoThumbCatTag}>{p.category}</div>}
                 </button>
               ))}
@@ -3449,7 +3501,7 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
           return (
             <button key={cat} style={styles.catCard} onClick={() => setActiveCat(cat)}>
               <div style={styles.catCover}>
-                {cover ? <SmartImg src={cover.url} origUrl={cover.origUrl} alt={cat} style={styles.catCoverImg} /> : <ImageIcon size={22} color='#C7CCDC' />}
+                {cover ? <SmartImg src={cover.thumbUrl || cover.url} origUrl={cover.origUrl} alt={cat} style={styles.catCoverImg} /> : <ImageIcon size={22} color='#C7CCDC' />}
                 {count > 0 && <div style={styles.catCoverBadge}>{count}</div>}
               </div>
               <div style={styles.catName}>{cat}</div>
@@ -7794,7 +7846,7 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
             {visiblePhotos.filter((_, i) => i % 3 === colIdx).map((p) => (
               <div key={p.id} style={{ ...styles.progressPhotoCard }}>
                 <button style={styles.photoEditTapArea} onClick={() => setEditingPhoto(p)}>
-                  <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption} style={styles.galleryMasonryImg} />
+                  <SmartImg src={p.thumbUrl || p.url} origUrl={p.origUrl} alt={p.caption} style={styles.galleryMasonryImg} />
                 </button>
                 <button style={styles.photoDeleteBtn} onClick={() => removePhoto(p.id)}><Trash2 size={12} color='#FFF' /></button>
                 {p.caption && <div style={styles.progressCaption}>{p.caption}</div>}
