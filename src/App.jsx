@@ -7,7 +7,7 @@ import {
   Camera, Send, ArrowLeft, SlidersHorizontal, Lock,
   Home, Sparkles, AlertTriangle, Link2, Check, Package, FileText,
   UserPlus, Users, Download, Eye, EyeOff, TrendingUp,
-  Bell, ThumbsUp, XCircle, AlertCircle, Calculator
+  Bell, ThumbsUp, XCircle, AlertCircle, Calculator, HelpCircle
 } from 'lucide-react';
 
 /* ===========================================================
@@ -44,6 +44,18 @@ const STATUS = {
   paid: { label: 'Paid', color: '#2F7D4F', bg: '#DFF0E4', icon: CheckCircle2 },
 };
 const STATUS_ORDER = ['appointment', 'estimate', 'in_progress', 'delivered', 'paid'];
+// Complaint tracking stages - a customer-reported post-delivery
+// problem moves through its own small progression, mirroring the main
+// job's STATUS/STATUS_ORDER pattern above, so a customer can see WHERE
+// their complaint stands (not just "open" vs "resolved" with nothing
+// in between) - the same visual stepper approach used for the job
+// itself, applied here at a smaller scale.
+const COMPLAINT_STAGES = {
+  open: { label: 'Reported', color: '#B5562E', icon: AlertCircle },
+  in_progress: { label: 'Repair Ho Raha Hai', color: '#A8975F', icon: Hammer },
+  resolved: { label: 'Resolved', color: '#2F7D4F', icon: CheckCircle2 },
+};
+const COMPLAINT_STAGE_ORDER = ['open', 'in_progress', 'resolved'];
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 // Built via fromCharCode rather than a newline escape sequence inside a
@@ -211,6 +223,22 @@ function formatDate(iso) {
   const d = new Date(iso);
   if (isNaN(d)) return iso;
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+// Days remaining until a target date (expected completion), counting
+// whole calendar days rather than raw hours - comparing at midnight on
+// both ends means someone checking at 11pm the day before still
+// correctly sees "1 din baaki", not "0 din baaki" from an hours-based
+// calculation just barely clearing to a fraction of a day. Negative
+// means the date has already passed.
+function daysUntil(iso) {
+  if (!iso) return null;
+  const target = new Date(iso);
+  if (isNaN(target)) return null;
+  const todayMidnight = new Date();
+  todayMidnight.setHours(0, 0, 0, 0);
+  const targetMidnight = new Date(target);
+  targetMidnight.setHours(0, 0, 0, 0);
+  return Math.round((targetMidnight - todayMidnight) / (1000 * 60 * 60 * 24));
 }
 // Appointment/visit times are stored as "HH:MM" (24-hour), the format
 // browsers' native <input type="time"> pickers always use regardless of
@@ -585,19 +613,36 @@ async function shareReceiptPdf(job, payment, showToast) {
     if (showToast) showToast('PDF banane mein dikkat aayi, dobara try karein', true);
     return;
   }
-  const fileName = 'Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf';
-  const blob = doc.output('blob');
-  const file = new File([blob], fileName, { type: 'application/pdf' });
-  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+  // Everything from here on (blob/File creation, the share attempt,
+  // and even the final plain-download fallback) is wrapped in one
+  // last outer try/catch - belt-and-suspenders, so that truly nothing
+  // between "PDF built successfully" and "something visibly happened
+  // for the user" can silently fail.
+  try {
+    const fileName = 'Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf';
+    const blob = doc.output('blob');
+    const file = new File([blob], fileName, { type: 'application/pdf' });
+    // The canShare() CHECK itself (not just the actual share() call) can
+    // throw on some browsers/OS versions for certain file types, rather
+    // than just returning false - wrapping the whole detect-and-share
+    // block in one try/catch (not just around share() as before) means
+    // that no longer results in a silent, invisible failure; any issue
+    // here now correctly falls through to the plain-download fallback
+    // below instead.
     try {
-      await navigator.share({ files: [file], title: 'Payment Receipt - ' + job.customerName });
-      return;
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Payment Receipt - ' + job.customerName });
+        return;
+      }
     } catch (e) {
-      // user cancelled the share sheet, or it failed - fall through to download
+      // user cancelled the share sheet, canShare/share threw, or it
+      // otherwise failed - fall through to download either way
     }
+    doc.save(fileName);
+    if (showToast) showToast('Receipt download ho gaya - WhatsApp mein manually attach karein');
+  } catch (e) {
+    if (showToast) showToast('PDF share/download mein dikkat aayi, dobara try karein', true);
   }
-  doc.save(fileName);
-  if (showToast) showToast('Receipt download ho gaya - WhatsApp mein manually attach karein');
 }
 
 /* ---- Estimate PDF via screenshot: captures the ACTUAL rendered
@@ -702,19 +747,29 @@ async function shareEstimatePdf(job, elementId, showToast) {
     if (showToast) showToast('PDF banane mein dikkat aayi, dobara try karein', true);
     return;
   }
-  const fileName = 'Estimate-' + job.customerName.replace(/\s+/g, '-') + '.pdf';
-  const blob = doc.output('blob');
-  const file = new File([blob], fileName, { type: 'application/pdf' });
-  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+  // Everything from here on (blob/File creation, the share attempt,
+  // and even the final plain-download fallback) is wrapped in one
+  // last outer try/catch - belt-and-suspenders after the two fixes
+  // above, so that truly nothing between "PDF built successfully" and
+  // "something visibly happened for the user" can silently fail.
+  try {
+    const fileName = 'Estimate-' + job.customerName.replace(/\s+/g, '-') + '.pdf';
+    const blob = doc.output('blob');
+    const file = new File([blob], fileName, { type: 'application/pdf' });
     try {
-      await navigator.share({ files: [file], title: 'Estimate - ' + job.customerName });
-      return;
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Estimate - ' + job.customerName });
+        return;
+      }
     } catch (e) {
-      // user cancelled the share sheet, or it failed - fall through to download
+      // user cancelled the share sheet, canShare/share threw, or it
+      // otherwise failed - fall through to download either way
     }
+    doc.save(fileName);
+    if (showToast) showToast('PDF download ho gaya - WhatsApp mein manually attach karein');
+  } catch (e) {
+    if (showToast) showToast('PDF share/download mein dikkat aayi, dobara try karein', true);
   }
-  doc.save(fileName);
-  if (showToast) showToast('PDF download ho gaya - WhatsApp mein manually attach karein');
 }
 
 
@@ -1135,6 +1190,7 @@ export default function App() {
   // customer/job being removed - featuredTestimonials below reads from
   // both sources.
   const [archivedReviews, setArchivedReviewsRaw] = useState([]);
+  const [faqs, setFaqsRaw] = useState([]);
   const [itemTemplates, setItemTemplatesRaw] = useState([]);
   const [attendance, setAttendanceRaw] = useState([]);
   const [brochures, setBrochures] = useState([]);
@@ -1323,11 +1379,11 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens] = await Promise.all([
+        const [c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw] = await Promise.all([
           safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
-          safeGet('archived_reviews'), safeGet('admin_push_tokens'),
+          safeGet('archived_reviews'), safeGet('admin_push_tokens'), safeGet('faqs'),
         ]);
         if (c) setCustomers(JSON.parse(c));
         if (j) setJobs(JSON.parse(j));
@@ -1344,6 +1400,7 @@ export default function App() {
         if (estRates) setEstimateRatesRaw(JSON.parse(estRates));
         if (archRev) setArchivedReviewsRaw(JSON.parse(archRev));
         if (adminTokens) setAdminPushTokensRaw(JSON.parse(adminTokens));
+        if (faqsRaw) setFaqsRaw(JSON.parse(faqsRaw));
         // Gallery loads here too (not just lazily on tab-open) so the
         // app's overall startup behavior stays exactly as it always
         // was - loadGalleryData's own galleryLoadedRef guard means
@@ -1716,6 +1773,11 @@ export default function App() {
     try { await window.storage.set('estimate_rates', JSON.stringify(rates), true); }
     catch (e) { showToast('Rates save failed', true); }
   }, []);
+  const persistFaqs = useCallback(async (list) => {
+    setFaqsRaw(list);
+    try { await window.storage.set('faqs', JSON.stringify(list), true); }
+    catch (e) { showToast('FAQ save failed', true); }
+  }, []);
   const persistPartnerPin = useCallback(async (pin) => {
     setPartnerPin(pin);
     try { await window.storage.set('partner_pin', pin, true); }
@@ -1778,8 +1840,8 @@ export default function App() {
   // a specific customer (admin did something that customer needs to
   // know) - decides who real push notifications actually get sent to,
   // alongside the existing in-app bell entry every type already gets.
-  const ADMIN_BOUND_NOTIFICATION_TYPES = ['new_appointment', 'estimate_approved', 'estimate_change_request', 'estimate_cancelled', 'extra_work_requested', 'extra_work_needs_price', 'follow_up_needed', 'customer_birthday', 'karigar_message', 'payment_received'];
-  const CUSTOMER_BOUND_NOTIFICATION_TYPES = ['appointment_confirmed', 'payment_due', 'extra_work_approved', 'extra_work_rejected'];
+  const ADMIN_BOUND_NOTIFICATION_TYPES = ['new_appointment', 'estimate_approved', 'estimate_change_request', 'estimate_cancelled', 'extra_work_requested', 'extra_work_needs_price', 'follow_up_needed', 'customer_birthday', 'karigar_message', 'payment_received', 'complaint_reported'];
+  const CUSTOMER_BOUND_NOTIFICATION_TYPES = ['appointment_confirmed', 'payment_due', 'extra_work_approved', 'extra_work_rejected', 'complaint_in_progress', 'complaint_resolved'];
   const pushNotification = useCallback((type, message, jobId) => {
     setNotificationsRaw((current) => {
       const entry = { id: uid(), type, message, jobId: jobId || null, createdAt: new Date().toISOString(), readBy: [] };
@@ -1940,6 +2002,7 @@ export default function App() {
           itemTemplates={itemTemplates} setItemTemplates={setItemTemplates}
           attendance={attendance}
           estimateRates={estimateRates} setEstimateRates={persistEstimateRates}
+          faqs={faqs} setFaqs={persistFaqs}
           archivedReviews={archivedReviews} setArchivedReviews={persistArchivedReviews}
           pushNotification={pushNotification}
           allData={{ customers, jobs, gallery, staff, expenses }}
@@ -2051,6 +2114,8 @@ export default function App() {
         brochures={brochures}
         testimonials={featuredTestimonials}
         estimateRates={estimateRates}
+        faqs={faqs}
+        pushNotification={pushNotification}
         notifications={myNotifications}
         markNotificationRead={markNotificationRead}
         markAllNotificationsRead={markAllNotificationsRead}
@@ -2376,6 +2441,9 @@ const NOTIFICATION_META = {
   follow_up_needed: { icon: 'AlertCircle', label: 'Follow-up Needed' },
   customer_birthday: { icon: 'Star', label: 'Birthday Today' },
   karigar_message: { icon: 'MessageSquare', label: 'Karigar Message' },
+  complaint_reported: { icon: 'AlertCircle', label: 'Complaint' },
+  complaint_in_progress: { icon: 'Hammer', label: 'Repair Started' },
+  complaint_resolved: { icon: 'CheckCircle2', label: 'Complaint Resolved' },
   work_completed_by_karigar: { icon: 'CheckCircle2', label: 'Karigar Marked Complete' },
 };
 const NOTIFICATION_ICONS = { Calendar, CheckCircle2, ThumbsUp, MessageSquare, XCircle, IndianRupee, AlertCircle, Hammer, Star };
@@ -2596,7 +2664,35 @@ function StageBadge({ status, size }) {
 
 /* ===================== CUSTOMER APP ===================== */
 /* Everything below receives ONLY this one customer's data - never a list of others. */
-function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
+function HelpScreen({ faqs, onBack }) {
+  const [openId, setOpenId] = useState(null);
+  return (
+    <div style={{ paddingBottom: 20 }}>
+      <TopBar title='Help / FAQ' onBack={onBack} hideLogout />
+      <div style={{ padding: '12px 16px' }}>
+        {(!faqs || faqs.length === 0) ? (
+          <div style={styles.emptySmall}>Abhi koi FAQ add nahi hui hai. Kuch bhi poochhna ho to seedha call/WhatsApp karein.</div>
+        ) : (
+          faqs.map((f) => {
+            const isOpen = openId === f.id;
+            return (
+              <div key={f.id} style={{ ...styles.formCard, marginTop: 10 }}>
+                <button style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left' }} onClick={() => setOpenId(isOpen ? null : f.id)}>
+                  <div style={{ fontWeight: 800, fontSize: 13.5, color: BRAND.navy, flex: 1 }}>{f.question}</div>
+                  {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                </button>
+                {isOpen && <div style={{ ...styles.plainTextMuted, marginTop: 8 }}>{f.answer}</div>}
+              </div>
+            );
+          })
+        )}
+        <div style={{ ...styles.plainTextMuted, marginTop: 16, textAlign: 'center' }}>Aur koi sawaal ho to {BUSINESS.phone} par call/WhatsApp karein.</div>
+      </div>
+    </div>
+  );
+}
+
+function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, faqs, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
   // Registers this customer's own device for push notifications
   // (visit confirmed, payment due, etc.) - the token is stored
   // directly on their job record, since that's what pushNotification
@@ -2619,6 +2715,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
   // thing a new customer can reach.
   const [tab, setTab] = useState('home');
   const [showProfile, setShowProfile] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   // Once the Gallery tab has been visited, it stays MOUNTED (just
   // hidden via CSS when a different tab is active) instead of being
   // unmounted/remounted every time someone switches away and back -
@@ -2633,6 +2730,10 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
   useEffect(() => {
     if (tab === 'gallery' && !galleryEverVisited) setGalleryEverVisited(true);
   }, [tab, galleryEverVisited]);
+
+  if (showHelp) {
+    return <HelpScreen faqs={faqs} onBack={() => setShowHelp(false)} />;
+  }
 
   if (showProfile) {
     return (
@@ -2656,6 +2757,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
               <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={enableCustomerPushNotifications}><Bell size={14} /> Notifications On Karein</button>
             )}
           </div>
+          <button style={{ ...styles.addBtn, marginTop: 12 }} onClick={() => setShowHelp(true)}><HelpCircle size={14} /> Help / FAQ</button>
           <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
         </div>
       </div>
@@ -2710,7 +2812,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
           <EstimateView job={job} onSave={onSaveJob} showToast={showToast} />
         </div>
       )}
-      {tab === 'progress' && <ProgressView job={job} onSave={onSaveJob} showToast={showToast} customer={customer} categories={categories} />}
+      {tab === 'progress' && <ProgressView job={job} onSave={onSaveJob} showToast={showToast} customer={customer} categories={categories} pushNotification={pushNotification} />}
       {tab === 'review' && <ReviewPanel job={job} onSave={onSaveJob} showToast={showToast} />}
 
       <BottomNav
@@ -2757,12 +2859,34 @@ function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout }) {
         </div>
       </div>
 
-      {job.expectedCompletionDate && (job.status === 'in_progress' || job.status === 'delivered') && (
-        <div style={styles.deliveryDateBanner}>
-          <Calendar size={15} color={BRAND.gold} />
-          <span>Expected completion: <b>{formatDate(job.expectedCompletionDate)}</b></span>
-        </div>
-      )}
+      {job.expectedCompletionDate && (job.status === 'in_progress' || job.status === 'delivered') && (() => {
+        const days = daysUntil(job.expectedCompletionDate);
+        const dateText = formatDate(job.expectedCompletionDate);
+        let mainText;
+        if (job.status === 'delivered') {
+          mainText = <span>Deliver ho chuka hai: <b>{dateText}</b></span>;
+        } else if (days === 0) {
+          mainText = <span><b>Aaj</b> delivery ka din hai! 🎉</span>;
+        } else if (days === 1) {
+          mainText = <span><b>Kal</b> delivery ka din hai - {dateText}</span>;
+        } else if (days > 1) {
+          mainText = <span><b>{days} din</b> baaki hain - {dateText}</span>;
+        } else {
+          // Date has already passed while still in_progress - shown
+          // plainly rather than with alarming "delayed" language, since
+          // work sometimes genuinely runs a little past the original
+          // estimate for good reason, and the customer's own admin
+          // contact is the right place for a status update, not a
+          // banner implying something's wrong.
+          mainText = <span>Expected: <b>{dateText}</b></span>;
+        }
+        return (
+          <div style={styles.deliveryDateBanner}>
+            <Calendar size={15} color={BRAND.gold} />
+            {mainText}
+          </div>
+        );
+      })()}
 
       {total > 0 && (
         <button style={styles.payStripBtn} onClick={() => setTab('progress')}>
@@ -4138,9 +4262,56 @@ function EstimateView({ job, onSave, showToast }) {
   );
 }
 
-function ProgressView({ job, onSave, showToast, customer, categories }) {
+function ComplaintStageStepper({ status }) {
+  const curIdx = COMPLAINT_STAGE_ORDER.indexOf(status);
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', marginTop: 8 }}>
+      {COMPLAINT_STAGE_ORDER.map((s, i) => {
+        const stage = COMPLAINT_STAGES[s];
+        const done = i <= curIdx;
+        const Icon = stage.icon;
+        return (
+          <React.Fragment key={s}>
+            {i > 0 && <div style={{ flex: 1, height: 2, background: done ? stage.color : '#E4E7EE', marginTop: 10 }} />}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, width: 64 }}>
+              <div style={{ width: 20, height: 20, borderRadius: '50%', background: done ? stage.color : '#E4E7EE', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon size={11} color={done ? '#FFF' : '#B3B8C6'} />
+              </div>
+              <span style={{ fontSize: 8.5, fontWeight: done ? 800 : 600, color: done ? stage.color : '#B3B8C6', textAlign: 'center' }}>{stage.label}</span>
+            </div>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProgressView({ job, onSave, showToast, customer, categories, pushNotification }) {
   const [lightbox, setLightbox] = useState(null);
   const photos = job.progressPhotos || [];
+
+  // Post-delivery complaint tracking - a customer reporting a problem
+  // after the work is marked delivered needs its own, separate trail
+  // from ordinary project notes/activity: it has a clear open/resolved
+  // status admin can act on, rather than just being one more line in
+  // an activity feed that's easy to lose track of once other updates
+  // pile on top of it.
+  const complaints = job.complaints || [];
+  const [showComplaintForm, setShowComplaintForm] = useState(false);
+  const [complaintText, setComplaintText] = useState('');
+  const addComplaint = async () => {
+    if (!complaintText.trim()) { showToast('Problem ka detail likhein', true); return; }
+    const entry = { id: uid(), text: complaintText.trim(), status: 'open', createdAt: new Date().toISOString() };
+    let next = { ...job, complaints: [entry, ...complaints] };
+    next = logActivity(next, 'Complaint reported: ' + entry.text);
+    const ok = await onSave(next);
+    if (ok) {
+      setComplaintText('');
+      setShowComplaintForm(false);
+      showToast('Complaint darj ho gayi, admin ko bata diya gaya hai');
+      if (pushNotification) pushNotification('complaint_reported', (customer?.name || job.customerName) + ' ne ek problem report ki hai', job.id);
+    }
+  };
 
   // Extra work: mid-project additions not in the original estimate.
   // Customer-initiated requests carry no price (admin sets it), so they
@@ -4206,6 +4377,36 @@ function ProgressView({ job, onSave, showToast, customer, categories }) {
         <div style={styles.deliveryDateBanner}>
           <Hammer size={15} color={BRAND.gold} />
           <span>Kaam <b>{job.workPercent}%</b> complete ho gaya hai</span>
+        </div>
+      )}
+
+      {job.status === 'delivered' && (
+        <div style={{ ...styles.formCard, marginTop: 12 }}>
+          <div style={styles.fieldLabel}>Koi Problem Hai?</div>
+          <div style={styles.plainTextMuted}>Delivery ke baad kuch theek nahi lag raha to yahan batayein.</div>
+          {complaints.map((c) => (
+            <div key={c.id} style={{ ...styles.formCard, marginTop: 8, padding: 10 }}>
+              <div style={styles.itemDesc}>{c.text}</div>
+              <div style={styles.itemSub}>{formatDate(c.createdAt)}</div>
+              <ComplaintStageStepper status={c.status} />
+              {c.resolutionNote && (
+                <div style={{ ...styles.plainTextMuted, marginTop: 8, paddingTop: 8, borderTop: '1px solid ' + BRAND.line }}>
+                  <b>Admin:</b> {c.resolutionNote}
+                </div>
+              )}
+            </div>
+          ))}
+          {showComplaintForm ? (
+            <div style={{ marginTop: 10 }}>
+              <textarea style={{ ...styles.input, minHeight: 70, resize: 'vertical' }} placeholder='Kya problem hai, detail mein likhein...' value={complaintText} onChange={(e) => setComplaintText(e.target.value)} autoFocus />
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addComplaint}>Report Karein</button>
+                <button style={styles.cancelBtn} onClick={() => { setShowComplaintForm(false); setComplaintText(''); }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => setShowComplaintForm(true)}><Plus size={14} /> Problem Report Karein</button>
+          )}
         </div>
       )}
 
@@ -4589,7 +4790,7 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
   );
 }
 
-function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, archivedReviews, setArchivedReviews, staffName, isPartner, onLogout, showToast, pushNotification }) {
+function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, archivedReviews, setArchivedReviews, staffName, isPartner, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
@@ -4664,7 +4865,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
       {tab === 'settings' && (
         isPartner
           ? <PartnerSettings staffName={staffName} onLogout={onLogout} />
-          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications} onLogout={onLogout} showToast={showToast} />
+          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} faqs={faqs} setFaqs={setFaqs} adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications} onLogout={onLogout} showToast={showToast} />
       )}
 
       <BottomNav
@@ -4688,7 +4889,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
 }
 
 function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEstimates, overdue, pendingAppointments, pendingExtraWork, onOpenJob, setTab, isPartner }) {
-  const [showList, setShowList] = useState(null); // null | 'inProgress' | 'dueList' | 'todaysVisits' | 'allEstimates'
+  const [showList, setShowList] = useState(null); // null | 'inProgress' | 'dueList' | 'todaysVisits' | 'tomorrowsVisits' | 'allEstimates'
 
   // Total Due should only reflect work that's actually started - an
   // estimate sitting unapproved (status still 'appointment' or
@@ -4712,6 +4913,12 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
   const todayIso = new Date().toISOString();
   const todaysVisits = jobs.filter((j) => j.appointment && (j.appointment.status === 'confirmed' || j.appointment.status === 'rescheduled') && isSameLocalDay(j.appointment.confirmedDate, todayIso));
   const newLeadsToday = customers.filter((c) => isSameLocalDay(c.createdAt, todayIso)).length;
+  // Tomorrow's confirmed visits, surfaced separately from today's so
+  // admin can send a one-tap WhatsApp reminder the evening before -
+  // computed the same way todaysVisits is, just against tomorrow's date
+  // instead of today's.
+  const tomorrowIso = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString(); })();
+  const tomorrowsVisits = jobs.filter((j) => j.appointment && (j.appointment.status === 'confirmed' || j.appointment.status === 'rescheduled') && isSameLocalDay(j.appointment.confirmedDate, tomorrowIso));
 
   if (showList === 'inProgress') {
     return (
@@ -4749,6 +4956,34 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
               <div style={styles.itemSub}>{j.appointment.confirmedTime ? formatTime12h(j.appointment.confirmedTime) : 'Time set nahi hai'} {j.appointment.address && ('- ' + j.appointment.address)}</div>
             </button>
           ))}
+        </div>
+      </div>
+    );
+  }
+  if (showList === 'tomorrowsVisits') {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          <div style={styles.sectionTitle}>Kal Ki Visits</div>
+          <div style={styles.plainTextMuted}>{tomorrowsVisits.length} visit{tomorrowsVisits.length !== 1 ? 's' : ''} kal - reminder bhejne ke liye WhatsApp button dabayein</div>
+          {tomorrowsVisits.length === 0 && <div style={styles.emptySmall}>Kal koi visit nahi hai.</div>}
+          {tomorrowsVisits.map((j) => {
+            const reminderText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'Yeh ek reminder hai ki aapki visit KAL hai:' + NEWLINE + formatDate(j.appointment.confirmedDate) + (j.appointment.confirmedTime ? (' - ' + formatTime12h(j.appointment.confirmedTime)) : '') + NEWLINE + NEWLINE + 'Address: ' + (j.appointment.address || j.address || '-') + NEWLINE + NEWLINE + '- ' + BUSINESS.name;
+            return (
+              <div key={j.id} style={styles.reviewCard}>
+                <button style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }} onClick={() => onOpenJob(j.id)}>
+                  <div style={styles.cardName}>{j.customerName}</div>
+                  <div style={styles.itemSub}>{j.appointment.confirmedTime ? formatTime12h(j.appointment.confirmedTime) : 'Time set nahi hai'} {j.appointment.address && ('- ' + j.appointment.address)}</div>
+                </button>
+                <a href={whatsAppShareUrl(j.phone, reminderText)} target='_blank' rel='noopener noreferrer' style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
+                  <Send size={13} /> Reminder Bhejein
+                </a>
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -4795,6 +5030,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
       </div>
       <div style={styles.statRow2}>
         <StatCard icon={<Calendar size={16} />} label="Aaj ki Visits" value={todaysVisits.length} onClick={() => setShowList('todaysVisits')} />
+        <StatCard icon={<Send size={16} />} label="Kal ki Visits" value={tomorrowsVisits.length} onClick={() => setShowList('tomorrowsVisits')} />
         <StatCard icon={<FileText size={16} />} label='Estimates Given' value={jobs.filter((j) => (j.items || []).length > 0).length} onClick={() => setShowList('allEstimates')} />
         <StatCard icon={<UserPlus size={16} />} label='New Appointments' value={pendingAppointments} onClick={() => setShowList('newAppointments')} />
       </div>
@@ -6011,6 +6247,8 @@ function QuotationPreview({ job, onClose, showToast }) {
 
 function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates, pushNotification, categories }) {
   const [tab, setTab] = useState('status');
+  const [resolvingComplaintId, setResolvingComplaintId] = useState(null);
+  const [resolutionNoteText, setResolutionNoteText] = useState('');
   const [newItem, setNewItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
   const [newPayment, setNewPayment] = useState({ amount: '', note: '' });
   const [newExtraWork, setNewExtraWork] = useState({ title: '', items: [] });
@@ -6055,6 +6293,22 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     next = logActivity(next, 'Status updated: ' + STATUS[status].label);
     onSave(next);
     showToast('Status set to ' + STATUS[status].label);
+  };
+  const startComplaintRepair = (id) => {
+    const complaints = (job.complaints || []).map((c) => (c.id === id ? { ...c, status: 'in_progress' } : c));
+    let next = { ...job, complaints };
+    next = logActivity(next, 'Complaint repair shuru hua');
+    onSave(next);
+    showToast('Repair shuru mark ho gaya');
+    if (pushNotification) pushNotification('complaint_in_progress', 'Aapki complaint par repair shuru ho gaya hai', job.id);
+  };
+  const resolveComplaint = (id, resolutionNote) => {
+    const complaints = (job.complaints || []).map((c) => (c.id === id ? { ...c, status: 'resolved', resolvedAt: new Date().toISOString(), resolutionNote: resolutionNote || '' } : c));
+    let next = { ...job, complaints };
+    next = logActivity(next, 'Complaint resolved');
+    onSave(next);
+    showToast('Complaint resolved mark ho gayi');
+    if (pushNotification) pushNotification('complaint_resolved', 'Aapki complaint solve ho gayi hai', job.id);
   };
 
   const addItem = () => {
@@ -6248,6 +6502,38 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                   <option value=''>Koi assign nahi</option>
                   {staff.filter((s) => s.role === 'karigar').map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
+              </div>
+            )}
+
+            {(job.complaints || []).length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={styles.fieldLabel}>Complaints ({job.complaints.length})</div>
+                {job.complaints.map((c) => (
+                  <div key={c.id} style={{ ...styles.formCard, marginTop: 8, padding: 10 }}>
+                    <div style={styles.itemDesc}>{c.text}</div>
+                    <div style={styles.itemSub}>{formatDate(c.createdAt)}</div>
+                    <ComplaintStageStepper status={c.status} />
+                    {c.status === 'open' && (
+                      <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={() => startComplaintRepair(c.id)}><Hammer size={13} /> Repair Shuru Karein</button>
+                    )}
+                    {c.status === 'in_progress' && (
+                      resolvingComplaintId === c.id ? (
+                        <div style={{ marginTop: 10 }}>
+                          <textarea style={{ ...styles.input, minHeight: 50, resize: 'vertical' }} placeholder='Kya theek kiya (optional note customer ko dikhega)' value={resolutionNoteText} onChange={(e) => setResolutionNoteText(e.target.value)} autoFocus />
+                          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => { resolveComplaint(c.id, resolutionNoteText); setResolvingComplaintId(null); setResolutionNoteText(''); }}>Resolved Mark Karein</button>
+                            <button style={styles.cancelBtn} onClick={() => { setResolvingComplaintId(null); setResolutionNoteText(''); }}>Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={() => setResolvingComplaintId(c.id)}><CheckCircle2 size={13} /> Resolved Mark Karein</button>
+                      )
+                    )}
+                    {c.status === 'resolved' && c.resolutionNote && (
+                      <div style={{ ...styles.plainTextMuted, marginTop: 8, paddingTop: 8, borderTop: '1px solid ' + BRAND.line }}>{c.resolutionNote}</div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
 
@@ -7534,7 +7820,22 @@ function AdminProfitReport({ jobs, expenses }) {
 }
 
 /* ---- Admin settings ---- */
-function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, adminPushTokens, enableAdminPushNotifications, onLogout, showToast }) {
+function FaqEditForm({ faq, onSave, onCancel }) {
+  const [question, setQuestion] = useState(faq.question);
+  const [answer, setAnswer] = useState(faq.answer);
+  return (
+    <div>
+      <input style={styles.input} value={question} onChange={(e) => setQuestion(e.target.value)} />
+      <textarea style={{ ...styles.input, marginTop: 8, minHeight: 70, resize: 'vertical' }} value={answer} onChange={(e) => setAnswer(e.target.value)} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => onSave(question, answer)}>Save</button>
+        <button style={styles.cancelBtn} onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, adminPushTokens, enableAdminPushNotifications, onLogout, showToast }) {
   const [current, setCurrent] = useState('');
   const [next1, setNext1] = useState('');
   const [next2, setNext2] = useState('');
@@ -7563,6 +7864,36 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
   // a genuinely orphaned job) is reported clearly instead, since
   // guessing at those risks making things worse, not better.
   const [scanResults, setScanResults] = useState(null);
+  // FAQ management - a plain ordered list admin fully controls (add,
+  // edit, remove, reorder), shown to customers in their own Help
+  // screen. Kept simple and admin-authored rather than any kind of
+  // auto-generated content, since the accuracy of things like
+  // warranty terms, pricing basis, or delivery timelines matters and
+  // only the business itself actually knows its own current policies.
+  const [newFaqQuestion, setNewFaqQuestion] = useState('');
+  const [newFaqAnswer, setNewFaqAnswer] = useState('');
+  const [editingFaqId, setEditingFaqId] = useState(null);
+  const addFaq = () => {
+    if (!newFaqQuestion.trim() || !newFaqAnswer.trim()) { showToast('Sawaal aur jawab dono likhein', true); return; }
+    const next = [...(faqs || []), { id: uid(), question: newFaqQuestion.trim(), answer: newFaqAnswer.trim() }];
+    setFaqs(next);
+    setNewFaqQuestion(''); setNewFaqAnswer('');
+    showToast('FAQ add ho gaya');
+  };
+  const updateFaq = (id, question, answer) => {
+    setFaqs((faqs || []).map((f) => (f.id === id ? { ...f, question, answer } : f)));
+    setEditingFaqId(null);
+    showToast('FAQ update ho gaya');
+  };
+  const removeFaq = (id) => setFaqs((faqs || []).filter((f) => f.id !== id));
+  const moveFaq = (id, dir) => {
+    const list = [...(faqs || [])];
+    const idx = list.findIndex((f) => f.id === id);
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= list.length) return;
+    [list[idx], list[swapIdx]] = [list[swapIdx], list[idx]];
+    setFaqs(list);
+  };
   const [scanning, setScanning] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
@@ -7864,6 +8195,44 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
           ))}
           <input style={{ ...styles.input, marginTop: 10 }} placeholder='Nayi category ka naam' value={newGalleryCategory} onChange={(e) => setNewGalleryCategory(e.target.value)} />
           <button style={styles.addBtn} onClick={addGalleryCategory}><Plus size={14} /> Category add karein</button>
+        </div>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <HelpCircle size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>FAQ / Help</div>
+        </div>
+        <div style={styles.plainTextMuted}>Customer ki Help screen mein dikhne wale common sawaal-jawab.</div>
+        {(faqs || []).map((f, i) => (
+          <div key={f.id} style={{ ...styles.formCard, marginTop: 10 }}>
+            {editingFaqId === f.id ? (
+              <FaqEditForm faq={f} onSave={(q, a) => updateFaq(f.id, q, a)} onCancel={() => setEditingFaqId(null)} />
+            ) : (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={styles.itemDesc}>{f.question}</div>
+                    <div style={{ ...styles.itemSub, marginTop: 4 }}>{f.answer}</div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <button style={styles.iconBtnSmall} onClick={() => moveFaq(f.id, -1)} disabled={i === 0}><ChevronUp size={13} color='#B3B8C6' /></button>
+                    <button style={styles.iconBtnSmall} onClick={() => moveFaq(f.id, 1)} disabled={i === faqs.length - 1}><ChevronDown size={13} color='#B3B8C6' /></button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button style={{ ...styles.cardActionBtn, flex: 1 }} onClick={() => setEditingFaqId(f.id)}><Edit3 size={12} /> Edit</button>
+                  <button style={{ ...styles.cardActionBtn, flex: 1 }} onClick={() => removeFaq(f.id)}><Trash2 size={12} /> Hataein</button>
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+        <div style={{ ...styles.formCard, marginTop: 10, background: '#FFF9EE', borderColor: BRAND.gold }}>
+          <div style={styles.fieldLabel}>Naya FAQ Add Karein</div>
+          <input style={{ ...styles.input, marginTop: 6 }} placeholder='Sawaal (jaise: PVC furniture waterproof hai?)' value={newFaqQuestion} onChange={(e) => setNewFaqQuestion(e.target.value)} />
+          <textarea style={{ ...styles.input, marginTop: 8, minHeight: 70, resize: 'vertical' }} placeholder='Jawab' value={newFaqAnswer} onChange={(e) => setNewFaqAnswer(e.target.value)} />
+          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addFaq}><Plus size={14} /> FAQ Add Karein</button>
         </div>
       </div>
 
