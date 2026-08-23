@@ -3215,6 +3215,33 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
   const PHOTO_PAGE_SIZE = 60;
   const [visibleCount, setVisibleCount] = useState(PHOTO_PAGE_SIZE);
 
+  // Moved here, before the galleryLoading early return below - same
+  // Rules of Hooks issue as the other fixes in this pass: this useMemo
+  // previously sat after that "if (galleryLoading...) return" check,
+  // meaning it was skipped on every render WHILE loading but called
+  // once loading finished - a mismatched hook count on that very
+  // transition, which every single visitor hits on their first-ever
+  // gallery open. This is likely the single most impactful of the
+  // hooks-order fixes in this pass, since it wasn't gated behind an
+  // optional report button - it fired for anyone loading the gallery
+  // at all.
+  //
+  // All photos across every category, newest first - lets a customer
+  // browse everything in one flat grid instead of having to know (or
+  // guess) which category something was filed under, or click into each
+  // category one at a time just to see what's new. Recomputed from
+  // `gallery` each render (not memoized to skip work - the useMemo here
+  // is only to keep this hook call itself unconditional), which is
+  // fine at this photo count - no meaningful cost, and it stays
+  // trivially correct as photos get added/moved/removed.
+  const allPhotosFlat = useMemo(() => {
+    const combined = [];
+    for (const cat of categories) {
+      for (const p of (gallery[cat] || [])) combined.push({ ...p, category: cat });
+    }
+    return combined.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }, [gallery, categories]);
+
   if (galleryLoading && Object.keys(gallery || {}).length === 0) {
     return (
       <div style={{ padding: '40px 16px', textAlign: 'center' }}>
@@ -3224,20 +3251,6 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
     );
   }
 
-  // All photos across every category, newest first - lets a customer
-  // browse everything in one flat grid instead of having to know (or
-  // guess) which category something was filed under, or click into each
-  // category one at a time just to see what's new. Recomputed from
-  // `gallery` each render (not memoized), which is fine at this photo
-  // count - no meaningful cost, and it stays trivially correct as
-  // photos get added/moved/removed.
-  const allPhotosFlat = useMemo(() => {
-    const combined = [];
-    for (const cat of categories) {
-      for (const p of (gallery[cat] || [])) combined.push({ ...p, category: cat });
-    }
-    return combined.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-  }, [gallery, categories]);
 
 
   if (showAllPhotos || activeCat) {
@@ -5205,7 +5218,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
 }
 
 function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEstimates, overdue, pendingAppointments, pendingExtraWork, onOpenJob, setTab, isPartner }) {
-  const [showList, setShowList] = useState(null); // null | 'inProgress' | 'dueList' | 'todaysVisits' | 'tomorrowsVisits' | 'allEstimates'
+  const [showList, setShowList] = useState(null); // null | 'inProgress' | 'dueList' | 'todaysVisits' | 'tomorrowsVisits' | 'staleJobs' | 'allEstimates'
 
   // Total Due should only reflect work that's actually started - an
   // estimate sitting unapproved (status still 'appointment' or
@@ -5235,6 +5248,23 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
   // instead of today's.
   const tomorrowIso = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString(); })();
   const tomorrowsVisits = jobs.filter((j) => j.appointment && (j.appointment.status === 'confirmed' || j.appointment.status === 'rescheduled') && isSameLocalDay(j.appointment.confirmedDate, tomorrowIso));
+  // Jobs stuck "in progress" with no activity logged in a while - a
+  // customer whose estimate was approved days ago with nothing
+  // visibly happening since is exactly the kind of silent gap that
+  // makes people anxious/uncertain, even if work genuinely is moving
+  // along behind the scenes (material sourcing, scheduling a karigar,
+  // etc.) - this surfaces those jobs so admin can send a quick update
+  // before the customer has to ask. job.activity's most recent entry
+  // (prepended on every log) is used as "last update", since that's
+  // already the single trail every status change, payment, note, and
+  // progress photo add already writes to.
+  const STALE_DAYS_THRESHOLD = 5;
+  const staleJobs = jobs.filter((j) => {
+    if (j.status !== 'in_progress') return false;
+    const lastActivityDate = (j.activity && j.activity[0]) ? new Date(j.activity[0].date) : new Date(j.createdAt);
+    const daysSince = Math.floor((new Date() - lastActivityDate) / (1000 * 60 * 60 * 24));
+    return daysSince >= STALE_DAYS_THRESHOLD;
+  });
 
   if (showList === 'inProgress') {
     return (
@@ -5304,6 +5334,36 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
       </div>
     );
   }
+  if (showList === 'staleJobs') {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          <div style={styles.sectionTitle}>Update Chahiye</div>
+          <div style={styles.plainTextMuted}>Ye jobs "In Progress" hain lekin {STALE_DAYS_THRESHOLD}+ din se koi update nahi hui - customer ko ek chhota update bhej dein.</div>
+          {staleJobs.length === 0 && <div style={styles.emptySmall}>Sab jobs par recent update hai - kuch bhi stale nahi hai.</div>}
+          {staleJobs.map((j) => {
+            const lastActivityDate = (j.activity && j.activity[0]) ? new Date(j.activity[0].date) : new Date(j.createdAt);
+            const daysSince = Math.floor((new Date() - lastActivityDate) / (1000 * 60 * 60 * 24));
+            const updateText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'Aapke project ka kaam chal raha hai - jaldi hi update denge.' + NEWLINE + NEWLINE + '- ' + BUSINESS.name;
+            return (
+              <div key={j.id} style={styles.reviewCard}>
+                <button style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }} onClick={() => onOpenJob(j.id)}>
+                  <div style={styles.cardName}>{j.customerName}</div>
+                  <div style={styles.itemSub}>{daysSince} din se koi update nahi</div>
+                </button>
+                <a href={whatsAppShareUrl(j.phone, updateText)} target='_blank' rel='noopener noreferrer' style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
+                  <Send size={13} /> Update Bhejein
+                </a>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
   if (showList === 'allEstimates') {
     return (
       <div>
@@ -5347,6 +5407,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
       <div style={styles.statRow2}>
         <StatCard icon={<Calendar size={16} />} label="Aaj ki Visits" value={todaysVisits.length} onClick={() => setShowList('todaysVisits')} />
         <StatCard icon={<Send size={16} />} label="Kal ki Visits" value={tomorrowsVisits.length} onClick={() => setShowList('tomorrowsVisits')} />
+        <StatCard icon={<AlertCircle size={16} />} label="Update Chahiye" value={staleJobs.length} accent={staleJobs.length > 0} onClick={() => setShowList('staleJobs')} />
         <StatCard icon={<FileText size={16} />} label='Estimates Given' value={jobs.filter((j) => (j.items || []).length > 0).length} onClick={() => setShowList('allEstimates')} />
         <StatCard icon={<UserPlus size={16} />} label='New Appointments' value={pendingAppointments} onClick={() => setShowList('newAppointments')} />
       </div>
@@ -5668,6 +5729,32 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
   const [deletingCustomer, setDeletingCustomer] = useState(null);
   const [showReferralReport, setShowReferralReport] = useState(false);
   const [showAllEstimates, setShowAllEstimates] = useState(false);
+  // Moved here, before the two early returns below - React's Rules of
+  // Hooks require every hook to run in the same order on every render,
+  // and this useMemo previously sat AFTER both "if (showX) return"
+  // checks, meaning it was silently skipped whenever either report
+  // screen was open. That mismatch is exactly what caused tapping
+  // "Karigar Performance" (a different, now-fixed instance of the same
+  // bug in AdminSettings) to blank the whole app - the same risk
+  // existed here for "All Estimates" and "Referral Report" and is
+  // fixed the same way: unconditional, always before any early return.
+  const rows = useMemo(() => {
+    let r = customers
+      .map((c) => ({ customer: c, job: jobs.find((j) => j.customerId === c.id) }))
+      .filter(({ customer, job }) => {
+        if (filter !== 'all' && (!job || job.status !== filter)) return false;
+        if (branchFilter !== 'all' && (!job || job.branch !== branchFilter)) return false;
+        if (query.trim()) {
+          const q = query.toLowerCase();
+          return customer.name.toLowerCase().includes(q) || customer.phone.includes(q) || (job?.flatNo || '').toLowerCase().includes(q);
+        }
+        return true;
+      });
+    if (sort === 'recent') r.sort((a, b) => new Date(b.customer.createdAt) - new Date(a.customer.createdAt));
+    if (sort === 'name') r.sort((a, b) => a.customer.name.localeCompare(b.customer.name));
+    if (sort === 'due') r.sort((a, b) => (b.job ? jobDue(b.job) : 0) - (a.job ? jobDue(a.job) : 0));
+    return r;
+  }, [customers, jobs, query, filter, branchFilter, sort]);
 
   if (showAllEstimates) {
     return (
@@ -5690,24 +5777,6 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
       </div>
     );
   }
-
-  const rows = useMemo(() => {
-    let r = customers
-      .map((c) => ({ customer: c, job: jobs.find((j) => j.customerId === c.id) }))
-      .filter(({ customer, job }) => {
-        if (filter !== 'all' && (!job || job.status !== filter)) return false;
-        if (branchFilter !== 'all' && (!job || job.branch !== branchFilter)) return false;
-        if (query.trim()) {
-          const q = query.toLowerCase();
-          return customer.name.toLowerCase().includes(q) || customer.phone.includes(q) || (job?.flatNo || '').toLowerCase().includes(q);
-        }
-        return true;
-      });
-    if (sort === 'recent') r.sort((a, b) => new Date(b.customer.createdAt) - new Date(a.customer.createdAt));
-    if (sort === 'name') r.sort((a, b) => a.customer.name.localeCompare(b.customer.name));
-    if (sort === 'due') r.sort((a, b) => (b.job ? jobDue(b.job) : 0) - (a.job ? jobDue(a.job) : 0));
-    return r;
-  }, [customers, jobs, query, filter, branchFilter, sort]);
 
   // Same rule as AdminHome's dueTotal: only work that's actually
   // started (in_progress/delivered/paid) counts as money owed - an
@@ -7783,6 +7852,29 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob }) {
   const [showProfitReport, setShowProfitReport] = useState(false);
   const [showMonthlyReport, setShowMonthlyReport] = useState(false);
   const [showDueList, setShowDueList] = useState(false);
+  // Moved here, before the three early returns below - same Rules of
+  // Hooks fix as AdminSettings/AdminCustomers: this useMemo previously
+  // sat after all three "if (showX) return" checks, meaning it was
+  // silently skipped whenever any of Profit Report / Monthly Report /
+  // Due List was open, which is exactly the bug pattern that made
+  // "Karigar Performance" blank the whole app.
+  //
+  // Per-person breakdown: groups every expense by payee name (case/space
+  // insensitive match so "Ramu Kaka" and "ramu kaka " land in the same
+  // group), so admin can see at a glance who's been paid how much in
+  // total, without having to scroll the full mixed history.
+  const payeeSummary = useMemo(() => {
+    const groups = {};
+    for (const e of expenses) {
+      const key = (e.payee || '').trim().toLowerCase();
+      if (!key) continue;
+      if (!groups[key]) groups[key] = { displayName: e.payee.trim(), total: 0, count: 0, entries: [] };
+      groups[key].total += Number(e.amount) || 0;
+      groups[key].count += 1;
+      groups[key].entries.push(e);
+    }
+    return Object.values(groups).sort((a, b) => b.total - a.total);
+  }, [expenses]);
 
   if (showProfitReport) {
     return (
@@ -7822,23 +7914,6 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob }) {
   const totalExpense = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const karigarTotal = expenses.filter((e) => e.type === 'Karigar Payment').reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const netProfit = totalCollected - totalExpense;
-
-  // Per-person breakdown: groups every expense by payee name (case/space
-  // insensitive match so "Ramu Kaka" and "ramu kaka " land in the same
-  // group), so admin can see at a glance who's been paid how much in
-  // total, without having to scroll the full mixed history.
-  const payeeSummary = useMemo(() => {
-    const groups = {};
-    for (const e of expenses) {
-      const key = (e.payee || '').trim().toLowerCase();
-      if (!key) continue;
-      if (!groups[key]) groups[key] = { displayName: e.payee.trim(), total: 0, count: 0, entries: [] };
-      groups[key].total += Number(e.amount) || 0;
-      groups[key].count += 1;
-      groups[key].entries.push(e);
-    }
-    return Object.values(groups).sort((a, b) => b.total - a.total);
-  }, [expenses]);
 
   const addExpense = () => {
     if (!payee.trim() || !amount) { showToast('Naam aur amount daalein', true); return; }
@@ -8314,6 +8389,19 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
     showToast('Rates save ho gaye');
   };
   const [showKarigarPerformance, setShowKarigarPerformance] = useState(false);
+  // These two were previously declared further down, AFTER the early
+  // "if (showKarigarPerformance) return (...)" below - that violates
+  // React's Rules of Hooks (every hook must run in the same order on
+  // every render, never skipped by an early return), since tapping the
+  // Karigar Performance button changes showKarigarPerformance to true,
+  // and on THAT render these two hooks would never execute at all -
+  // React detects the mismatched hook count and throws, which (with no
+  // error boundary anywhere in this app) unmounts the whole tree,
+  // exactly matching "button tap -> screen goes blank". Moved here,
+  // before the early return, so they run unconditionally on every
+  // render regardless of which branch below actually gets shown.
+  const [newApptItem, setNewApptItem] = useState('');
+  const [newGalleryCategory, setNewGalleryCategory] = useState('');
 
   if (showKarigarPerformance) {
     return (
@@ -8368,7 +8456,6 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
       : [...appointmentItemOptions, cat];
     setAppointmentItemOptions(next);
   };
-  const [newApptItem, setNewApptItem] = useState('');
   const addApptItem = () => {
     const name = newApptItem.trim();
     if (!name) return;
@@ -8384,7 +8471,6 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
     setAppointmentItemOptions(appointmentItemOptions.filter((c) => c !== cat));
   };
 
-  const [newGalleryCategory, setNewGalleryCategory] = useState('');
   const addGalleryCategory = () => {
     const name = newGalleryCategory.trim();
     if (!name) return;
