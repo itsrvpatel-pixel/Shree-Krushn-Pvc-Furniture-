@@ -587,12 +587,248 @@ async function buildReceiptPdfDoc(job, payment) {
   return doc;
 }
 
+// A formal warranty certificate, issued once a job reaches delivered/
+// paid - separate from the receipt/estimate PDFs above, since this is
+// meant to be KEPT (a certificate a customer would file away and refer
+// back to if something needs a warranty claim years later), not a
+// transactional record of one payment. Warranty wording matches the
+// same terms shown in the app's own info cards (see the 'Warranty'
+// entry there) rather than restating them differently, so the two
+// never drift out of sync with each other.
+async function buildWarrantyPdfDoc(job) {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const navy = [15, 27, 61];
+  const gold = [168, 151, 95];
+
+  // Decorative border, since a certificate customarily looks more
+  // formal/framed than an ordinary transactional document.
+  doc.setDrawColor(...gold);
+  doc.setLineWidth(1.2);
+  doc.rect(8, 8, pageWidth - 16, pageHeight - 16);
+  doc.setLineWidth(0.4);
+  doc.rect(11, 11, pageWidth - 22, pageHeight - 22);
+
+  let y = 30;
+  try {
+    const logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
+    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 12, y, 24, 24);
+  } catch (e) {
+    // Logo fetch failed - certificate is still fully valid without it.
+  }
+  y += 32;
+
+  doc.setTextColor(...navy);
+  doc.setFontSize(20);
+  doc.setFont(undefined, 'bold');
+  doc.text('WARRANTY CERTIFICATE', pageWidth / 2, y, { align: 'center' });
+  y += 8;
+  doc.setDrawColor(...gold);
+  doc.setLineWidth(0.6);
+  doc.line(pageWidth / 2 - 30, y, pageWidth / 2 + 30, y);
+  y += 14;
+
+  doc.setFontSize(11);
+  doc.setFont(undefined, 'normal');
+  doc.setTextColor(80, 80, 80);
+  doc.text('This certifies that the furniture supplied to', pageWidth / 2, y, { align: 'center' });
+  y += 10;
+
+  doc.setFontSize(16);
+  doc.setFont(undefined, 'bold');
+  doc.setTextColor(...navy);
+  doc.text(job.customerName, pageWidth / 2, y, { align: 'center' });
+  y += 10;
+
+  if (job.flatNo || job.address) {
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(100, 100, 100);
+    doc.text([job.flatNo, job.address].filter(Boolean).join(', '), pageWidth / 2, y, { align: 'center' });
+    y += 10;
+  }
+  y += 4;
+
+  doc.setFontSize(11);
+  doc.setTextColor(80, 80, 80);
+  doc.text('is covered under the warranty terms below, by ' + BUSINESS.name + '.', pageWidth / 2, y, { align: 'center' });
+  y += 16;
+
+  // Items covered (from the actual estimate) - a plain list, not a
+  // priced table, since this document is about coverage, not billing.
+  const items = job.items || [];
+  if (items.length > 0) {
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(...navy);
+    doc.text('Items Covered:', 25, y);
+    y += 7;
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(60, 60, 60);
+    items.forEach((it) => {
+      doc.text('- ' + it.desc, 28, y);
+      y += 6;
+    });
+    y += 6;
+  }
+
+  doc.setFillColor(248, 250, 251);
+  doc.setDrawColor(...gold);
+  doc.setLineWidth(0.4);
+  const boxTop = y;
+  doc.roundedRect(20, boxTop, pageWidth - 40, 24, 2, 2, 'FD');
+  doc.setFontSize(9.5);
+  doc.setFont(undefined, 'normal');
+  doc.setTextColor(60, 60, 60);
+  doc.text('5 years warranty on material (manufacturing defects only - varies by item & company).', pageWidth / 2, boxTop + 10, { align: 'center', maxWidth: pageWidth - 50 });
+  doc.text('Warranty does not cover physical damage, misuse, or normal wear and tear.', pageWidth / 2, boxTop + 17, { align: 'center', maxWidth: pageWidth - 50 });
+  y = boxTop + 34;
+
+  doc.setFontSize(9.5);
+  doc.setTextColor(80, 80, 80);
+  doc.text('Delivery Date: ' + formatDate(job.expectedCompletionDate || job.createdAt), 25, y);
+  doc.text('Certificate No: WC-' + job.id.slice(-8).toUpperCase(), pageWidth - 25, y, { align: 'right' });
+  y += 20;
+
+  doc.setDrawColor(200, 200, 200);
+  doc.line(pageWidth - 70, y, pageWidth - 25, y);
+  y += 6;
+  doc.setFontSize(9);
+  doc.setTextColor(100, 100, 100);
+  doc.text('Authorized Signatory', pageWidth - 47.5, y, { align: 'center' });
+  y += 4;
+  doc.text(BUSINESS.name, pageWidth - 47.5, y, { align: 'center' });
+
+  return doc;
+}
+
 async function generateReceiptPdf(job, payment, showToast) {
   try {
     const doc = await buildReceiptPdfDoc(job, payment);
     doc.save('Receipt-' + job.customerName.replace(/\s+/g, '-') + '-' + payment.id.slice(-8) + '.pdf');
   } catch (e) {
     if (showToast) showToast('PDF banane mein dikkat aayi, dobara try karein', true);
+  }
+}
+
+async function generateWarrantyCertificate(job, showToast) {
+  try {
+    const doc = await buildWarrantyPdfDoc(job);
+    doc.save('Warranty-Certificate-' + job.customerName.replace(/\s+/g, '-') + '.pdf');
+  } catch (e) {
+    if (showToast) showToast('Certificate banane mein dikkat aayi, dobara try karein', true);
+  }
+}
+
+// A shareable price list, built from the same admin-configured rate
+// types (name/rate/unit) the Instant Estimate Calculator already uses
+// for customers - one source of truth for what things cost, just
+// presented here as a document instead of an interactive calculator,
+// for the case where a customer (or a lead who hasn't even booked a
+// visit yet) just wants "what do things roughly cost" without opening
+// the app at all.
+async function buildPriceListPdfDoc(estimateRates) {
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const navy = [15, 27, 61];
+  const gold = [168, 151, 95];
+
+  doc.setFillColor(...navy);
+  doc.rect(0, 0, pageWidth, 38, 'F');
+  try {
+    const logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
+    doc.addImage(logoDataUrl, 'PNG', 15, 7, 24, 24);
+  } catch (e) {
+    // Logo fetch failed - the price list is still fully valid without it.
+  }
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(15);
+  doc.setFont(undefined, 'bold');
+  doc.text(BUSINESS.name, 44, 17);
+  doc.setFontSize(8.5);
+  doc.setFont(undefined, 'normal');
+  doc.text(BUSINESS.addressLine, 44, 23);
+  doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, 44, 28);
+
+  let y = 50;
+  doc.setTextColor(...navy);
+  doc.setFontSize(14);
+  doc.setFont(undefined, 'bold');
+  doc.text('PRICE LIST', pageWidth / 2, y, { align: 'center' });
+  y += 3;
+  doc.setDrawColor(...gold);
+  doc.setLineWidth(0.8);
+  doc.line(pageWidth / 2 - 22, y, pageWidth / 2 + 22, y);
+  y += 14;
+
+  doc.setFillColor(248, 250, 251);
+  doc.rect(15, y, pageWidth - 30, 10, 'F');
+  doc.setFontSize(10);
+  doc.setFont(undefined, 'bold');
+  doc.setTextColor(...navy);
+  doc.text('Item', 20, y + 7);
+  doc.text('Rate', pageWidth - 20, y + 7, { align: 'right' });
+  y += 16;
+
+  const rates = (estimateRates && estimateRates.length > 0) ? estimateRates : [];
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(10);
+  rates.forEach((r) => {
+    if (y > 270) { doc.addPage(); y = 20; }
+    doc.setTextColor(60, 60, 60);
+    doc.text(r.name, 20, y);
+    doc.text('Rs. ' + Number(r.rate).toLocaleString('en-IN') + (r.unit === 'piece' ? ' / piece' : ' / sqft'), pageWidth - 20, y, { align: 'right' });
+    y += 8;
+    doc.setDrawColor(230, 230, 230);
+    doc.setLineWidth(0.2);
+    doc.line(15, y - 4, pageWidth - 15, y - 4);
+  });
+
+  y += 10;
+  doc.setFontSize(8.5);
+  doc.setFont(undefined, 'italic');
+  doc.setTextColor(120, 120, 120);
+  doc.text('Prices are approximate and subject to confirmation after a site visit. Prices are exclusive of GST.', pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - 40 });
+
+  return doc;
+}
+
+async function generatePriceListPdf(estimateRates, showToast) {
+  try {
+    const doc = await buildPriceListPdfDoc(estimateRates);
+    doc.save('Price-List-' + BUSINESS.name.replace(/\s+/g, '-') + '.pdf');
+  } catch (e) {
+    if (showToast) showToast('PDF banane mein dikkat aayi, dobara try karein', true);
+  }
+}
+
+async function sharePriceListPdf(estimateRates, showToast) {
+  let doc;
+  try {
+    doc = await buildPriceListPdfDoc(estimateRates);
+  } catch (e) {
+    if (showToast) showToast('PDF banane mein dikkat aayi, dobara try karein', true);
+    return;
+  }
+  try {
+    const fileName = 'Price-List-' + BUSINESS.name.replace(/\s+/g, '-') + '.pdf';
+    const blob = doc.output('blob');
+    const file = new File([blob], fileName, { type: 'application/pdf' });
+    try {
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Price List - ' + BUSINESS.name });
+        return;
+      }
+    } catch (e) {
+      // user cancelled the share sheet, canShare/share threw, or it
+      // otherwise failed - fall through to download either way
+    }
+    doc.save(fileName);
+    if (showToast) showToast('PDF download ho gaya - WhatsApp mein manually attach karein');
+  } catch (e) {
+    if (showToast) showToast('PDF share/download mein dikkat aayi, dobara try karein', true);
   }
 }
 
@@ -2757,6 +2993,13 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
               <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={enableCustomerPushNotifications}><Bell size={14} /> Notifications On Karein</button>
             )}
           </div>
+          <a
+            href={whatsAppShareUrl(null, 'Namaste! Maine ' + BUSINESS.name + ' ki app use ki hai - PVC furniture ke liye bahut achhi hai. Aap bhi dekho: https://' + BUSINESS.website)}
+            target='_blank' rel='noopener noreferrer'
+            style={{ ...styles.addBtn, marginTop: 12, textDecoration: 'none' }}
+          >
+            <Send size={14} /> App Doston Ko Bhejein
+          </a>
           <button style={{ ...styles.addBtn, marginTop: 12 }} onClick={() => setShowHelp(true)}><HelpCircle size={14} /> Help / FAQ</button>
           <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
         </div>
@@ -3869,6 +4112,29 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
   const [showForm, setShowForm] = useState((job.requirements || []).length === 0);
   const [lightbox, setLightbox] = useState(null);
   const savedDesigns = job.savedDesigns || [];
+  // A photo the customer uploads directly from their own phone (not
+  // from the gallery) - e.g. a photo of a design they saw elsewhere,
+  // or a specific corner/wall they want matched - attached to the
+  // requirement being added, separate from photoRef (which always
+  // means "a reference to an existing gallery photo by id").
+  const [ownPhotoDataUri, setOwnPhotoDataUri] = useState(null);
+  const [uploadingOwnPhoto, setUploadingOwnPhoto] = useState(false);
+  const ownPhotoInputRef = React.useRef(null);
+  const handleOwnPhotoPicked = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('Sirf image file select karein', true); return; }
+    setUploadingOwnPhoto(true);
+    try {
+      const dataUri = await fileToDataUri(file);
+      setOwnPhotoDataUri(dataUri);
+    } catch (e) {
+      showToast('Photo load nahi ho payi', true);
+    } finally {
+      setUploadingOwnPhoto(false);
+    }
+  };
 
   // Instant estimate calculator: a customer-side, self-service rough
   // total based on their own measurements/quantities and which rate
@@ -3891,11 +4157,31 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
   };
 
   const add = async (photoRef) => {
-    if (!photoRef && !text.trim()) return;
+    if (!photoRef && !text.trim() && !ownPhotoDataUri) return;
+    let ownPhoto = null;
+    if (ownPhotoDataUri) {
+      // Uploaded to Firebase Storage right here (same as gallery/
+      // progress photos) rather than storing the raw data: URI inline -
+      // requirements live inside the single, shared 'jobs' Firestore
+      // document, so a base64 photo embedded directly there would blow
+      // well past Firestore's 1MiB document cap after a few uploads.
+      try {
+        const uploaded = await window.fileStorage.upload('requirement_' + uid(), ownPhotoDataUri);
+        if (uploaded && !uploaded.error) {
+          ownPhoto = { url: uploaded.url, origUrl: null };
+        } else {
+          showToast('Photo upload nahi ho payi, dobara try karein', true);
+          return;
+        }
+      } catch (e) {
+        showToast('Photo upload nahi ho payi, dobara try karein', true);
+        return;
+      }
+    }
     const req = {
       id: uid(),
       category,
-      text: photoRef ? ('Saved design reference' + (photoRef.caption ? ': ' + photoRef.caption : '')) : text.trim(),
+      text: photoRef ? ('Saved design reference' + (photoRef.caption ? ': ' + photoRef.caption : '')) : (text.trim() || (ownPhoto ? 'Reference photo' : '')),
       dimensions: dimensions.trim(),
       priority,
       // photoRef here is a savedDesigns entry ({photoId, caption}), not
@@ -3905,13 +4191,19 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
       // does the same thing: avoids duplicating image data inline into
       // the shared 'jobs' document.
       photoRef: photoRef ? { photoId: photoRef.photoId } : null,
+      // ownPhoto (unlike photoRef) is a photo the customer uploaded
+      // fresh from their own device rather than one that already
+      // exists in the gallery - it genuinely has no gallery entry to
+      // reference, so its Storage url is kept directly on the
+      // requirement itself instead.
+      ownPhoto,
       createdAt: new Date().toISOString(),
     };
     let next = { ...job, requirements: [req, ...(job.requirements || [])] };
-    next = logActivity(next, 'Requirement added: ' + category + (photoRef ? ' (saved design)' : ''));
+    next = logActivity(next, 'Requirement added: ' + category + (photoRef ? ' (saved design)' : (ownPhoto ? ' (photo attached)' : '')));
     const ok = await onSave(next);
     if (ok) {
-      setText(''); setDimensions(''); setPriority('normal');
+      setText(''); setDimensions(''); setPriority('normal'); setOwnPhotoDataUri(null);
       setShowForm(false);
       showToast('Requirement added');
     }
@@ -3967,6 +4259,21 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
             onChange={(e) => setDimensions(e.target.value)}
             placeholder='e.g. 10ft x 8ft, ya room ka naap'
           />
+          <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Reference Photo (optional)</div>
+          <div style={styles.plainTextMuted}>Apne phone se koi photo daal sakte hain - jaisa design chahiye.</div>
+          {ownPhotoDataUri ? (
+            <div style={{ position: 'relative', marginTop: 8, width: 90, height: 90 }}>
+              <img src={ownPhotoDataUri} alt='Reference' style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} />
+              <button style={{ ...styles.photoDeleteBtn, top: -6, right: -6 }} onClick={() => setOwnPhotoDataUri(null)}><X size={12} color='#FFF' /></button>
+            </div>
+          ) : (
+            <>
+              <input ref={ownPhotoInputRef} type='file' accept='image/*' style={{ display: 'none' }} onChange={handleOwnPhotoPicked} />
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => ownPhotoInputRef.current && ownPhotoInputRef.current.click()} disabled={uploadingOwnPhoto}>
+                <Camera size={14} /> {uploadingOwnPhoto ? 'Load ho raha hai...' : 'Photo Add Karein'}
+              </button>
+            </>
+          )}
           <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Priority</div>
           <div style={styles.chipRow}>
             {Object.entries(REQ_PRIORITY).map(([k, v]) => (
@@ -4014,6 +4321,11 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
               {r.photoRef && resolveGalleryPhoto(r.photoRef.photoId) && (
                 <button style={{ ...styles.reqThumb, border: 'none', padding: 0, cursor: 'pointer' }} onClick={() => setLightbox({ photos: [resolveGalleryPhoto(r.photoRef.photoId)], index: 0 })}>
                   <SmartImg src={resolveGalleryPhoto(r.photoRef.photoId).url} origUrl={resolveGalleryPhoto(r.photoRef.photoId).origUrl} alt={r.text} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </button>
+              )}
+              {r.ownPhoto && (
+                <button style={{ ...styles.reqThumb, border: 'none', padding: 0, cursor: 'pointer' }} onClick={() => setLightbox({ photos: [{ id: r.id, url: r.ownPhoto.url, origUrl: r.ownPhoto.origUrl, caption: r.text }], index: 0 })}>
+                  <SmartImg src={r.ownPhoto.url} origUrl={r.ownPhoto.origUrl} alt={r.text} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 </button>
               )}
               <div style={{ flex: 1 }}>
@@ -4378,6 +4690,10 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
           <Hammer size={15} color={BRAND.gold} />
           <span>Kaam <b>{job.workPercent}%</b> complete ho gaya hai</span>
         </div>
+      )}
+
+      {(job.status === 'delivered' || job.status === 'paid') && (
+        <button style={{ ...styles.addBtn, marginTop: 12 }} onClick={() => generateWarrantyCertificate(job, showToast)}><FileText size={14} /> Warranty Certificate Download Karein</button>
       )}
 
       {job.status === 'delivered' && (
@@ -4812,7 +5128,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
     return (
       <div style={{ paddingBottom: 20 }}>
         <TopBar title={activeJob.customerName} subtitle={isPartner ? 'Partner - Job detail' : 'Admin - Job detail'} onBack={() => setActiveJobId(null)} hideLogout />
-        <AdminJobDetail key={activeJob.id} job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} pushNotification={pushNotification} categories={categories} />
+        <AdminJobDetail key={activeJob.id} job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} pushNotification={pushNotification} categories={categories} gallery={gallery} />
       </div>
     );
   }
@@ -6245,9 +6561,17 @@ function QuotationPreview({ job, onClose, showToast }) {
   );
 }
 
-function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates, pushNotification, categories }) {
+function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates, pushNotification, categories, gallery }) {
   const [tab, setTab] = useState('status');
   const [resolvingComplaintId, setResolvingComplaintId] = useState(null);
+  const [reqLightbox, setReqLightbox] = useState(null);
+  const resolveGalleryPhotoForAdmin = (photoId) => {
+    for (const cat of Object.keys(gallery || {})) {
+      const found = (gallery[cat] || []).find((p) => p.id === photoId);
+      if (found) return found;
+    }
+    return null;
+  };
   const [resolutionNoteText, setResolutionNoteText] = useState('');
   const [newItem, setNewItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
   const [newPayment, setNewPayment] = useState({ amount: '', note: '' });
@@ -6537,6 +6861,10 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
               </div>
             )}
 
+            {(job.status === 'delivered' || job.status === 'paid') && (
+              <button style={{ ...styles.addBtn, marginTop: 16 }} onClick={() => generateWarrantyCertificate(job, showToast)}><FileText size={14} /> Warranty Certificate Download Karein</button>
+            )}
+
             <div style={{ marginTop: 16 }}>
               <div style={styles.fieldLabel}>Expected Completion Date</div>
               <div style={styles.plainTextMuted}>Customer ko Home screen par dikhega.</div>
@@ -6772,6 +7100,16 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
             {(job.requirements || []).length === 0 && <div style={styles.emptySmall}>Customer ne abhi koi requirement nahi di.</div>}
             {(job.requirements || []).map((r) => (
               <div key={r.id} style={styles.reqRow}>
+                {r.photoRef && resolveGalleryPhotoForAdmin(r.photoRef.photoId) && (
+                  <button style={{ ...styles.reqThumb, border: 'none', padding: 0, cursor: 'pointer' }} onClick={() => setReqLightbox({ photos: [resolveGalleryPhotoForAdmin(r.photoRef.photoId)], index: 0 })}>
+                    <SmartImg src={resolveGalleryPhotoForAdmin(r.photoRef.photoId).url} origUrl={resolveGalleryPhotoForAdmin(r.photoRef.photoId).origUrl} alt={r.text} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </button>
+                )}
+                {r.ownPhoto && (
+                  <button style={{ ...styles.reqThumb, border: 'none', padding: 0, cursor: 'pointer' }} onClick={() => setReqLightbox({ photos: [{ id: r.id, url: r.ownPhoto.url, origUrl: r.ownPhoto.origUrl, caption: r.text }], index: 0 })}>
+                    <SmartImg src={r.ownPhoto.url} origUrl={r.ownPhoto.origUrl} alt={r.text} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </button>
+                )}
                 <span style={styles.reqCatBadge}>{r.category}</span>
                 <div style={{ flex: 1 }}>
                   <div style={styles.reqText}>{r.text}</div>
@@ -6785,6 +7123,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                 </div>
               </div>
             ))}
+            {reqLightbox && <Lightbox data={reqLightbox} onClose={() => setReqLightbox(null)} setLightbox={setReqLightbox} />}
           </div>
         )}
 
@@ -8359,6 +8698,14 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
         </div>
         <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addRateType}><Plus size={14} /> Naya Rate Type Add Karein</button>
         <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={saveRates}><CheckCircle2 size={14} /> Sab Rates Save Karein</button>
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
+          <div style={styles.fieldLabel}>Price List PDF</div>
+          <div style={styles.plainTextMuted}>Saare rates ka ek professional PDF - customer ko WhatsApp par bhej sakte hain.</div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', flex: 1 }} onClick={() => sharePriceListPdf(estimateRates, showToast)}><Send size={13} /> WhatsApp</button>
+            <button style={{ ...styles.cardActionBtn, flex: 1 }} onClick={() => generatePriceListPdf(estimateRates, showToast)}><FileText size={13} /> Download</button>
+          </div>
+        </div>
       </div>
 
       <div style={{ ...styles.card, marginTop: 12 }}>
