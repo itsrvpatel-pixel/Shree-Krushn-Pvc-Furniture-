@@ -1916,7 +1916,43 @@ export default function App() {
       // separately track this via the item-category list, which can
       // differ (a category could exist for gallery photos even if no
       // estimate item uses that name, or vice versa).
-      writes.push(window.storage.set('gallery_categories', JSON.stringify(Object.keys(meta)), true));
+      //
+      // Critically, this NEVER just writes Object.keys(meta) directly -
+      // that used to mean this document quietly shrank to whatever
+      // categories happened to be in THIS particular write's `next`
+      // (which mirrors local `gallery` state), even though every
+      // ordinary add/edit/delete-a-photo call site correctly spreads
+      // {...gallery, ...} first. The actual failure mode: if local
+      // `gallery` state was ever incomplete for ANY reason (a slow
+      // connection during the initial load, a temporary Firestore
+      // hiccup, another device's write landing mid-fetch), the very
+      // next ordinary photo edit anywhere would "helpfully" but
+      // silently permanently drop every category missing from that
+      // incomplete snapshot from this document - and once dropped
+      // here, no future load ever asks Firestore for those categories'
+      // documents again, even though gallery_cat_<name> itself was
+      // never touched and still holds every photo. This is what was
+      // actually behind categories (and, by extension, their photos)
+      // disappearing with nobody ever choosing to remove them.
+      //
+      // The fix: always fetch the CURRENT category list fresh from
+      // Firestore first and take the UNION with this write's own
+      // categories - a routine photo operation can only ever ADD a
+      // category to this list, never silently remove one. The only
+      // way a category is meant to leave this list is the explicit,
+      // deliberate "Remove Category" action in Settings, which already
+      // has its own dedicated safeguard against removing one that
+      // still has photos.
+      let freshCategoryList = [];
+      try {
+        const freshRaw = await window.storage.get('gallery_categories', true);
+        if (freshRaw && freshRaw.value) freshCategoryList = JSON.parse(freshRaw.value);
+      } catch (e) {
+        // Fetch failed - fall through using just this write's own
+        // categories below rather than blocking the save entirely.
+      }
+      const mergedCategoryList = [...new Set([...freshCategoryList, ...Object.keys(meta)])];
+      writes.push(window.storage.set('gallery_categories', JSON.stringify(mergedCategoryList), true));
       await Promise.all(writes);
       // Reflect the now-uploaded URLs (data: URI replaced by the real
       // Storage URL) back into local state too, so the freshly-added
@@ -3215,17 +3251,26 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
   const PHOTO_PAGE_SIZE = 60;
   const [visibleCount, setVisibleCount] = useState(PHOTO_PAGE_SIZE);
 
-  // Moved here, before the galleryLoading early return below - same
-  // Rules of Hooks issue as the other fixes in this pass: this useMemo
-  // previously sat after that "if (galleryLoading...) return" check,
-  // meaning it was skipped on every render WHILE loading but called
-  // once loading finished - a mismatched hook count on that very
-  // transition, which every single visitor hits on their first-ever
-  // gallery open. This is likely the single most impactful of the
-  // hooks-order fixes in this pass, since it wasn't gated behind an
-  // optional report button - it fired for anyone loading the gallery
-  // at all.
-  //
+  // The gallery's OWN category list - a union of Settings' configured
+  // item-types (categories) AND whatever categories genuinely have
+  // photos in the gallery data right now (Object.keys(gallery)) - NOT
+  // just categories directly, which was the actual bug: if a category
+  // like "Study Table" or "Washbasin" was ever removed from Settings'
+  // item-categories list (for any reason - it's no longer needed as an
+  // ESTIMATE line-item type, say), every photo the gallery had under
+  // that category name silently stopped appearing anywhere - not just
+  // its own chip disappearing, but "All Photos" (which only flattened
+  // `categories`, not the actual gallery data) skipping those photos
+  // too, since as far as it knew, that category no longer existed.
+  // The data itself was never actually deleted - it was just no longer
+  // reachable through any part of the UI. Using this union instead
+  // means a category with real photos in it can never go invisible
+  // this way again, while a genuinely new, still-empty category
+  // (just added in Settings, no photos yet) still shows up too.
+  const galleryCategories = useMemo(() => {
+    return [...new Set([...(categories || []), ...Object.keys(gallery || {})])];
+  }, [categories, gallery]);
+
   // All photos across every category, newest first - lets a customer
   // browse everything in one flat grid instead of having to know (or
   // guess) which category something was filed under, or click into each
@@ -3236,11 +3281,11 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
   // trivially correct as photos get added/moved/removed.
   const allPhotosFlat = useMemo(() => {
     const combined = [];
-    for (const cat of categories) {
+    for (const cat of galleryCategories) {
       for (const p of (gallery[cat] || [])) combined.push({ ...p, category: cat });
     }
     return combined.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-  }, [gallery, categories]);
+  }, [gallery, galleryCategories]);
 
   if (galleryLoading && Object.keys(gallery || {}).length === 0) {
     return (
@@ -3275,7 +3320,7 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
             unnecessary friction. */}
         <div style={styles.chipRow}>
           <button onClick={() => { setActiveCat(null); setShowAllPhotos(true); setQuery(''); setVisibleCount(PHOTO_PAGE_SIZE); }} style={{ ...styles.chip, ...(inAllPhotosMode ? styles.chipActive : {}) }}>All Photos</button>
-          {categories.map((c) => (
+          {galleryCategories.map((c) => (
             <button key={c} onClick={() => { setActiveCat(c); setShowAllPhotos(false); setQuery(''); setVisibleCount(PHOTO_PAGE_SIZE); }} style={{ ...styles.chip, ...(!inAllPhotosMode && activeCat === c ? styles.chipActive : {}) }}>{c}</button>
           ))}
         </div>
@@ -3359,7 +3404,7 @@ function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testim
       )}
 
       <div style={styles.catGrid}>
-        {categories.map((cat) => {
+        {galleryCategories.map((cat) => {
           const count = (gallery[cat] || []).length;
           const cover = (gallery[cat] || [])[0];
           return (
@@ -7517,6 +7562,13 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
   // itself. See GalleryBrowser for the full reasoning.
   const PHOTO_PAGE_SIZE = 60;
   const [visibleCount, setVisibleCount] = useState(PHOTO_PAGE_SIZE);
+  // Same fix as GalleryBrowser's matching "galleryCategories" comment -
+  // a plain expression (not a hook), safe to compute here regardless
+  // of the early return below, but still critical: without this,
+  // removing a category from Settings could make its photos
+  // permanently unreachable from THIS screen too, even though they're
+  // still safely sitting in Firestore.
+  const galleryCategories = [...new Set([...(categories || []), ...Object.keys(gallery || {})])];
 
   if (galleryLoading && Object.keys(gallery || {}).length === 0) {
     return (
@@ -7648,7 +7700,7 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
         >
           Uncategorized ({(gallery[UNCATEGORIZED] || []).length})
         </button>
-        {categories.map((c) => {
+        {galleryCategories.map((c) => {
           const count = (gallery[c] || []).length;
           return <button key={c} onClick={() => { setActiveCat(c); setVisibleCount(PHOTO_PAGE_SIZE); }} style={{ ...styles.chip, ...(activeCat === c ? styles.chipActive : {}) }}>{c} ({count})</button>;
         })}
@@ -7698,7 +7750,7 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
         <GalleryPhotoEditDialog
           photo={editingPhoto}
           currentCategory={activeCat}
-          categories={categories}
+          categories={galleryCategories}
           onCancel={() => setEditingPhoto(null)}
           onSave={saveEditedPhoto}
         />
@@ -8250,6 +8302,11 @@ function FaqEditForm({ faq, onSave, onCancel }) {
 }
 
 function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, adminPushTokens, enableAdminPushNotifications, onLogout, showToast }) {
+  // Same union fix as GalleryBrowser/AdminGallery's matching comment -
+  // used here so a category with real gallery photos never becomes
+  // unmanageable from Settings just because it isn't (or is no longer)
+  // in the plain item-categories list.
+  const galleryCategoriesForSettings = [...new Set([...(categories || []), ...Object.keys(gallery || {})])];
   const [current, setCurrent] = useState('');
   const [next1, setNext1] = useState('');
   const [next2, setNext2] = useState('');
@@ -8612,7 +8669,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
         </div>
         <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Design gallery mein kaunse categories dikhein, add/remove karein.</div>
         <div style={{ marginTop: 4 }}>
-          {categories.map((cat) => (
+          {galleryCategoriesForSettings.map((cat) => (
             <div key={cat} style={styles.staffRow}>
               <div style={{ flex: 1 }}>{cat} <span style={styles.itemSub}>({(gallery[cat] || []).length} photos)</span></div>
               <button style={styles.iconBtnSmall} onClick={() => removeGalleryCategory(cat)}><Trash2 size={14} color='#C7CCDC' /></button>
