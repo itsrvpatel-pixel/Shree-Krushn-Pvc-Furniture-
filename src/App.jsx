@@ -8524,6 +8524,78 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
     }
   };
 
+  // Retroactively generates the small grid thumbnail for every EXISTING
+  // photo that doesn't have one yet - photos uploaded before this
+  // feature existed only have their full-quality file, so the grid
+  // speed improvement only applied to new uploads going forward until
+  // this runs. Processes 3 photos at a time (mapWithConcurrencyLimit)
+  // to avoid overwhelming the browser/connection with hundreds of
+  // simultaneous fetch+canvas+upload operations, and re-reads each
+  // category fresh from Firestore right before writing it back (same
+  // pattern persistGallery uses) rather than trusting whatever was in
+  // local `gallery` state when this started, since this can run for a
+  // while and other writes could land in the meantime.
+  const [backfillingThumbnails, setBackfillingThumbnails] = useState(false);
+  const [backfillProgress, setBackfillProgress] = useState(null);
+  const backfillThumbnails = async () => {
+    setBackfillingThumbnails(true);
+    setBackfillProgress(null);
+    try {
+      const categoriesToProcess = [...new Set([...(categories || []), ...Object.keys(gallery || {})])];
+      let totalNeedingThumb = 0;
+      const perCategoryNeeding = {};
+      for (const cat of categoriesToProcess) {
+        const needing = (gallery[cat] || []).filter((p) => p.url && !p.thumbUrl);
+        if (needing.length > 0) {
+          perCategoryNeeding[cat] = needing;
+          totalNeedingThumb += needing.length;
+        }
+      }
+      if (totalNeedingThumb === 0) {
+        showToast('Saari photos mein pehle se thumbnail hai - kuch karne ki zaroorat nahi');
+        return;
+      }
+      let doneCount = 0;
+      let failCount = 0;
+      setBackfillProgress({ done: 0, total: totalNeedingThumb });
+      for (const cat of Object.keys(perCategoryNeeding)) {
+        const needing = perCategoryNeeding[cat];
+        const thumbUrlById = {};
+        await mapWithConcurrencyLimit(needing, 3, async (p) => {
+          try {
+            const fullDataUri = await loadImageAsDataUrl(p.url);
+            const thumbDataUri = await generateThumbnail(fullDataUri);
+            const uploaded = await window.fileStorage.upload('gallery_thumb_' + p.id, thumbDataUri);
+            if (uploaded && !uploaded.error) {
+              thumbUrlById[p.id] = uploaded.url;
+            } else {
+              failCount++;
+            }
+          } catch (e) {
+            failCount++;
+          }
+          doneCount++;
+          setBackfillProgress({ done: doneCount, total: totalNeedingThumb });
+        });
+        if (Object.keys(thumbUrlById).length === 0) continue;
+        // Re-fetch this specific category fresh right before writing,
+        // so a slow-running backfill never clobbers a caption edit,
+        // delete, or move that happened on this category while it was
+        // still processing other categories.
+        const freshRaw = await window.storage.get('gallery_cat_' + cat);
+        const freshPhotos = freshRaw ? JSON.parse(freshRaw.value) : (gallery[cat] || []);
+        const updatedPhotos = freshPhotos.map((p) => (thumbUrlById[p.id] ? { ...p, thumbUrl: thumbUrlById[p.id] } : p));
+        await window.storage.set('gallery_cat_' + cat, JSON.stringify(updatedPhotos));
+      }
+      showToast((totalNeedingThumb - failCount) + ' photo(s) ke thumbnail ban gaye' + (failCount > 0 ? (', ' + failCount + ' fail hui') : '') + ' - app band karke dobara kholein');
+    } catch (e) {
+      showToast('Backfill mein dikkat aayi: ' + (e.message || 'unknown error'), true);
+    } finally {
+      setBackfillingThumbnails(false);
+      setBackfillProgress(null);
+    }
+  };
+
   const runSystemCheck = () => {
     setScanning(true);
     const photoIssues = [];
@@ -8901,6 +8973,14 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
           <div style={styles.plainTextMuted}>Agar koi purani category (jaise "Study Table", "Washbasin") ki photos dikhna band ho gayi hain, is button se dhoondke wapas la sakte hain - photo data kabhi delete nahi hota, sirf list se hat jaata hai.</div>
           <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={recoverMissingCategories} disabled={recoveringCategories}>
             <Search size={14} /> {recoveringCategories ? 'Dhoondh raha hai...' : 'Missing Categories Recover Karein'}
+          </button>
+        </div>
+
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
+          <div style={styles.fieldLabel}>Purani Photos Ke Liye Thumbnails Banayein</div>
+          <div style={styles.plainTextMuted}>Naye upload ki photos automatically fast hoti hain, lekin purani photos ke liye ye ek baar chalana hoga - poori Gallery fast ho jayegi.</div>
+          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={backfillThumbnails} disabled={backfillingThumbnails}>
+            <Search size={14} /> {backfillingThumbnails ? (backfillProgress ? ('Ban rahi hain... (' + backfillProgress.done + '/' + backfillProgress.total + ')') : 'Shuru ho raha hai...') : 'Thumbnails Banayein'}
           </button>
         </div>
 
