@@ -2489,6 +2489,34 @@ export default function App() {
     );
   }
 
+  if (session.role === 'regional_partner') {
+    // Same ID-based lookup reasoning as karigar above - staffId from
+    // login, not a name match, so an admin renaming this partner later
+    // doesn't lock them out until their next login.
+    const myStaffId = session.staffId || staff.find((s) => s.name === session.staffName)?.id;
+    const myStaffRecord = staff.find((s) => s.id === myStaffId);
+    const myJobs = jobs.filter((j) => j.assignedStaffId === myStaffId);
+    return (
+      <div style={styles.app}>
+        <style>{fontImport}</style>
+        <RegionalPartnerApp
+          jobs={myJobs}
+          staffName={session.staffName}
+          staffId={myStaffId}
+          commissionPercent={myStaffRecord?.commissionPercent || 0}
+          onSaveJob={async (j) => {
+            if (!myJobs.some((jj) => jj.id === j.id)) return false; // guard: only ever write a job assigned to this partner
+            return await persistJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)));
+          }}
+          onLogout={() => setSession(null)}
+          showToast={showToast}
+          pushNotification={pushNotification}
+        />
+        <ToastEl toast={toast} />
+      </div>
+    );
+  }
+
   // ---- CUSTOMER SESSION ----
   // Strict isolation: a customer session only ever resolves ITS OWN customer
   // record and the ONE job row whose customerId matches the logged-in id.
@@ -2762,7 +2790,11 @@ function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onC
     if (partnerPin && pin === partnerPin) { onAdminLogin('Partner', 'partner', null); return; }
     if (dhPartnerPin && pin === dhPartnerPin) { onAdminLogin('DH Home Decor', 'dh_partner', null); return; }
     const staffMatch = (staff || []).find((s) => s.pin === pin);
-    if (staffMatch) { onAdminLogin(staffMatch.name, staffMatch.role === 'karigar' ? 'karigar' : 'admin', staffMatch.id); return; }
+    if (staffMatch) {
+      const routedRole = staffMatch.role === 'karigar' ? 'karigar' : (staffMatch.role === 'regional_partner' ? 'regional_partner' : 'admin');
+      onAdminLogin(staffMatch.name, routedRole, staffMatch.id);
+      return;
+    }
     setError('Galat PIN');
   };
 
@@ -5369,6 +5401,153 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
   );
 }
 
+// A regional partner is a genuinely different relationship from a
+// karigar: not an employee doing hands-on work under Shree Krushn's
+// direct supervision, but an independent local business (e.g. a
+// Rajkot furniture shop) who visits the customer and completes the
+// work themselves, earning a commission on what gets collected - so
+// unlike KarigarApp, this shows the FULL estimate (a partner needs to
+// know exactly what was sold to deliver it correctly) and their own
+// running commission total, but still funnels status changes through
+// admin (via a notification) rather than letting the partner directly
+// alter payment records themselves.
+function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, onSaveJob, onLogout, showToast, pushNotification }) {
+  const [activeJobId, setActiveJobId] = useState(null);
+  const activeJob = jobs.find((j) => j.id === activeJobId);
+  const [lightbox, setLightbox] = useState(null);
+
+  // Commission is earned on what's actually been COLLECTED from the
+  // customer so far (jobPaid), not the full estimate value - an
+  // unapproved or unpaid estimate hasn't actually generated any money
+  // to take a percentage of yet. This updates live as payments come in
+  // (visible to the partner as soon as admin records a payment), not
+  // just once at job completion.
+  const commissionByJob = jobs.map((j) => ({ job: j, commission: Math.round(jobPaid(j) * (commissionPercent / 100)) }));
+  const totalCommission = commissionByJob.reduce((s, c) => s + c.commission, 0);
+
+  const addPhotos = async (job, photos) => {
+    const newPhotos = [];
+    for (const p of photos) {
+      const id = uid();
+      const uploaded = await window.fileStorage.upload('progress_' + id, p.url);
+      if (uploaded && !uploaded.error) {
+        newPhotos.push({ id, url: uploaded.url, origUrl: p.origUrl || null, caption: p.caption, date: new Date().toISOString() });
+      } else {
+        showToast('Ek photo save nahi ho payi: ' + (uploaded?.error || 'unknown error'), true);
+      }
+    }
+    if (newPhotos.length === 0) return false;
+    let next = { ...job, progressPhotos: [...(job.progressPhotos || []), ...newPhotos] };
+    next = logActivity(next, newPhotos.length + ' progress photo' + (newPhotos.length !== 1 ? 's' : '') + ' added by ' + staffName + ' (Regional Partner)');
+    const ok = await onSaveJob(next);
+    if (ok) showToast(newPhotos.length + ' photo' + (newPhotos.length !== 1 ? 's' : '') + ' add ho gayi');
+    return ok;
+  };
+  const removePhoto = (job, photoId) => {
+    onSaveJob({ ...job, progressPhotos: (job.progressPhotos || []).filter((p) => p.id !== photoId) });
+  };
+
+  const markVisitDone = (job) => {
+    pushNotification('follow_up_needed', staffName + ' (Regional Partner) ne ' + job.customerName + ' ka visit complete kiya hai', job.id);
+    showToast('Admin ko bata diya gaya');
+  };
+  const markWorkComplete = (job) => {
+    pushNotification('work_completed_by_karigar', staffName + ' (Regional Partner) ne ' + job.customerName + ' ka kaam complete bataya hai', job.id);
+    showToast('Admin ko bata diya gaya - wo confirm karke status update karenge');
+  };
+
+  if (activeJob) {
+    const myCommission = Math.round(jobPaid(activeJob) * (commissionPercent / 100));
+    return (
+      <div style={{ paddingBottom: 20 }}>
+        <TopBar title={activeJob.customerName} subtitle={STATUS[activeJob.status]?.label || activeJob.status} onBack={() => setActiveJobId(null)} hideLogout />
+        <div style={{ padding: '12px 16px' }}>
+          <div style={{ ...styles.formCard, background: '#FFF9EE', borderColor: BRAND.gold }}>
+            <div style={styles.fieldLabel}>Aapka Commission (Is Job Par)</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: BRAND.navy }}>{currency(myCommission)}</div>
+            <div style={styles.itemSub}>{commissionPercent}% of {currency(jobPaid(activeJob))} collected</div>
+          </div>
+
+          {activeJob.appointment && (
+            <div style={{ ...styles.formCard, marginTop: 12 }}>
+              <div style={styles.fieldLabel}>Visit Details</div>
+              <div style={styles.itemDesc}>{activeJob.appointment.address || activeJob.address || 'Address customer se poochhein'}</div>
+              {activeJob.appointment.confirmedDate && (
+                <div style={styles.itemSub}>{formatDate(activeJob.appointment.confirmedDate)}{activeJob.appointment.confirmedTime ? (' - ' + formatTime12h(activeJob.appointment.confirmedTime)) : ''}</div>
+              )}
+              {activeJob.phone && (
+                <a href={'tel:+91' + activeJob.phone} style={{ ...styles.addBtn, marginTop: 8, textDecoration: 'none' }}><Phone size={14} /> Customer ko Call Karein</a>
+              )}
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => markVisitDone(activeJob)}><CheckCircle2 size={14} /> Visit Complete - Admin ko Batayein</button>
+            </div>
+          )}
+
+          <div style={{ ...styles.sectionTitle, marginTop: 16 }}>Estimate</div>
+          {(activeJob.items || []).length === 0 && <div style={styles.emptySmall}>Abhi koi estimate nahi bana hai.</div>}
+          {(activeJob.items || []).map((it) => (
+            <div key={it.id} style={styles.itemRow}>
+              <div style={{ flex: 1 }}>
+                <div style={styles.itemDesc}>{it.desc}</div>
+                {it.length && it.height && <div style={styles.itemSub}>{it.length}&quot; x {it.height}&quot;{it.qty > 1 ? (' x ' + it.qty) : ''}</div>}
+              </div>
+              <div style={styles.itemDesc}>{currency(estimateItemAmount(it))}</div>
+            </div>
+          ))}
+          {(activeJob.items || []).length > 0 && (
+            <div style={styles.totalBar}><span>Total</span><span style={styles.totalAmt}>{currency(jobTotal(activeJob))}</span></div>
+          )}
+
+          {activeJob.status === 'in_progress' && (
+            <button style={{ ...styles.addBtn, marginTop: 16 }} onClick={() => markWorkComplete(activeJob)}>
+              <CheckCircle2 size={14} /> Kaam Complete - Admin ko Batayein
+            </button>
+          )}
+
+          <div style={{ ...styles.sectionTitle, marginTop: 20 }}>Progress Photos</div>
+          <div style={styles.photoGrid}>
+            {(activeJob.progressPhotos || []).map((p) => (
+              <div key={p.id} style={styles.progressPhotoCard}>
+                <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption} style={styles.photoImg} />
+                <button style={styles.photoDeleteBtn} onClick={() => removePhoto(activeJob, p.id)}><Trash2 size={12} color='#FFF' /></button>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <PhotoAddPanel addLabel='Add progress photo' showToast={showToast} onAdd={(photos) => addPhotos(activeJob, photos)} />
+          </div>
+        </div>
+        {lightbox && <Lightbox data={lightbox} onClose={() => setLightbox(null)} setLightbox={setLightbox} />}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ paddingBottom: 20 }}>
+      <TopBar title='Regional Partner Panel' subtitle={'Logged in as ' + staffName} hideLogout />
+      <div style={{ padding: '12px 16px' }}>
+        <div style={{ ...styles.formCard, background: '#FFF9EE', borderColor: BRAND.gold }}>
+          <div style={styles.fieldLabel}>Total Commission (Ab Tak)</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: BRAND.navy }}>{currency(totalCommission)}</div>
+          <div style={styles.itemSub}>{commissionPercent}% commission rate</div>
+        </div>
+
+        <div style={{ ...styles.sectionTitle, marginTop: 16 }}>Aapke assigned kaam ({jobs.length})</div>
+        {jobs.length === 0 && <div style={styles.emptySmall}>Abhi koi kaam assign nahi hua hai.</div>}
+        {commissionByJob.map(({ job: j, commission }) => (
+          <button key={j.id} style={styles.miniRowClickArea} onClick={() => setActiveJobId(j.id)}>
+            <div style={{ flex: 1, textAlign: 'left' }}>
+              <div style={styles.itemDesc}>{j.customerName}</div>
+              <div style={styles.itemSub}>{STATUS[j.status]?.label || j.status} - Commission: {currency(commission)}</div>
+            </div>
+            <ChevronRight size={16} color='#C7CCDC' />
+          </button>
+        ))}
+        <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
+      </div>
+    </div>
+  );
+}
+
 function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, archivedReviews, setArchivedReviews, staffName, isPartner, isDhPartner, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
@@ -5786,6 +5965,53 @@ function AdminKarigarPerformance({ staff, jobs, attendance }) {
             <StatCard icon={<CheckCircle2 size={14} />} label='Completed' value={r.completedCount} />
           </div>
           <div style={styles.itemSub}>{r.totalPhotos} progress photos - {r.attendanceDays} din attendance</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// For every Regional Partner (see RegionalPartnerApp), shows what
+// admin actually needs to settle accounts: how many jobs each partner
+// has, and the commission owed on each - computed the same way the
+// partner's own app computes it (percentage of what's actually been
+// COLLECTED so far, not the full estimate), so the two always agree on
+// the number, and nobody's surprised at payout time.
+function AdminCommissionReport({ staff, jobs }) {
+  const partners = staff.filter((s) => s.role === 'regional_partner');
+  const rows = partners.map((p) => {
+    const assignedJobs = jobs.filter((j) => j.assignedStaffId === p.id);
+    const commissionByJob = assignedJobs.map((j) => ({ job: j, commission: Math.round(jobPaid(j) * ((p.commissionPercent || 0) / 100)) }));
+    const totalCommission = commissionByJob.reduce((s, c) => s + c.commission, 0);
+    return { partner: p, assignedJobs, commissionByJob, totalCommission };
+  });
+  const grandTotal = rows.reduce((s, r) => s + r.totalCommission, 0);
+
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>Regional Partner Commission</div>
+      <div style={styles.plainTextMuted}>Har partner ko ab tak kitna commission bantа hai - jo customer se collect ho chuka hai, usी par.</div>
+      {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi Regional Partner add nahi kiya.</div>}
+      {rows.length > 0 && (
+        <div style={{ ...styles.statRow2, marginTop: 10 }}>
+          <StatCard icon={<Users size={16} />} label='Partners' value={rows.length} />
+          <StatCard icon={<IndianRupee size={16} />} label='Total Owed' value={currency(grandTotal)} accent />
+        </div>
+      )}
+      {rows.map((r) => (
+        <div key={r.partner.id} style={{ ...styles.reviewCard, marginTop: 10 }}>
+          <div style={styles.cardName}>{r.partner.name}</div>
+          <div style={styles.itemSub}>{r.partner.commissionPercent}% commission - {r.assignedJobs.length} job{r.assignedJobs.length !== 1 ? 's' : ''} assigned</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: BRAND.navy, marginTop: 6 }}>{currency(r.totalCommission)}</div>
+          {r.commissionByJob.filter((c) => c.commission > 0).map((c) => (
+            <div key={c.job.id} style={{ ...styles.itemRow, marginTop: 6 }}>
+              <div style={{ flex: 1 }}>
+                <div style={styles.itemDesc}>{c.job.customerName}</div>
+                <div style={styles.itemSub}>{currency(jobPaid(c.job))} collected</div>
+              </div>
+              <div style={styles.itemDesc}>{currency(c.commission)}</div>
+            </div>
+          ))}
         </div>
       ))}
     </div>
@@ -7210,12 +7436,12 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
               })}
             </div>
 
-            {staff && staff.some((s) => s.role === 'karigar') && (
+            {staff && staff.some((s) => s.role === 'karigar' || s.role === 'regional_partner') && (
               <div style={{ marginTop: 16 }}>
-                <div style={styles.fieldLabel}>Karigar assign karein</div>
+                <div style={styles.fieldLabel}>Karigar / Regional Partner assign karein</div>
                 <select style={styles.input} value={job.assignedStaffId || ''} onChange={(e) => onSave({ ...job, assignedStaffId: e.target.value || null })}>
                   <option value=''>Koi assign nahi</option>
-                  {staff.filter((s) => s.role === 'karigar').map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {staff.filter((s) => s.role === 'karigar' || s.role === 'regional_partner').map((s) => <option key={s.id} value={s.id}>{s.name}{s.role === 'regional_partner' ? ' (Regional Partner)' : ''}</option>)}
                 </select>
               </div>
             )}
@@ -8632,6 +8858,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
   const [newStaffName, setNewStaffName] = useState('');
   const [newStaffPin, setNewStaffPin] = useState('');
   const [newStaffRole, setNewStaffRole] = useState('admin');
+  const [newCommissionPercent, setNewCommissionPercent] = useState('');
   const [staffError, setStaffError] = useState('');
   const [newPartnerPin, setNewPartnerPin] = useState('');
   const [partnerPinError, setPartnerPinError] = useState('');
@@ -8879,6 +9106,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     showToast('Rates save ho gaye');
   };
   const [showKarigarPerformance, setShowKarigarPerformance] = useState(false);
+  const [showCommissionReport, setShowCommissionReport] = useState(false);
   // These two were previously declared further down, AFTER the early
   // "if (showKarigarPerformance) return (...)" below - that violates
   // React's Rules of Hooks (every hook must run in the same order on
@@ -8904,6 +9132,17 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     );
   }
 
+  if (showCommissionReport) {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowCommissionReport(false)}><ArrowLeft size={13} /> Settings</button>
+        </div>
+        <AdminCommissionReport staff={staff} jobs={jobs || []} />
+      </div>
+    );
+  }
+
   const change = () => {
     if (current !== adminPin) { setError('Current PIN galat hai'); return; }
     if (next1.length < 4) { setError('Naya PIN kam se kam 4 digit ka hona chahiye'); return; }
@@ -8916,10 +9155,11 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
   const addStaff = () => {
     if (!newStaffName.trim()) { setStaffError('Staff ka naam daalein'); return; }
     if (newStaffPin.length < 4) { setStaffError('PIN kam se kam 4 digit ka ho'); return; }
-    const allPins = [adminPin, partnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
+    const allPins = [adminPin, partnerPin, dhPartnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
     if (allPins.includes(newStaffPin)) { setStaffError('Ye PIN pehle se use ho raha hai - alag PIN chunein'); return; }
-    setStaff([...staff, { id: uid(), name: newStaffName.trim(), pin: newStaffPin, role: newStaffRole, createdAt: new Date().toISOString() }]);
-    setNewStaffName(''); setNewStaffPin(''); setNewStaffRole('admin'); setStaffError('');
+    if (newStaffRole === 'regional_partner' && (!newCommissionPercent || Number(newCommissionPercent) <= 0)) { setStaffError('Commission percentage daalein'); return; }
+    setStaff([...staff, { id: uid(), name: newStaffName.trim(), pin: newStaffPin, role: newStaffRole, commissionPercent: newStaffRole === 'regional_partner' ? Number(newCommissionPercent) : null, createdAt: new Date().toISOString() }]);
+    setNewStaffName(''); setNewStaffPin(''); setNewStaffRole('admin'); setNewCommissionPercent(''); setStaffError('');
     showToast('Staff member add ho gaya');
   };
   const removeStaff = (id) => {
@@ -8929,7 +9169,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
 
   const savePartnerPin = () => {
     if (newPartnerPin.length < 4) { setPartnerPinError('PIN kam se kam 4 digit ka ho'); return; }
-    const allPins = [adminPin, ...staff.map((s) => s.pin)];
+    const allPins = [adminPin, dhPartnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
     if (allPins.includes(newPartnerPin)) { setPartnerPinError('Ye PIN pehle se use ho raha hai - alag PIN chunein'); return; }
     setPartnerPin(newPartnerPin);
     setNewPartnerPin(''); setPartnerPinError('');
@@ -9085,9 +9325,14 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
             <Users size={16} color={BRAND.gold} />
             <div style={{ fontWeight: 800, fontSize: 14 }}>Staff Logins</div>
           </div>
-          {staff.some((s) => s.role === 'karigar') && (
-            <button style={styles.linkBtn2} onClick={() => setShowKarigarPerformance(true)}>Karigar Performance</button>
-          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {staff.some((s) => s.role === 'karigar') && (
+              <button style={styles.linkBtn2} onClick={() => setShowKarigarPerformance(true)}>Karigar Performance</button>
+            )}
+            {staff.some((s) => s.role === 'regional_partner') && (
+              <button style={styles.linkBtn2} onClick={() => setShowCommissionReport(true)}>Commission Report</button>
+            )}
+          </div>
         </div>
         <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Team members ko alag PIN dein taaki wo bhi access kar sakein.</div>
 
@@ -9095,8 +9340,8 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         {staff.map((s) => (
           <div key={s.id} style={styles.staffRow}>
             <div style={{ flex: 1 }}>
-              <div style={styles.itemDesc}>{s.name} <span style={styles.reqCatBadge}>{s.role === 'karigar' ? 'Karigar' : 'Admin'}</span></div>
-              <div style={styles.itemSub}>PIN: {s.pin}</div>
+              <div style={styles.itemDesc}>{s.name} <span style={styles.reqCatBadge}>{s.role === 'karigar' ? 'Karigar' : (s.role === 'regional_partner' ? 'Regional Partner' : 'Admin')}</span></div>
+              <div style={styles.itemSub}>PIN: {s.pin}{s.role === 'regional_partner' && s.commissionPercent ? (' - Commission: ' + s.commissionPercent + '%') : ''}</div>
             </div>
             <button style={styles.iconBtnSmall} onClick={() => removeStaff(s.id)}><Trash2 size={14} color='#C7CCDC' /></button>
           </div>
@@ -9108,7 +9353,11 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <div style={styles.chipRow}>
             <button onClick={() => setNewStaffRole('admin')} style={{ ...styles.chip, ...(newStaffRole === 'admin' ? styles.chipActive : {}) }}>Admin Access</button>
             <button onClick={() => setNewStaffRole('karigar')} style={{ ...styles.chip, ...(newStaffRole === 'karigar' ? styles.chipActive : {}) }}>Karigar (sirf assigned kaam)</button>
+            <button onClick={() => setNewStaffRole('regional_partner')} style={{ ...styles.chip, ...(newStaffRole === 'regional_partner' ? styles.chipActive : {}) }}>Regional Partner (Dusre Sheher)</button>
           </div>
+          {newStaffRole === 'regional_partner' && (
+            <input style={{ ...styles.input, marginTop: 8 }} inputMode='decimal' placeholder='Commission % (jaise 15)' value={newCommissionPercent} onChange={(e) => { setNewCommissionPercent(e.target.value); setStaffError(''); }} />
+          )}
           {staffError && <div style={styles.errorText}>{staffError}</div>}
           <button style={styles.addBtn} onClick={addStaff}><UserPlus size={14} /> Add staff login</button>
         </div>
