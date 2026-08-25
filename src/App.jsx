@@ -470,6 +470,7 @@ async function loadImageAsDataUrl(url) {
 async function buildReceiptPdfDoc(job, payment) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
 
   // Navy header band with the logo and business name, matching the
   // app's own brand colors - a plain black-text-on-white header (the
@@ -497,7 +498,14 @@ async function buildReceiptPdfDoc(job, payment) {
   doc.text(BUSINESS.addressLine, 44, 23);
   doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, 44, 28);
 
-  let y = 50;
+  // Thin formal border frame around the rest of the page, below the
+  // header band - the same "this is a document worth keeping, not
+  // just a chat message" cue the warranty certificate uses.
+  doc.setDrawColor(...gold);
+  doc.setLineWidth(0.6);
+  doc.rect(8, 44, pageWidth - 16, pageHeight - 60);
+
+  let y = 56;
   doc.setTextColor(...navy);
   doc.setFontSize(14);
   doc.setFont(undefined, 'bold');
@@ -508,24 +516,34 @@ async function buildReceiptPdfDoc(job, payment) {
   doc.line(pageWidth / 2 - 22, y, pageWidth / 2 + 22, y);
   y += 12;
 
+  // A neat two-column key/value block instead of a plain left-aligned
+  // list - the fixed label column width keeps every value lined up
+  // under the next, which is what makes it read as a proper receipt
+  // rather than a note.
+  const labelX = 18;
+  const valueX = 72;
   doc.setTextColor(60, 60, 60);
-  doc.setFontSize(11);
+  doc.setFontSize(10.5);
   doc.setFont(undefined, 'normal');
-  doc.text('Customer:', 15, y);
+  doc.text('Customer', labelX, y);
   doc.setFont(undefined, 'bold');
-  doc.text(job.customerName, 70, y);
+  doc.setTextColor(...navy);
+  doc.text(job.customerName, valueX, y);
   doc.setFont(undefined, 'normal');
+  doc.setTextColor(60, 60, 60);
   y += 7;
   if (job.phone) {
-    doc.text('Phone:', 15, y);
-    doc.text(formatPhoneDisplay(job.phone), 70, y);
+    doc.text('Phone', labelX, y);
+    doc.text(formatPhoneDisplay(job.phone), valueX, y);
     y += 7;
   }
-  doc.text('Receipt Date:', 15, y);
-  doc.text(formatDate(payment.date), 70, y);
+  doc.text('Receipt Date', labelX, y);
+  doc.text(formatDate(payment.date), valueX, y);
   y += 7;
-  doc.text('Receipt No:', 15, y);
-  doc.text(payment.id.slice(-8).toUpperCase(), 70, y);
+  doc.text('Receipt No', labelX, y);
+  doc.setFont(undefined, 'bold');
+  doc.text('#' + payment.id.slice(-8).toUpperCase(), valueX, y);
+  doc.setFont(undefined, 'normal');
   y += 10;
 
   doc.setDrawColor(...navy);
@@ -539,15 +557,15 @@ async function buildReceiptPdfDoc(job, payment) {
   doc.setFillColor(248, 250, 251);
   doc.setDrawColor(...gold);
   doc.setLineWidth(0.5);
-  doc.roundedRect(15, y, pageWidth - 30, 16, 2, 2, 'FD');
+  doc.roundedRect(15, y, pageWidth - 30, 18, 2, 2, 'FD');
   doc.setTextColor(...navy);
   doc.setFontSize(12);
   doc.setFont(undefined, 'bold');
-  doc.text('Amount Received', 20, y + 10);
-  doc.setFontSize(14);
+  doc.text('Amount Received', 20, y + 11);
+  doc.setFontSize(15);
   doc.setTextColor(...navy);
-  doc.text('Rs. ' + Number(payment.amount).toLocaleString('en-IN'), pageWidth - 20, y + 10.5, { align: 'right' });
-  y += 22;
+  doc.text('Rs. ' + Number(payment.amount).toLocaleString('en-IN'), pageWidth - 20, y + 11.5, { align: 'right' });
+  y += 26;
 
   if (payment.note) {
     doc.setFontSize(9.5);
@@ -567,22 +585,37 @@ async function buildReceiptPdfDoc(job, payment) {
   doc.setFontSize(10);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(80, 80, 80);
-  doc.text('Project Total:', 15, y);
+  doc.text('Project Total', 15, y);
   doc.text('Rs. ' + total.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
   y += 6;
-  doc.text('Total Paid Till Date:', 15, y);
+  doc.text('Total Paid Till Date', 15, y);
   doc.text('Rs. ' + paidTillNow.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
-  y += 6;
+  y += 7;
+  doc.setDrawColor(220, 220, 220);
+  doc.setLineWidth(0.2);
+  doc.line(15, y - 4.5, pageWidth - 15, y - 4.5);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...navy);
-  doc.text('Balance Due:', 15, y);
+  doc.setFontSize(10.5);
+  doc.text('Balance Due', 15, y);
   doc.text('Rs. ' + dueNow.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
-  y += 16;
+  y += 24;
+
+  // Signature line - the same formal, "this is a document worth
+  // keeping" touch the warranty certificate has, since a receipt is
+  // often the one paperwork a customer keeps as proof of payment.
+  doc.setDrawColor(180, 180, 180);
+  doc.line(pageWidth - 72, y, pageWidth - 20, y);
+  y += 5.5;
+  doc.setFontSize(8.5);
+  doc.setTextColor(100, 100, 100);
+  doc.setFont(undefined, 'normal');
+  doc.text('Authorized Signatory', pageWidth - 46, y, { align: 'center' });
 
   doc.setFontSize(9);
   doc.setFont(undefined, 'italic');
   doc.setTextColor(120, 120, 120);
-  doc.text('Thank you for your business.', pageWidth / 2, y, { align: 'center' });
+  doc.text('Thank you for your business.', 20, y);
 
   return doc;
 }
@@ -598,108 +631,166 @@ async function buildReceiptPdfDoc(job, payment) {
 async function buildWarrantyPdfDoc(job) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
   const navy = [15, 27, 61];
   const gold = [168, 151, 95];
+  const paper = [248, 250, 251];
 
-  // Decorative border, since a certificate customarily looks more
-  // formal/framed than an ordinary transactional document.
-  doc.setDrawColor(...gold);
-  doc.setLineWidth(1.2);
-  doc.rect(8, 8, pageWidth - 16, pageHeight - 16);
-  doc.setLineWidth(0.4);
-  doc.rect(11, 11, pageWidth - 22, pageHeight - 22);
-
-  let y = 30;
+  // Navy header band with logo - matches the same professional header
+  // style the price list PDF already uses, rather than the certificate
+  // looking like a visually different document from everything else
+  // the business hands a customer.
+  doc.setFillColor(...navy);
+  doc.rect(0, 0, pageWidth, 34, 'F');
   try {
     const logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
-    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 12, y, 24, 24);
+    doc.addImage(logoDataUrl, 'PNG', 15, 6, 22, 22);
   } catch (e) {
     // Logo fetch failed - certificate is still fully valid without it.
   }
-  y += 32;
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(14);
+  doc.setFont(undefined, 'bold');
+  doc.text(BUSINESS.name, 42, 15);
+  doc.setFontSize(8);
+  doc.setFont(undefined, 'normal');
+  doc.text(BUSINESS.addressLine, 42, 21);
+  doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, 42, 26);
 
+  // Full-page border frame, since a certificate customarily reads as
+  // more formal/keepsake than an ordinary transactional document.
+  doc.setDrawColor(...gold);
+  doc.setLineWidth(0.8);
+  doc.rect(8, 40, pageWidth - 16, doc.internal.pageSize.getHeight() - 48);
+
+  let y = 54;
   doc.setTextColor(...navy);
-  doc.setFontSize(20);
+  doc.setFontSize(19);
   doc.setFont(undefined, 'bold');
   doc.text('WARRANTY CERTIFICATE', pageWidth / 2, y, { align: 'center' });
-  y += 8;
+  y += 7;
   doc.setDrawColor(...gold);
   doc.setLineWidth(0.6);
-  doc.line(pageWidth / 2 - 30, y, pageWidth / 2 + 30, y);
-  y += 14;
+  doc.line(pageWidth / 2 - 32, y, pageWidth / 2 + 32, y);
+  y += 13;
 
-  doc.setFontSize(11);
+  doc.setFontSize(10.5);
   doc.setFont(undefined, 'normal');
-  doc.setTextColor(80, 80, 80);
-  doc.text('This certifies that the furniture supplied to', pageWidth / 2, y, { align: 'center' });
-  y += 10;
+  doc.setTextColor(90, 90, 90);
+  doc.text('This certifies that the work supplied to', pageWidth / 2, y, { align: 'center' });
+  y += 9;
 
-  doc.setFontSize(16);
+  doc.setFontSize(15);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...navy);
   doc.text(job.customerName, pageWidth / 2, y, { align: 'center' });
-  y += 10;
+  y += 8;
 
   if (job.flatNo || job.address) {
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setFont(undefined, 'normal');
-    doc.setTextColor(100, 100, 100);
-    doc.text([job.flatNo, job.address].filter(Boolean).join(', '), pageWidth / 2, y, { align: 'center' });
-    y += 10;
+    doc.setTextColor(110, 110, 110);
+    doc.text([job.flatNo, job.address].filter(Boolean).join(', '), pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - 60 });
+    y += 9;
   }
-  y += 4;
+  y += 3;
 
-  doc.setFontSize(11);
-  doc.setTextColor(80, 80, 80);
+  doc.setFontSize(10.5);
+  doc.setTextColor(90, 90, 90);
   doc.text('is covered under the warranty terms below, by ' + BUSINESS.name + '.', pageWidth / 2, y, { align: 'center' });
-  y += 16;
+  y += 14;
 
   // Items covered (from the actual estimate) - a plain list, not a
   // priced table, since this document is about coverage, not billing.
   const items = job.items || [];
   if (items.length > 0) {
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(...navy);
-    doc.text('Items Covered:', 25, y);
-    y += 7;
-    doc.setFont(undefined, 'normal');
-    doc.setFontSize(9.5);
-    doc.setTextColor(60, 60, 60);
-    items.forEach((it) => {
-      doc.text('- ' + it.desc, 28, y);
-      y += 6;
-    });
+    doc.text('Items Covered', 20, y);
     y += 6;
+    doc.setDrawColor(...gold);
+    doc.setLineWidth(0.3);
+    doc.line(20, y - 3.5, 20 + doc.getTextWidth('Items Covered'), y - 3.5);
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(70, 70, 70);
+    items.forEach((it) => {
+      doc.text('•  ' + it.desc, 23, y);
+      y += 5.5;
+    });
+    y += 5;
   }
 
-  doc.setFillColor(248, 250, 251);
+  // Two clearly separated warranty terms, side by side where space
+  // allows - the material warranty (against manufacturing defects) and
+  // the business's own maintenance warranty (covering minor service
+  // visits/adjustments) are genuinely different promises with
+  // different durations, so presenting them as one merged paragraph
+  // would blur exactly the distinction a customer would want to refer
+  // back to later.
+  const boxWidth = (pageWidth - 40 - 8) / 2;
+  const boxHeight = 34;
+  const box1X = 20;
+  const box2X = 20 + boxWidth + 8;
+  const boxTop = y;
+
+  doc.setFillColor(...paper);
   doc.setDrawColor(...gold);
   doc.setLineWidth(0.4);
-  const boxTop = y;
-  doc.roundedRect(20, boxTop, pageWidth - 40, 24, 2, 2, 'FD');
-  doc.setFontSize(9.5);
+  doc.roundedRect(box1X, boxTop, boxWidth, boxHeight, 2, 2, 'FD');
+  doc.roundedRect(box2X, boxTop, boxWidth, boxHeight, 2, 2, 'FD');
+
+  doc.setFontSize(16);
+  doc.setFont(undefined, 'bold');
+  doc.setTextColor(...gold);
+  doc.text('5 Years', box1X + boxWidth / 2, boxTop + 11, { align: 'center' });
+  doc.text('2 Years', box2X + boxWidth / 2, boxTop + 11, { align: 'center' });
+
+  doc.setFontSize(8.5);
+  doc.setFont(undefined, 'bold');
+  doc.setTextColor(...navy);
+  doc.text('Material Warranty', box1X + boxWidth / 2, boxTop + 17, { align: 'center' });
+  doc.text('Shree Krushn', box2X + boxWidth / 2, boxTop + 17, { align: 'center' });
+  doc.text('Maintenance Warranty', box2X + boxWidth / 2, boxTop + 21, { align: 'center' });
+
+  doc.setFontSize(7);
   doc.setFont(undefined, 'normal');
-  doc.setTextColor(60, 60, 60);
-  doc.text('5 years warranty on material (manufacturing defects only - varies by item & company).', pageWidth / 2, boxTop + 10, { align: 'center', maxWidth: pageWidth - 50 });
-  doc.text('Warranty does not cover physical damage, misuse, or normal wear and tear.', pageWidth / 2, boxTop + 17, { align: 'center', maxWidth: pageWidth - 50 });
-  y = boxTop + 34;
+  doc.setTextColor(100, 100, 100);
+  doc.text('Manufacturing defects in', box1X + boxWidth / 2, boxTop + 25, { align: 'center' });
+  doc.text('material/hardware only', box1X + boxWidth / 2, boxTop + 29, { align: 'center' });
+  doc.text('Free service visits for', box2X + boxWidth / 2, boxTop + 27, { align: 'center' });
+  doc.text('fitting/adjustment issues', box2X + boxWidth / 2, boxTop + 31, { align: 'center' });
 
-  doc.setFontSize(9.5);
-  doc.setTextColor(80, 80, 80);
-  doc.text('Delivery Date: ' + formatDate(job.expectedCompletionDate || job.createdAt), 25, y);
-  doc.text('Certificate No: WC-' + job.id.slice(-8).toUpperCase(), pageWidth - 25, y, { align: 'right' });
-  y += 20;
+  y = boxTop + boxHeight + 10;
 
-  doc.setDrawColor(200, 200, 200);
-  doc.line(pageWidth - 70, y, pageWidth - 25, y);
+  doc.setFontSize(8);
+  doc.setFont(undefined, 'italic');
+  doc.setTextColor(120, 120, 120);
+  doc.text('Both warranties exclude physical damage, misuse, water damage beyond normal use, and normal wear and tear.', pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - 44 });
+  y += 12;
+
+  doc.setDrawColor(220, 220, 220);
+  doc.setLineWidth(0.2);
+  doc.line(20, y, pageWidth - 20, y);
+  y += 8;
+
+  doc.setFontSize(9);
+  doc.setFont(undefined, 'normal');
+  doc.setTextColor(90, 90, 90);
+  doc.text('Delivery Date: ' + formatDate(job.expectedCompletionDate || job.createdAt), 20, y);
+  doc.text('Certificate No: WC-' + job.id.slice(-8).toUpperCase(), pageWidth - 20, y, { align: 'right' });
+  y += 22;
+
+  doc.setDrawColor(180, 180, 180);
+  doc.line(pageWidth - 72, y, pageWidth - 20, y);
   y += 6;
   doc.setFontSize(9);
   doc.setTextColor(100, 100, 100);
-  doc.text('Authorized Signatory', pageWidth - 47.5, y, { align: 'center' });
-  y += 4;
-  doc.text(BUSINESS.name, pageWidth - 47.5, y, { align: 'center' });
+  doc.text('Authorized Signatory', pageWidth - 46, y, { align: 'center' });
+  y += 4.5;
+  doc.setFont(undefined, 'bold');
+  doc.setTextColor(...navy);
+  doc.text(BUSINESS.name, pageWidth - 46, y, { align: 'center' });
 
   return doc;
 }
@@ -926,8 +1017,19 @@ async function buildEstimatePdfFromDom(elementId) {
       tableWrapEl.style.overflowX = 'visible';
     }
 
-    const canvas = await window.html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
-    const imgData = canvas.toDataURL('image/jpeg', 0.92);
+    // scale: 3 (was 2) and PNG instead of JPEG - the estimate is
+    // mostly text/numbers, and JPEG's compression specifically blurs
+    // sharp edges like text characters (it's built for photos, not
+    // documents), which is what was actually behind the estimate PDF
+    // looking noticeably less crisp than the receipt/warranty PDFs
+    // (which are built directly as vector text via jsPDF, never
+    // screenshotted) - especially once WhatsApp's own preview/transfer
+    // compression is layered on top of an already-JPEG-compressed
+    // image. PNG is lossless, so text stays sharp at whatever
+    // resolution it's captured at; the higher scale is what raises
+    // that resolution in the first place.
+    const canvas = await window.html2canvas(element, { scale: 3, useCORS: true, backgroundColor: '#ffffff' });
+    const imgData = canvas.toDataURL('image/png');
     const doc = new jsPDF('p', 'mm', 'a4');
     const pdfWidth = doc.internal.pageSize.getWidth();
     const pdfHeight = doc.internal.pageSize.getHeight();
@@ -935,12 +1037,12 @@ async function buildEstimatePdfFromDom(elementId) {
 
     let heightLeft = imgHeightMm;
     let position = 0;
-    doc.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeightMm);
+    doc.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeightMm);
     heightLeft -= pdfHeight;
     while (heightLeft > 0) {
       position -= pdfHeight;
       doc.addPage();
-      doc.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeightMm);
+      doc.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeightMm);
       heightLeft -= pdfHeight;
     }
     return doc;
@@ -1442,6 +1544,7 @@ export default function App() {
     { id: 'r2', name: 'Without Laminate', rate: '700', unit: 'sqft' },
   ]);
   const [partnerPin, setPartnerPin] = useState('');
+  const [dhPartnerPin, setDhPartnerPin] = useState('');
   const [staff, setStaff] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [appointmentItemOptions, setAppointmentItemOptions] = useState(DEFAULT_CATEGORIES);
@@ -1652,11 +1755,11 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw] = await Promise.all([
+        const [c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp] = await Promise.all([
           safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
-          safeGet('archived_reviews'), safeGet('admin_push_tokens'), safeGet('faqs'),
+          safeGet('archived_reviews'), safeGet('admin_push_tokens'), safeGet('faqs'), safeGet('dh_partner_pin'),
         ]);
         if (c) setCustomers(JSON.parse(c));
         if (j) setJobs(JSON.parse(j));
@@ -1674,6 +1777,7 @@ export default function App() {
         if (archRev) setArchivedReviewsRaw(JSON.parse(archRev));
         if (adminTokens) setAdminPushTokensRaw(JSON.parse(adminTokens));
         if (faqsRaw) setFaqsRaw(JSON.parse(faqsRaw));
+        if (dhPp) setDhPartnerPin(dhPp);
         // Gallery loads here too (not just lazily on tab-open) so the
         // app's overall startup behavior stays exactly as it always
         // was - loadGalleryData's own galleryLoadedRef guard means
@@ -2107,6 +2211,11 @@ export default function App() {
     try { await window.storage.set('partner_pin', pin, true); }
     catch (e) { showToast('Partner PIN save failed', true); }
   }, []);
+  const persistDhPartnerPin = useCallback(async (pin) => {
+    setDhPartnerPin(pin);
+    try { await window.storage.set('dh_partner_pin', pin, true); }
+    catch (e) { showToast('DH Partner PIN save failed', true); }
+  }, []);
   const persistExpenses = useCallback(async (next) => {
     const prevLocalExpenses = expenses;
     setExpenses(next);
@@ -2287,6 +2396,7 @@ export default function App() {
           customers={customers}
           adminPin={adminPin}
           partnerPin={partnerPin}
+          dhPartnerPin={dhPartnerPin}
           staff={staff}
           onCustomerLogin={(customerId) => setSession({ role: 'customer', customerId })}
           onRegister={(cust) => {
@@ -2304,8 +2414,9 @@ export default function App() {
     );
   }
 
-  if (session.role === 'admin' || session.role === 'partner') {
+  if (session.role === 'admin' || session.role === 'partner' || session.role === 'dh_partner') {
     const isPartner = session.role === 'partner';
+    const isDhPartner = session.role === 'dh_partner';
     return (
       <div style={styles.app}>
         <style>{fontImport}</style>
@@ -2317,6 +2428,7 @@ export default function App() {
           adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications}
           adminPin={adminPin} setAdminPin={persistPin}
           partnerPin={partnerPin} setPartnerPin={persistPartnerPin}
+          dhPartnerPin={dhPartnerPin} setDhPartnerPin={persistDhPartnerPin}
           staff={staff} setStaff={persistStaff}
           expenses={expenses} setExpenses={persistExpenses}
           appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={persistAppointmentItemOptions}
@@ -2332,6 +2444,7 @@ export default function App() {
           allData={{ customers, jobs, gallery, staff, expenses }}
           staffName={session.staffName}
           isPartner={isPartner}
+          isDhPartner={isDhPartner}
           onLogout={() => setSession(null)}
           showToast={showToast}
         />
@@ -2577,7 +2690,7 @@ function formatPhoneDisplay(digits10) {
   return '+91 ' + digits10.slice(0, 5) + ' ' + digits10.slice(5);
 }
 
-function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
+function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
   const [mode, setMode] = useState('choose');
   const [name, setName] = useState('');
   const [referredBy, setReferredBy] = useState('');
@@ -2647,6 +2760,7 @@ function LoginScreen({ customers, adminPin, partnerPin, staff, onCustomerLogin, 
   const doAdmin = () => {
     if (pin === adminPin) { onAdminLogin('Admin', 'admin', null); return; }
     if (partnerPin && pin === partnerPin) { onAdminLogin('Partner', 'partner', null); return; }
+    if (dhPartnerPin && pin === dhPartnerPin) { onAdminLogin('DH Home Decor', 'dh_partner', null); return; }
     const staffMatch = (staff || []).find((s) => s.pin === pin);
     if (staffMatch) { onAdminLogin(staffMatch.name, staffMatch.role === 'karigar' ? 'karigar' : 'admin', staffMatch.id); return; }
     setError('Galat PIN');
@@ -5255,7 +5369,7 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
   );
 }
 
-function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, archivedReviews, setArchivedReviews, staffName, isPartner, onLogout, showToast, pushNotification }) {
+function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, archivedReviews, setArchivedReviews, staffName, isPartner, isDhPartner, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
@@ -5276,15 +5390,24 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   if (activeJob) {
     return (
       <div style={{ paddingBottom: 20 }}>
-        <TopBar title={activeJob.customerName} subtitle={isPartner ? 'Partner - Job detail' : 'Admin - Job detail'} onBack={() => setActiveJobId(null)} hideLogout />
+        <TopBar title={activeJob.customerName} subtitle={isPartner ? 'Partner - Job detail' : (isDhPartner ? 'DH Home Decor - Job detail' : 'Admin - Job detail')} onBack={() => setActiveJobId(null)} hideLogout />
         <AdminJobDetail key={activeJob.id} job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} pushNotification={pushNotification} categories={categories} gallery={gallery} />
       </div>
     );
   }
 
-  const pendingEstimates = jobs.filter((j) => j.status === 'appointment' && (j.requirements || []).length > 0).length;
-  const overdue = jobs.filter((j) => jobDue(j) > 0 && (j.status === 'delivered' || j.status === 'in_progress')).length;
-  const pendingAppointments = jobs.filter((j) => j.appointment && j.appointment.status === 'requested').length;
+  // Every job/customer predates businessUnit, so treating a missing
+  // value as Shree Krushn's own (never DH's) keeps existing data
+  // visible to admin exactly as before, while only records explicitly
+  // tagged 'dh_home_decor' are isolated into DH's own separate stats.
+  const visibleCustomerIdsForHome = new Set(
+    customers.filter((c) => (isDhPartner ? c.businessUnit === 'dh_home_decor' : c.businessUnit !== 'dh_home_decor')).map((c) => c.id)
+  );
+  const visibleJobsForHome = jobs.filter((j) => visibleCustomerIdsForHome.has(j.customerId));
+
+  const pendingEstimates = visibleJobsForHome.filter((j) => j.status === 'appointment' && (j.requirements || []).length > 0).length;
+  const overdue = visibleJobsForHome.filter((j) => jobDue(j) > 0 && (j.status === 'delivered' || j.status === 'in_progress')).length;
+  const pendingAppointments = visibleJobsForHome.filter((j) => j.appointment && j.appointment.status === 'requested').length;
   // A customer's extra-work request fires a one-time notification, but
   // if that gets dismissed or missed, there was previously nothing
   // reminding admin it's still sitting there unpriced/unapproved -
@@ -5293,12 +5416,12 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   // either state (needing a price, or priced and awaiting the
   // customer's decision) so the same ongoing-reminder pattern applies
   // here too.
-  const pendingExtraWork = jobs.reduce((s, j) => s + (j.extraWork || []).filter((e) => e.status === 'pending_admin_price' || e.status === 'pending_customer_approval').length, 0);
+  const pendingExtraWork = visibleJobsForHome.reduce((s, j) => s + (j.extraWork || []).filter((e) => e.status === 'pending_admin_price' || e.status === 'pending_customer_approval').length, 0);
 
   return (
     <div style={{ paddingBottom: 70 }}>
       <TopBar
-        title={isPartner ? 'Partner Panel' : 'Admin Panel'}
+        title={isPartner ? 'Partner Panel' : (isDhPartner ? 'DH Home Decor Panel' : 'Admin Panel')}
         subtitle={staffName ? ('Logged in as ' + staffName) : 'Shree Krushn PVC Furniture'}
         hideLogout
         right={
@@ -5316,21 +5439,21 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
         <AdminHome
           customers={customers} jobs={jobs} expenses={expenses} gallery={gallery} categories={categories}
           pendingEstimates={pendingEstimates} overdue={overdue} pendingAppointments={pendingAppointments} pendingExtraWork={pendingExtraWork}
-          onOpenJob={setActiveJobId} setTab={setTab} isPartner={isPartner}
+          onOpenJob={setActiveJobId} setTab={setTab} isPartner={isPartner} isDhPartner={isDhPartner}
         />
       )}
-      {tab === 'customers' && <AdminCustomers customers={customers} setCustomers={setCustomers} jobs={jobs} setJobs={setJobs} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} onOpenJob={setActiveJobId} showToast={showToast} isPartner={isPartner} />}
+      {tab === 'customers' && <AdminCustomers customers={customers} setCustomers={setCustomers} jobs={jobs} setJobs={setJobs} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} onOpenJob={setActiveJobId} showToast={showToast} isPartner={isPartner} isDhPartner={isDhPartner} />}
       {galleryEverVisited && (
         <div style={{ display: tab === 'gallery' ? 'block' : 'none' }}>
-          <AdminGallery gallery={gallery} galleryLoading={galleryLoading} setGallery={setGallery} categories={categories} setCategories={setCategories} showToast={showToast} />
+          <AdminGallery gallery={gallery} galleryLoading={galleryLoading} setGallery={setGallery} categories={categories} setCategories={setCategories} showToast={showToast} isDhPartner={isDhPartner} />
         </div>
       )}
-      {tab === 'reviews' && <AdminReviews jobs={jobs} setJobs={setJobs} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} showToast={showToast} />}
-      {tab === 'expenses' && !isPartner && <AdminExpenses expenses={expenses} setExpenses={setExpenses} jobs={jobs} showToast={showToast} onOpenJob={setActiveJobId} />}
+      {tab === 'reviews' && !isDhPartner && <AdminReviews jobs={jobs} setJobs={setJobs} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} showToast={showToast} />}
+      {tab === 'expenses' && !isPartner && <AdminExpenses expenses={expenses} setExpenses={setExpenses} jobs={jobs} showToast={showToast} onOpenJob={setActiveJobId} isDhPartner={isDhPartner} />}
       {tab === 'settings' && (
-        isPartner
+        (isPartner || isDhPartner)
           ? <PartnerSettings staffName={staffName} onLogout={onLogout} />
-          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} faqs={faqs} setFaqs={setFaqs} adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications} onLogout={onLogout} showToast={showToast} />
+          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} dhPartnerPin={dhPartnerPin} setDhPartnerPin={setDhPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} faqs={faqs} setFaqs={setFaqs} adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications} onLogout={onLogout} showToast={showToast} />
       )}
 
       <BottomNav
@@ -5353,17 +5476,28 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   );
 }
 
-function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEstimates, overdue, pendingAppointments, pendingExtraWork, onOpenJob, setTab, isPartner }) {
+function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEstimates, overdue, pendingAppointments, pendingExtraWork, onOpenJob, setTab, isPartner, isDhPartner }) {
   const [showList, setShowList] = useState(null); // null | 'inProgress' | 'dueList' | 'todaysVisits' | 'tomorrowsVisits' | 'staleJobs' | 'allEstimates'
+
+  // Every customer/job predates businessUnit, so treating a missing
+  // value as Shree Krushn's own (never DH's) keeps existing data
+  // visible to admin exactly as before, while only records explicitly
+  // tagged 'dh_home_decor' are isolated into DH's own separate view -
+  // every list/stat/sub-panel below uses these, not the raw
+  // customers/jobs props, so a DH Home Decor login never sees Shree
+  // Krushn's own customers folded into anything on this screen.
+  const visibleCustomers = customers.filter((c) => (isDhPartner ? c.businessUnit === 'dh_home_decor' : c.businessUnit !== 'dh_home_decor'));
+  const visibleCustomerIds = new Set(visibleCustomers.map((c) => c.id));
+  const visibleJobs = jobs.filter((j) => visibleCustomerIds.has(j.customerId));
 
   // Total Due should only reflect work that's actually started - an
   // estimate sitting unapproved (status still 'appointment' or
   // 'estimate') isn't money owed yet, it's a quote the customer hasn't
   // committed to. Counting it here would make "how much is outstanding
   // right now" misleadingly include work nobody has agreed to pay for.
-  const dueTotal = jobs.filter((j) => j.status === 'in_progress' || j.status === 'delivered' || j.status === 'paid').reduce((s, j) => s + jobDue(j), 0);
+  const dueTotal = visibleJobs.filter((j) => j.status === 'in_progress' || j.status === 'delivered' || j.status === 'paid').reduce((s, j) => s + jobDue(j), 0);
   const totalPhotos = categories.reduce((s, c) => s + (gallery[c] || []).length, 0);
-  const recentJobs = [...jobs].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
+  const recentJobs = [...visibleJobs].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
 
   // "Today's Summary" - a same-day operational snapshot: visits scheduled
   // for today (confirmed appointments), new leads today (customers
@@ -5408,7 +5542,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <div style={{ padding: '12px 16px 0' }}>
           <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
         </div>
-        <AdminJobStatusList jobs={jobs} statuses={['in_progress']} title='In Progress' onOpenJob={onOpenJob} />
+        <AdminJobStatusList jobs={visibleJobs} statuses={['in_progress']} title='In Progress' onOpenJob={onOpenJob} />
       </div>
     );
   }
@@ -5418,7 +5552,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <div style={{ padding: '12px 16px 0' }}>
           <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
         </div>
-        <AdminDuePaymentsList jobs={jobs} expenses={expenses || []} onOpenJob={onOpenJob} />
+        <AdminDuePaymentsList jobs={visibleJobs} expenses={expenses || []} onOpenJob={onOpenJob} />
       </div>
     );
   }
@@ -5506,7 +5640,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <div style={{ padding: '12px 16px 0' }}>
           <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
         </div>
-        <AdminAllEstimatesList jobs={jobs} onOpenJob={onOpenJob} />
+        <AdminAllEstimatesList jobs={visibleJobs} onOpenJob={onOpenJob} />
       </div>
     );
   }
@@ -5516,7 +5650,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <div style={{ padding: '12px 16px 0' }}>
           <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
         </div>
-        <AdminNewAppointmentsList jobs={jobs} onOpenJob={onOpenJob} />
+        <AdminNewAppointmentsList jobs={visibleJobs} onOpenJob={onOpenJob} />
       </div>
     );
   }
@@ -5526,7 +5660,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <div style={{ padding: '12px 16px 0' }}>
           <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
         </div>
-        <AdminVisitsByDate jobs={jobs} onOpenJob={onOpenJob} />
+        <AdminVisitsByDate jobs={visibleJobs} onOpenJob={onOpenJob} />
       </div>
     );
   }
@@ -5566,7 +5700,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
       )}
 
       <div style={{ ...styles.statRow2, marginTop: 12 }}>
-        <StatCard icon={<User size={16} />} label='Customers' value={customers.length} onClick={() => setTab('customers')} />
+        <StatCard icon={<User size={16} />} label='Customers' value={visibleCustomers.length} onClick={() => setTab('customers')} />
         <StatCard icon={<Hammer size={16} />} label='In Progress' value={jobs.filter((j) => j.status === 'in_progress').length} onClick={() => setShowList('inProgress')} />
         <StatCard icon={<IndianRupee size={16} />} label='Total Due' value={currency(dueTotal)} accent onClick={() => setShowList('dueList')} />
       </div>
@@ -5856,7 +5990,7 @@ function AdminAllEstimatesList({ jobs, onOpenJob }) {
   );
 }
 
-function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReviews, setArchivedReviews, onOpenJob, showToast }) {
+function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReviews, setArchivedReviews, onOpenJob, showToast, isDhPartner }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [branchFilter, setBranchFilter] = useState('all');
@@ -5865,6 +5999,40 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
   const [deletingCustomer, setDeletingCustomer] = useState(null);
   const [showReferralReport, setShowReferralReport] = useState(false);
   const [showAllEstimates, setShowAllEstimates] = useState(false);
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  // Every customer/job the app already has predates this field, so
+  // treating a MISSING businessUnit as Shree Krushn's own (never DH's)
+  // is what keeps every pre-existing record visible to admin exactly
+  // as before, while only customers/jobs explicitly tagged
+  // 'dh_home_decor' (created going forward by that panel specifically)
+  // are ever isolated into DH's own separate view.
+  const visibleCustomers = useMemo(() => {
+    return customers.filter((c) => (isDhPartner ? c.businessUnit === 'dh_home_decor' : c.businessUnit !== 'dh_home_decor'));
+  }, [customers, isDhPartner]);
+  // Adds a customer (plus their matching empty job) directly, tagged
+  // with the correct business unit - the app's only OTHER way a
+  // customer record gets created is the customer registering
+  // themselves via phone OTP (see LoginScreen's onRegister), which
+  // isn't something DH Home Decor's own customers would ever do
+  // through Shree Krushn's app, so this manual add is what makes DH's
+  // side usable at all. Writes against the FULL customers/jobs prop
+  // (never visibleCustomers) - critical, since saving a filtered
+  // subset back would silently drop every record that filter excluded.
+  const addNewCustomer = () => {
+    const normalized = normalizeIndianPhone(newCustPhone);
+    if (!newCustName.trim()) { showToast('Naam daalein', true); return; }
+    if (!normalized) { showToast('Sahi 10-digit mobile number daalein', true); return; }
+    const newCustomer = { id: uid(), name: newCustName.trim(), phone: normalized, createdAt: new Date().toISOString(), businessUnit: isDhPartner ? 'dh_home_decor' : undefined };
+    setCustomers([newCustomer, ...customers]);
+    const newJob = emptyJob(newCustomer.id, newCustomer.name, newCustomer.phone);
+    if (isDhPartner) newJob.businessUnit = 'dh_home_decor';
+    setJobs([newJob, ...jobs]);
+    setNewCustName(''); setNewCustPhone(''); setShowAddCustomer(false);
+    showToast('Customer add ho gaya');
+    onOpenJob(newJob.id);
+  };
   // Moved here, before the two early returns below - React's Rules of
   // Hooks require every hook to run in the same order on every render,
   // and this useMemo previously sat AFTER both "if (showX) return"
@@ -5875,7 +6043,7 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
   // existed here for "All Estimates" and "Referral Report" and is
   // fixed the same way: unconditional, always before any early return.
   const rows = useMemo(() => {
-    let r = customers
+    let r = visibleCustomers
       .map((c) => ({ customer: c, job: jobs.find((j) => j.customerId === c.id) }))
       .filter(({ customer, job }) => {
         if (filter !== 'all' && (!job || job.status !== filter)) return false;
@@ -5890,7 +6058,7 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
     if (sort === 'name') r.sort((a, b) => a.customer.name.localeCompare(b.customer.name));
     if (sort === 'due') r.sort((a, b) => (b.job ? jobDue(b.job) : 0) - (a.job ? jobDue(a.job) : 0));
     return r;
-  }, [customers, jobs, query, filter, branchFilter, sort]);
+  }, [visibleCustomers, jobs, query, filter, branchFilter, sort]);
 
   if (showAllEstimates) {
     return (
@@ -5916,8 +6084,13 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
 
   // Same rule as AdminHome's dueTotal: only work that's actually
   // started (in_progress/delivered/paid) counts as money owed - an
-  // unapproved estimate isn't due yet.
-  const dueTotal = jobs.filter((j) => j.status === 'in_progress' || j.status === 'delivered' || j.status === 'paid').reduce((s, j) => s + jobDue(j), 0);
+  // unapproved estimate isn't due yet. Scoped to visibleCustomers'
+  // jobs specifically, not every job in the app - a DH Home Decor
+  // login should never see Shree Krushn's own outstanding dues (or
+  // vice versa) folded into this total.
+  const visibleCustomerIds = new Set(visibleCustomers.map((c) => c.id));
+  const visibleJobs = jobs.filter((j) => visibleCustomerIds.has(j.customerId));
+  const dueTotal = visibleJobs.filter((j) => j.status === 'in_progress' || j.status === 'delivered' || j.status === 'paid').reduce((s, j) => s + jobDue(j), 0);
 
   const saveEditedCustomer = (updated) => {
     const normalized = normalizeIndianPhone(updated.phone);
@@ -5957,12 +6130,25 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
-        <button style={styles.linkBtn2} onClick={() => setShowAllEstimates(true)}>All Estimates</button>
-        <button style={styles.linkBtn2} onClick={() => setShowReferralReport(true)}>Referral Report</button>
+        {!isDhPartner && <button style={styles.linkBtn2} onClick={() => setShowAllEstimates(true)}>All Estimates</button>}
+        {!isDhPartner && <button style={styles.linkBtn2} onClick={() => setShowReferralReport(true)}>Referral Report</button>}
+        <button style={styles.linkBtn2} onClick={() => setShowAddCustomer(true)}>+ Naya Customer</button>
       </div>
+      {showAddCustomer && (
+        <div style={{ ...styles.formCard, marginTop: 10 }}>
+          <div style={styles.fieldLabel}>Naam</div>
+          <input style={styles.input} value={newCustName} onChange={(e) => setNewCustName(e.target.value)} placeholder='Customer ka naam' autoFocus />
+          <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Mobile Number</div>
+          <input style={styles.input} inputMode='numeric' value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)} placeholder='98765 43210' />
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addNewCustomer}>Add Karein</button>
+            <button style={styles.cancelBtn} onClick={() => { setShowAddCustomer(false); setNewCustName(''); setNewCustPhone(''); }}>Cancel</button>
+          </div>
+        </div>
+      )}
       <div style={styles.statRow2}>
-        <StatCard icon={<User size={16} />} label='Customers' value={customers.length} />
-        <StatCard icon={<Hammer size={16} />} label='In Progress' value={jobs.filter((j) => j.status === 'in_progress').length} />
+        <StatCard icon={<User size={16} />} label='Customers' value={visibleCustomers.length} />
+        <StatCard icon={<Hammer size={16} />} label='In Progress' value={visibleJobs.filter((j) => j.status === 'in_progress').length} />
         <StatCard icon={<IndianRupee size={16} />} label='Total Due' value={currency(dueTotal)} accent />
       </div>
 
@@ -7641,8 +7827,12 @@ function PhotoAddPanel({ onAdd, addLabel, showToast }) {
 }
 
 /* ---- Admin gallery manager ---- */
-function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCategories, showToast }) {
-  const [activeCat, setActiveCat] = useState(categories[0]);
+function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCategories, showToast, isDhPartner }) {
+  // DH Home Decor only ever does Color/POP and Electrical work - their
+  // panel can only add photos into those two categories, never any of
+  // Shree Krushn's own (Kitchen, Wardrobe, etc.) or create new ones.
+  const DH_PARTNER_CATEGORIES = ['Color/POP Work', 'Electrical Work'];
+  const [activeCat, setActiveCat] = useState(isDhPartner ? DH_PARTNER_CATEGORIES[0] : categories[0]);
   const [bulkText, setBulkText] = useState('');
   const [showBulk, setShowBulk] = useState(false);
   const [query, setQuery] = useState('');
@@ -7659,7 +7849,9 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
   // removing a category from Settings could make its photos
   // permanently unreachable from THIS screen too, even though they're
   // still safely sitting in Firestore.
-  const galleryCategories = [...new Set([...(categories || []), ...Object.keys(gallery || {})])];
+  const galleryCategories = isDhPartner
+    ? DH_PARTNER_CATEGORIES
+    : [...new Set([...(categories || []), ...Object.keys(gallery || {})])];
 
   // Same image-preloading fix as GalleryBrowser's matching comment -
   // warms the browser's cache for every category's first page of
@@ -8008,7 +8200,7 @@ function ReviewEditForm({ job, onSave, onCancel }) {
 /* ---- Admin: Karigar (worker) payments & company expenses - kept
    separate from customer job revenue. Company earning (from jobs) minus
    these expenses gives real net profit. ---- */
-function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob }) {
+function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDhPartner }) {
   const [type, setType] = useState(EXPENSE_TYPES[0]);
   const [payee, setPayee] = useState('');
   const [amount, setAmount] = useState('');
@@ -8019,6 +8211,17 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob }) {
   const [showProfitReport, setShowProfitReport] = useState(false);
   const [showMonthlyReport, setShowMonthlyReport] = useState(false);
   const [showDueList, setShowDueList] = useState(false);
+  // Every expense/job predating businessUnit has no such field, so
+  // treating that as Shree Krushn's own (never DH's) keeps existing
+  // records visible to admin exactly as before - only ones explicitly
+  // tagged 'dh_home_decor' (logged going forward through that panel)
+  // are isolated into DH's own separate view.
+  const visibleExpenses = useMemo(() => {
+    return expenses.filter((e) => (isDhPartner ? e.businessUnit === 'dh_home_decor' : e.businessUnit !== 'dh_home_decor'));
+  }, [expenses, isDhPartner]);
+  const visibleJobs = useMemo(() => {
+    return jobs.filter((j) => (isDhPartner ? j.businessUnit === 'dh_home_decor' : j.businessUnit !== 'dh_home_decor'));
+  }, [jobs, isDhPartner]);
   // Moved here, before the three early returns below - same Rules of
   // Hooks fix as AdminSettings/AdminCustomers: this useMemo previously
   // sat after all three "if (showX) return" checks, meaning it was
@@ -8032,7 +8235,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob }) {
   // total, without having to scroll the full mixed history.
   const payeeSummary = useMemo(() => {
     const groups = {};
-    for (const e of expenses) {
+    for (const e of visibleExpenses) {
       const key = (e.payee || '').trim().toLowerCase();
       if (!key) continue;
       if (!groups[key]) groups[key] = { displayName: e.payee.trim(), total: 0, count: 0, entries: [] };
@@ -8041,7 +8244,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob }) {
       groups[key].entries.push(e);
     }
     return Object.values(groups).sort((a, b) => b.total - a.total);
-  }, [expenses]);
+  }, [visibleExpenses]);
 
   if (showProfitReport) {
     return (
@@ -8049,7 +8252,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob }) {
         <div style={{ padding: '12px 16px 0' }}>
           <button style={styles.backLink} onClick={() => setShowProfitReport(false)}><ArrowLeft size={13} /> Expenses</button>
         </div>
-        <AdminProfitReport jobs={jobs} expenses={expenses} />
+        <AdminProfitReport jobs={visibleJobs} expenses={visibleExpenses} />
       </div>
     );
   }
@@ -8060,7 +8263,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob }) {
         <div style={{ padding: '12px 16px 0' }}>
           <button style={styles.backLink} onClick={() => setShowMonthlyReport(false)}><ArrowLeft size={13} /> Expenses</button>
         </div>
-        <AdminMonthlyReport jobs={jobs} expenses={expenses} />
+        <AdminMonthlyReport jobs={visibleJobs} expenses={visibleExpenses} />
       </div>
     );
   }
@@ -8071,29 +8274,29 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob }) {
         <div style={{ padding: '12px 16px 0' }}>
           <button style={styles.backLink} onClick={() => setShowDueList(false)}><ArrowLeft size={13} /> Expenses</button>
         </div>
-        <AdminDuePaymentsList jobs={jobs} expenses={expenses} onOpenJob={onOpenJob} />
+        <AdminDuePaymentsList jobs={visibleJobs} expenses={visibleExpenses} onOpenJob={onOpenJob} />
       </div>
     );
   }
 
-  const totalRevenue = jobs.reduce((s, j) => s + jobTotal(j), 0);
-  const totalCollected = jobs.reduce((s, j) => s + jobPaid(j), 0);
-  const totalExpense = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-  const karigarTotal = expenses.filter((e) => e.type === 'Karigar Payment').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const totalRevenue = visibleJobs.reduce((s, j) => s + jobTotal(j), 0);
+  const totalCollected = visibleJobs.reduce((s, j) => s + jobPaid(j), 0);
+  const totalExpense = visibleExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const karigarTotal = visibleExpenses.filter((e) => e.type === 'Karigar Payment').reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const netProfit = totalCollected - totalExpense;
 
   const addExpense = () => {
     if (!payee.trim() || !amount) { showToast('Naam aur amount daalein', true); return; }
-    const entry = { id: uid(), type, payee: payee.trim(), amount, note: note.trim(), jobId: linkedJobId || null, date: new Date().toISOString() };
+    const entry = { id: uid(), type, payee: payee.trim(), amount, note: note.trim(), jobId: linkedJobId || null, date: new Date().toISOString(), businessUnit: isDhPartner ? 'dh_home_decor' : undefined };
     setExpenses([entry, ...expenses]);
     setPayee(''); setAmount(''); setNote(''); setLinkedJobId('');
     showToast('Expense add ho gaya');
   };
   const removeExpense = (id) => setExpenses(expenses.filter((e) => e.id !== id));
 
-  const filtered = expenses.filter((e) => filterType === 'all' || e.type === filterType).sort((a, b) => new Date(b.date) - new Date(a.date));
+  const filtered = visibleExpenses.filter((e) => filterType === 'all' || e.type === filterType).sort((a, b) => new Date(b.date) - new Date(a.date));
   const activePayeeEntries = activePayee
-    ? expenses.filter((e) => (e.payee || '').trim().toLowerCase() === activePayee).sort((a, b) => new Date(b.date) - new Date(a.date))
+    ? visibleExpenses.filter((e) => (e.payee || '').trim().toLowerCase() === activePayee).sort((a, b) => new Date(b.date) - new Date(a.date))
     : [];
   const activePayeeDisplayName = activePayee ? (payeeSummary.find((g) => g.displayName.trim().toLowerCase() === activePayee)?.displayName || activePayee) : '';
 
@@ -8168,7 +8371,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob }) {
         <input style={{ ...styles.input, marginTop: 8 }} placeholder='Note (optional)' value={note} onChange={(e) => setNote(e.target.value)} />
         <select style={{ ...styles.input, marginTop: 8 }} value={linkedJobId} onChange={(e) => setLinkedJobId(e.target.value)}>
           <option value=''>Kisi project se link nahi (general expense)</option>
-          {jobs.filter((j) => j.status === 'in_progress').map((j) => <option key={j.id} value={j.id}>{j.customerName}</option>)}
+          {visibleJobs.filter((j) => j.status === 'in_progress').map((j) => <option key={j.id} value={j.id}>{j.customerName}</option>)}
         </select>
         <button style={styles.addBtn} onClick={addExpense}><Plus size={14} /> Add expense</button>
       </div>
@@ -8416,7 +8619,7 @@ function FaqEditForm({ faq, onSave, onCancel }) {
   );
 }
 
-function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, adminPushTokens, enableAdminPushNotifications, onLogout, showToast }) {
+function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, adminPushTokens, enableAdminPushNotifications, onLogout, showToast }) {
   // Same union fix as GalleryBrowser/AdminGallery's matching comment -
   // used here so a category with real gallery photos never becomes
   // unmanageable from Settings just because it isn't (or is no longer)
@@ -8432,6 +8635,8 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
   const [staffError, setStaffError] = useState('');
   const [newPartnerPin, setNewPartnerPin] = useState('');
   const [partnerPinError, setPartnerPinError] = useState('');
+  const [newDhPartnerPin, setNewDhPartnerPin] = useState('');
+  const [dhPartnerPinError, setDhPartnerPinError] = useState('');
   // Old (pre-migration) photos sometimes still hold a raw base64 data:
   // URI rather than a real Storage URL - if the migration's upload
   // attempt for that specific photo failed (corrupted/truncated data,
@@ -8734,6 +8939,18 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
     setPartnerPin('');
     showToast('Partner access hata diya gaya');
   };
+  const saveDhPartnerPin = () => {
+    if (newDhPartnerPin.length < 4) { setDhPartnerPinError('PIN kam se kam 4 digit ka ho'); return; }
+    const allPins = [adminPin, partnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
+    if (allPins.includes(newDhPartnerPin)) { setDhPartnerPinError('Ye PIN pehle se use ho raha hai - alag PIN chunein'); return; }
+    setDhPartnerPin(newDhPartnerPin);
+    setNewDhPartnerPin(''); setDhPartnerPinError('');
+    showToast('DH Home Decor PIN set ho gaya');
+  };
+  const removeDhPartnerPin = () => {
+    setDhPartnerPin('');
+    showToast('DH Home Decor access hata diya gaya');
+  };
 
   const toggleAppointmentItem = (cat) => {
     const next = appointmentItemOptions.includes(cat)
@@ -8833,6 +9050,31 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, staff
             <input style={styles.input} placeholder='Partner PIN set karein (4+ digit)' inputMode='numeric' type='password' value={newPartnerPin} onChange={(e) => { setNewPartnerPin(e.target.value); setPartnerPinError(''); }} />
             {partnerPinError && <div style={styles.errorText}>{partnerPinError}</div>}
             <button style={styles.addBtn} onClick={savePartnerPin}><UserPlus size={14} /> Enable partner access</button>
+          </div>
+        )}
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Users size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>DH Home Decor Access</div>
+        </div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>
+          DH Home Decor ko apni alag PIN dein - unko sirf apne khud ke customers/estimates/expenses dikhenge, aapke Shree Krushn customers kabhi nahi. Gallery mein sirf Color/POP Work aur Electrical Work categories mein hi photo add kar sakte hain.
+        </div>
+        {dhPartnerPin ? (
+          <div style={styles.staffRow}>
+            <div style={{ flex: 1 }}>
+              <div style={styles.itemDesc}>DH Home Decor PIN active</div>
+              <div style={styles.itemSub}>PIN: {dhPartnerPin}</div>
+            </div>
+            <button style={styles.cardActionBtn} onClick={removeDhPartnerPin}>Remove</button>
+          </div>
+        ) : (
+          <div>
+            <input style={styles.input} placeholder='DH Home Decor PIN set karein (4+ digit)' inputMode='numeric' type='password' value={newDhPartnerPin} onChange={(e) => { setNewDhPartnerPin(e.target.value); setDhPartnerPinError(''); }} />
+            {dhPartnerPinError && <div style={styles.errorText}>{dhPartnerPinError}</div>}
+            <button style={styles.addBtn} onClick={saveDhPartnerPin}><UserPlus size={14} /> Enable DH Home Decor access</button>
           </div>
         )}
       </div>
