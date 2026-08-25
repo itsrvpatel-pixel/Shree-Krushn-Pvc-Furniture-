@@ -1545,6 +1545,13 @@ export default function App() {
   ]);
   const [partnerPin, setPartnerPin] = useState('');
   const [dhPartnerPin, setDhPartnerPin] = useState('');
+  // A photo a Regional Partner submits from their own completed work,
+  // waiting for admin to review before it's added to the business's
+  // real public gallery - kept as a separate top-level list (not
+  // written directly into `gallery`) precisely so nothing a partner
+  // sends ever appears to a browsing customer without Shree Krushn
+  // having actually looked at it first.
+  const [pendingGalleryPhotos, setPendingGalleryPhotos] = useState([]);
   const [staff, setStaff] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [appointmentItemOptions, setAppointmentItemOptions] = useState(DEFAULT_CATEGORIES);
@@ -1755,11 +1762,11 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp] = await Promise.all([
+        const [c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw] = await Promise.all([
           safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
-          safeGet('archived_reviews'), safeGet('admin_push_tokens'), safeGet('faqs'), safeGet('dh_partner_pin'),
+          safeGet('archived_reviews'), safeGet('admin_push_tokens'), safeGet('faqs'), safeGet('dh_partner_pin'), safeGet('pending_gallery_photos'),
         ]);
         if (c) setCustomers(JSON.parse(c));
         if (j) setJobs(JSON.parse(j));
@@ -1778,6 +1785,7 @@ export default function App() {
         if (adminTokens) setAdminPushTokensRaw(JSON.parse(adminTokens));
         if (faqsRaw) setFaqsRaw(JSON.parse(faqsRaw));
         if (dhPp) setDhPartnerPin(dhPp);
+        if (pendingGalleryRaw) setPendingGalleryPhotos(JSON.parse(pendingGalleryRaw));
         // Gallery loads here too (not just lazily on tab-open) so the
         // app's overall startup behavior stays exactly as it always
         // was - loadGalleryData's own galleryLoadedRef guard means
@@ -2216,6 +2224,11 @@ export default function App() {
     try { await window.storage.set('dh_partner_pin', pin, true); }
     catch (e) { showToast('DH Partner PIN save failed', true); }
   }, []);
+  const persistPendingGalleryPhotos = useCallback(async (next) => {
+    setPendingGalleryPhotos(next);
+    try { await window.storage.set('pending_gallery_photos', JSON.stringify(next), true); }
+    catch (e) { showToast('Save failed', true); }
+  }, []);
   const persistExpenses = useCallback(async (next) => {
     const prevLocalExpenses = expenses;
     setExpenses(next);
@@ -2440,6 +2453,7 @@ export default function App() {
           estimateRates={estimateRates} setEstimateRates={persistEstimateRates}
           faqs={faqs} setFaqs={persistFaqs}
           archivedReviews={archivedReviews} setArchivedReviews={persistArchivedReviews}
+          pendingGalleryPhotos={pendingGalleryPhotos} setPendingGalleryPhotos={persistPendingGalleryPhotos}
           pushNotification={pushNotification}
           allData={{ customers, jobs, gallery, staff, expenses }}
           staffName={session.staffName}
@@ -2524,6 +2538,9 @@ export default function App() {
       showToast('Customer add ho gaya');
       return newJob.id;
     };
+    const submitMyGalleryPhoto = (photo) => {
+      persistPendingGalleryPhotos([photo, ...pendingGalleryPhotos]);
+    };
     return (
       <div style={styles.app}>
         <style>{fontImport}</style>
@@ -2536,6 +2553,11 @@ export default function App() {
           hasPushToken={!!myStaffRecord?.pushToken}
           onEnablePush={enableMyPush}
           onCreateCustomer={createMyCustomer}
+          gallery={gallery}
+          galleryLoading={galleryLoading}
+          brochures={brochures}
+          categories={categories}
+          onSubmitGalleryPhoto={submitMyGalleryPhoto}
           onSaveJob={async (j) => {
             if (!myJobs.some((jj) => jj.id === j.id)) return false; // guard: only ever write a job assigned to this partner
             return await persistJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)));
@@ -5443,7 +5465,9 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
 // running commission total, but still funnels status changes through
 // admin (via a notification) rather than letting the partner directly
 // alter payment records themselves.
-function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commissionPayouts, hasPushToken, onEnablePush, onCreateCustomer, onSaveJob, onLogout, showToast, pushNotification }) {
+function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commissionPayouts, hasPushToken, onEnablePush, onCreateCustomer, gallery, galleryLoading, brochures, categories, onSubmitGalleryPhoto, onSaveJob, onLogout, showToast, pushNotification }) {
+  const [tab, setTab] = useState('jobs');
+  const [jobQuery, setJobQuery] = useState('');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
   const [lightbox, setLightbox] = useState(null);
@@ -5462,23 +5486,31 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
   const [newCustPhone, setNewCustPhone] = useState('');
   const [newCustCity, setNewCustCity] = useState('');
   const [suggestDesc, setSuggestDesc] = useState('');
+  const [suggestLength, setSuggestLength] = useState('');
+  const [suggestHeight, setSuggestHeight] = useState('');
+  const [suggestQty, setSuggestQty] = useState('1');
   const [suggestRate, setSuggestRate] = useState('');
+  const [submittingPhotoId, setSubmittingPhotoId] = useState(null);
+  const [submitCategory, setSubmitCategory] = useState('');
 
   // Kept entirely separate from job.items (the REAL, official estimate
-  // that determines what the customer owes) - a suggestion here NEVER
-  // touches jobTotal/jobPaid on its own, since the local market rate a
-  // partner knows for their own city still needs Shree Krushn's
-  // sign-off before it becomes something a customer is actually
-  // billed for. Admin moves an approved suggestion into job.items
-  // themselves (see AdminJobDetail's matching Approve action).
+  // that determines what the customer owes) - an item added here NEVER
+  // touches jobTotal/jobPaid on its own, since a full estimate a
+  // partner builds using their own local market rates still needs
+  // Shree Krushn's sign-off, item by item, before any of it becomes
+  // something a customer is actually billed for. Admin moves each
+  // approved item into job.items themselves (see AdminJobDetail's
+  // matching Approve action) - same fields (length/height/qty/rate) as
+  // admin's own item form, so an approved suggestion becomes an
+  // ordinary estimate line with nothing missing.
   const suggestRateItem = (job) => {
     if (!suggestDesc.trim() || !suggestRate) { showToast('Item aur rate dono daalein', true); return; }
-    const suggestion = { id: uid(), desc: suggestDesc.trim(), rate: suggestRate, suggestedBy: staffName, createdAt: new Date().toISOString() };
+    const suggestion = { id: uid(), desc: suggestDesc.trim(), length: suggestLength || '', height: suggestHeight || '', qty: suggestQty || '1', rate: suggestRate, suggestedBy: staffName, createdAt: new Date().toISOString() };
     const next = { ...job, suggestedItems: [...(job.suggestedItems || []), suggestion] };
     onSaveJob(next);
-    pushNotification('follow_up_needed', staffName + ' (Regional Partner) ne ' + job.customerName + ' ke liye rate suggest kiya hai: ' + suggestion.desc, job.id);
-    setSuggestDesc(''); setSuggestRate('');
-    showToast('Rate suggest kar diya - admin approve karenge');
+    pushNotification('follow_up_needed', staffName + ' (Regional Partner) ne ' + job.customerName + ' ke liye estimate item banaya hai: ' + suggestion.desc, job.id);
+    setSuggestDesc(''); setSuggestLength(''); setSuggestHeight(''); setSuggestQty('1'); setSuggestRate('');
+    showToast('Item add ho gaya - admin approve karenge');
   };
 
   // Commission is earned on what's actually been COLLECTED from the
@@ -5512,6 +5544,17 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
   };
   const removePhoto = (job, photoId) => {
     onSaveJob({ ...job, progressPhotos: (job.progressPhotos || []).filter((p) => p.id !== photoId) });
+  };
+  // Sends a completed-work photo toward the business's real, public
+  // gallery - held in a separate pending queue (never written directly
+  // into the live gallery) so Shree Krushn reviews every submission
+  // before a future customer ever sees it representing the business's
+  // work.
+  const submitPhotoToGallery = (job, photo) => {
+    if (!submitCategory) { showToast('Category select karein', true); return; }
+    onSubmitGalleryPhoto({ id: uid(), url: photo.url, origUrl: photo.origUrl, category: submitCategory, submittedBy: staffName, jobId: job.id, customerName: job.customerName, createdAt: new Date().toISOString() });
+    setSubmittingPhotoId(null); setSubmitCategory('');
+    showToast('Gallery ke liye bhej diya - admin approve karenge');
   };
 
   // Books a fresh visit directly (no prior appointment exists at all) -
@@ -5704,24 +5747,33 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
           )}
 
           <div style={{ ...styles.formCard, marginTop: 16 }}>
-            <div style={styles.fieldLabel}>Local Rate Suggest Karein</div>
-            <div style={styles.plainTextMuted}>Aapke sheher ke market rate ke hisab se koi item/price suggest karein - admin approve karenge, tabhi estimate mein jodegа.</div>
+            <div style={styles.fieldLabel}>Estimate Banayein</div>
+            <div style={styles.plainTextMuted}>Aapke sheher ke market rate ke hisab se items banayein - admin approve karenge, tabhi asli estimate mein jodegा.</div>
             {(activeJob.suggestedItems || []).length > 0 && (
               <div style={{ marginTop: 8 }}>
                 {activeJob.suggestedItems.map((s) => (
                   <div key={s.id} style={styles.itemRow}>
                     <div style={{ flex: 1 }}>
                       <div style={styles.itemDesc}>{s.desc}</div>
+                      {s.length && s.height && <div style={styles.itemSub}>{s.length}&quot; x {s.height}&quot;{s.qty > 1 ? (' x ' + s.qty) : ''}</div>}
                       <div style={styles.itemSub}>Pending approval</div>
                     </div>
                     <div style={styles.itemDesc}>{currency(s.rate)}</div>
                   </div>
                 ))}
+                <div style={styles.totalBar}><span>Suggested Total</span><span style={styles.totalAmt}>{currency(activeJob.suggestedItems.reduce((sum, s) => sum + (Number(s.qty || 1) * Number(s.rate || 0)), 0))}</span></div>
               </div>
             )}
-            <input style={{ ...styles.input, marginTop: 8 }} placeholder='Item (jaise "Wardrobe - 8ft")' value={suggestDesc} onChange={(e) => setSuggestDesc(e.target.value)} />
-            <input style={{ ...styles.input, marginTop: 8 }} inputMode='numeric' placeholder='Suggested rate (₹)' value={suggestRate} onChange={(e) => setSuggestRate(e.target.value)} />
-            <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => suggestRateItem(activeJob)}>Rate Suggest Karein</button>
+            <input style={{ ...styles.input, marginTop: 8 }} placeholder='Item (jaise "Wardrobe")' value={suggestDesc} onChange={(e) => setSuggestDesc(e.target.value)} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <input style={styles.input} inputMode='decimal' placeholder='Length (ft)' value={suggestLength} onChange={(e) => setSuggestLength(e.target.value)} />
+              <input style={styles.input} inputMode='decimal' placeholder='Height (ft)' value={suggestHeight} onChange={(e) => setSuggestHeight(e.target.value)} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <input style={styles.input} inputMode='numeric' placeholder='Qty' value={suggestQty} onChange={(e) => setSuggestQty(e.target.value)} />
+              <input style={styles.input} inputMode='numeric' placeholder='Rate (₹)' value={suggestRate} onChange={(e) => setSuggestRate(e.target.value)} />
+            </div>
+            <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => suggestRateItem(activeJob)}>Item Add Karein</button>
           </div>
 
           {jobTotal(activeJob) > 0 && (
@@ -5765,9 +5817,31 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
               <div key={p.id} style={styles.progressPhotoCard}>
                 <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption} style={styles.photoImg} />
                 <button style={styles.photoDeleteBtn} onClick={() => removePhoto(activeJob, p.id)}><Trash2 size={12} color='#FFF' /></button>
+                {onSubmitGalleryPhoto && (
+                  <button style={{ position: 'absolute', bottom: 4, left: 4, right: 4, fontSize: 9.5, padding: '3px 6px', borderRadius: 6, border: 'none', background: 'rgba(15,27,61,0.85)', color: '#FFF', cursor: 'pointer' }} onClick={() => { setSubmittingPhotoId(p.id); setSubmitCategory(categories?.[0] || ''); }}>
+                    Gallery Mein Bhejein
+                  </button>
+                )}
               </div>
             ))}
           </div>
+          {submittingPhotoId && (
+            <div style={{ ...styles.formCard, marginTop: 10 }}>
+              <div style={styles.fieldLabel}>Category Chunein</div>
+              <select style={styles.input} value={submitCategory} onChange={(e) => setSubmitCategory(e.target.value)}>
+                {(categories || []).map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button
+                  style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }}
+                  onClick={() => submitPhotoToGallery(activeJob, activeJob.progressPhotos.find((p) => p.id === submittingPhotoId))}
+                >
+                  Bhej Dein
+                </button>
+                <button style={styles.cancelBtn} onClick={() => { setSubmittingPhotoId(null); setSubmitCategory(''); }}>Cancel</button>
+              </div>
+            </div>
+          )}
           <div style={{ marginTop: 10 }}>
             <PhotoAddPanel addLabel='Add progress photo' showToast={showToast} onAdd={(photos) => addPhotos(activeJob, photos)} />
           </div>
@@ -5778,8 +5852,9 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
   }
 
   return (
-    <div style={{ paddingBottom: 20 }}>
+    <div style={{ paddingBottom: 74 }}>
       <TopBar title='Regional Partner Panel' subtitle={'Logged in as ' + staffName} hideLogout />
+      {tab === 'jobs' && (
       <div style={{ padding: '12px 16px' }}>
         <div style={{ ...styles.formCard, background: '#FFF9EE', borderColor: BRAND.gold }}>
           <div style={styles.fieldLabel}>Commission Summary</div>
@@ -5837,8 +5912,14 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
         )}
 
         <div style={{ ...styles.sectionTitle, marginTop: 16 }}>Aapke assigned kaam ({jobs.length})</div>
+        {jobs.length > 3 && (
+          <div style={styles.searchWrap}>
+            <Search size={15} color={BRAND.textMuted} />
+            <input style={styles.searchInput} placeholder='Customer naam se dhundein' value={jobQuery} onChange={(e) => setJobQuery(e.target.value)} />
+          </div>
+        )}
         {jobs.length === 0 && <div style={styles.emptySmall}>Abhi koi kaam assign nahi hua hai.</div>}
-        {commissionByJob.map(({ job: j, commission }) => (
+        {commissionByJob.filter(({ job: j }) => !jobQuery.trim() || j.customerName.toLowerCase().includes(jobQuery.trim().toLowerCase())).map(({ job: j, commission }) => (
           <button key={j.id} style={styles.miniRowClickArea} onClick={() => setActiveJobId(j.id)}>
             <div style={{ flex: 1, textAlign: 'left' }}>
               <div style={styles.itemDesc}>{j.customerName}</div>
@@ -5854,11 +5935,81 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
         ))}
         <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
       </div>
+      )}
+
+      {tab === 'gallery' && (
+        <GalleryBrowser gallery={gallery} galleryLoading={galleryLoading} brochures={brochures} categories={categories} testimonials={[]} job={null} onSaveJob={() => {}} showToast={showToast} />
+      )}
+
+      {tab === 'notifications' && (
+        <div style={{ padding: '12px 16px' }}>
+          <div style={styles.sectionTitle}>Recent Activity</div>
+          <div style={styles.plainTextMuted}>Aapke saare assigned jobs mein jo bhi hua hai, ek jagah.</div>
+          {(() => {
+            // Combines job.activity (already logged by every save
+            // throughout the app) across every job assigned to this
+            // partner - no separate notification store needed, since
+            // the activity trail already captures exactly what changed
+            // and when on each job.
+            const combined = [];
+            for (const j of jobs) {
+              for (const a of (j.activity || [])) {
+                combined.push({ ...a, customerName: j.customerName, jobId: j.id });
+              }
+            }
+            combined.sort((a, b) => new Date(b.date) - new Date(a.date));
+            const recent = combined.slice(0, 40);
+            if (recent.length === 0) return <div style={styles.emptySmall}>Abhi koi activity nahi hai.</div>;
+            return recent.map((a) => (
+              <button key={a.id} style={styles.miniRowClickArea} onClick={() => setActiveJobId(a.jobId)}>
+                <div style={{ flex: 1, textAlign: 'left' }}>
+                  <div style={styles.itemDesc}>{a.customerName}</div>
+                  <div style={styles.itemSub}>{a.text} - {timeAgo(a.date)}</div>
+                </div>
+                <ChevronRight size={16} color='#C7CCDC' />
+              </button>
+            ));
+          })()}
+        </div>
+      )}
+
+      {tab === 'profile' && (
+        <div style={{ padding: '12px 16px' }}>
+          <div style={styles.formCard}>
+            <div style={styles.fieldLabel}>Naam</div>
+            <div style={styles.itemDesc}>{staffName}</div>
+            <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Commission Rate</div>
+            <div style={styles.itemDesc}>{commissionPercent}%</div>
+          </div>
+          <div style={{ ...styles.formCard, marginTop: 12 }}>
+            <div style={styles.fieldLabel}>Notifications</div>
+            <div style={styles.plainTextMuted}>App band ho tab bhi naye kaam ki khabar mil jaएgi.</div>
+            {hasPushToken ? (
+              <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
+                <CheckCircle2 size={14} /> Notifications on hain
+              </div>
+            ) : (
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={onEnablePush}><Bell size={14} /> Notifications On Karein</button>
+            )}
+          </div>
+          <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
+        </div>
+      )}
+
+      <BottomNav
+        tab={tab} setTab={setTab}
+        items={[
+          { key: 'jobs', label: 'Jobs', icon: <Hammer size={18} /> },
+          { key: 'gallery', label: 'Gallery', icon: <Grid3x3 size={18} /> },
+          { key: 'notifications', label: 'Activity', icon: <Bell size={18} /> },
+          { key: 'profile', label: 'Profile', icon: <User size={18} /> },
+        ]}
+      />
     </div>
   );
 }
 
-function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, archivedReviews, setArchivedReviews, staffName, isPartner, isDhPartner, onLogout, showToast, pushNotification }) {
+function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, archivedReviews, setArchivedReviews, pendingGalleryPhotos, setPendingGalleryPhotos, staffName, isPartner, isDhPartner, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
@@ -5942,7 +6093,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
       {tab === 'settings' && (
         (isPartner || isDhPartner)
           ? <PartnerSettings staffName={staffName} onLogout={onLogout} />
-          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} dhPartnerPin={dhPartnerPin} setDhPartnerPin={setDhPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} faqs={faqs} setFaqs={setFaqs} adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications} onLogout={onLogout} showToast={showToast} />
+          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} dhPartnerPin={dhPartnerPin} setDhPartnerPin={setDhPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} pendingGalleryPhotos={pendingGalleryPhotos} setPendingGalleryPhotos={setPendingGalleryPhotos} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} faqs={faqs} setFaqs={setFaqs} adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications} onLogout={onLogout} showToast={showToast} />
       )}
 
       <BottomNav
@@ -6297,10 +6448,33 @@ function AdminCommissionReport({ staff, jobs, setStaff, showToast }) {
     const totalEarned = commissionByJob.reduce((s, c) => s + c.commission, 0);
     const totalPaidOut = (p.commissionPayouts || []).reduce((s, po) => s + Number(po.amount || 0), 0);
     const balanceOwed = totalEarned - totalPaidOut;
-    return { partner: p, assignedJobs, completedCount: completedJobs.length, commissionByJob, totalEarned, totalPaidOut, balanceOwed };
+    const totalRevenue = assignedJobs.reduce((s, j) => s + jobPaid(j), 0);
+    // Completion rate is only meaningful once a partner has actually
+    // been given work - an untested partner (0 assigned) shows 0%
+    // rather than a misleading 100% from an empty division.
+    const completionRate = assignedJobs.length > 0 ? completedJobs.length / assignedJobs.length : 0;
+    return { partner: p, assignedJobs, completedCount: completedJobs.length, completionRate, totalRevenue, commissionByJob, totalEarned, totalPaidOut, balanceOwed };
   });
   const grandTotalOwed = rows.reduce((s, r) => s + r.balanceOwed, 0);
-  const leaderboard = [...rows].sort((a, b) => b.completedCount - a.completedCount);
+  // A single Performance Score (0-100) blending three things that
+  // actually matter for deciding who should get the NEXT lead:
+  // reliability (completion rate), track record (volume of completed
+  // work), and business value (revenue actually collected) - each
+  // normalized against the best performer in the group so the score
+  // stays meaningful whether there are 2 partners or 20. This is a
+  // decision-support number for admin to weigh when manually assigning
+  // a new customer to a city - it doesn't route leads automatically.
+  const maxCompleted = Math.max(1, ...rows.map((r) => r.completedCount));
+  const maxRevenue = Math.max(1, ...rows.map((r) => r.totalRevenue));
+  const scored = rows.map((r) => {
+    const score = Math.round(
+      (r.completionRate * 40) +
+      ((r.completedCount / maxCompleted) * 30) +
+      ((r.totalRevenue / maxRevenue) * 30)
+    );
+    return { ...r, score };
+  });
+  const leaderboard = [...scored].sort((a, b) => b.score - a.score);
 
   // Recorded directly on the partner's own staff record (not a
   // separate collection) - a payout is inherently tied to one partner,
@@ -6322,14 +6496,18 @@ function AdminCommissionReport({ staff, jobs, setStaff, showToast }) {
       <div style={styles.plainTextMuted}>Har partner ko ab tak kitna commission bantа hai, kितna de diya hai, aur kितna baaki hai.</div>
       {leaderboard.length > 1 && (
         <div style={{ marginTop: 12 }}>
-          <div style={styles.fieldLabel}>Leaderboard</div>
+          <div style={styles.fieldLabel}>Performance Score</div>
+          <div style={styles.plainTextMuted}>Naye customer kisko dein, ye decide karne mein madad karega - completion rate, poore kiye kaam, aur revenue teenों ko milाके.</div>
           {leaderboard.map((r, i) => (
-            <div key={r.partner.id} style={{ ...styles.itemRow, marginTop: 6 }}>
-              <div style={{ width: 22, fontWeight: 800 }}>#{i + 1}</div>
-              <div style={{ flex: 1 }}>
-                <div style={styles.itemDesc}>{r.partner.name}</div>
+            <div key={r.partner.id} style={{ ...styles.formCard, marginTop: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 26, fontWeight: 800, color: i === 0 ? BRAND.gold : BRAND.textMuted }}>#{i + 1}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={styles.itemDesc}>{r.partner.name}</div>
+                  <div style={styles.itemSub}>{r.completedCount} kaam poore - {Math.round(r.completionRate * 100)}% completion rate</div>
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: BRAND.navy }}>{r.score}</div>
               </div>
-              <div style={styles.itemDesc}>{r.completedCount} kaam poore</div>
             </div>
           ))}
         </div>
@@ -7103,11 +7281,12 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
       {(job.suggestedItems || []).length > 0 && (
         <div style={{ ...styles.card, marginTop: 12, borderColor: BRAND.gold, borderWidth: 1.5 }}>
           <div style={styles.fieldLabel}>Regional Partner Ke Suggestions</div>
-          <div style={styles.plainTextMuted}>Local rate suggest kiye hain - approve karne par hi estimate mein add hoगा.</div>
+          <div style={styles.plainTextMuted}>Partner ne estimate items banaाए hain - approve karne par hi asli estimate mein add hoगा.</div>
           {job.suggestedItems.map((s) => (
             <div key={s.id} style={{ ...styles.formCard, marginTop: 8 }}>
               <div style={styles.itemDesc}>{s.desc}</div>
-              <div style={styles.itemSub}>{currency(s.rate)} - {s.suggestedBy} ne suggest kiya</div>
+              {s.length && s.height && <div style={styles.itemSub}>{s.length}&quot; x {s.height}&quot;{s.qty > 1 ? (' x ' + s.qty) : ''}</div>}
+              <div style={styles.itemSub}>{currency(s.rate)} - {s.suggestedBy} ne banaya</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => approveSuggestedItem(s)}><CheckCircle2 size={13} /> Approve Karein</button>
                 <button style={styles.cancelBtn} onClick={() => rejectSuggestedItem(s.id)}>Reject</button>
@@ -7657,7 +7836,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
   // affects what the customer is billed, since suggestedItems itself
   // is never read by jobTotal/jobPaid anywhere in the app.
   const approveSuggestedItem = (suggestion) => {
-    const item = { id: uid(), desc: suggestion.desc, length: '', height: '', qty: '1', rate: suggestion.rate };
+    const item = { id: uid(), desc: suggestion.desc, length: suggestion.length || '', height: suggestion.height || '', qty: suggestion.qty || '1', rate: suggestion.rate };
     let next = { ...job, items: [...(job.items || []), item], suggestedItems: (job.suggestedItems || []).filter((s) => s.id !== suggestion.id) };
     next = logActivity(next, 'Partner suggestion approved: ' + suggestion.desc);
     onSave(next);
@@ -9260,7 +9439,7 @@ function FaqEditForm({ faq, onSave, onCancel }) {
   );
 }
 
-function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, adminPushTokens, enableAdminPushNotifications, onLogout, showToast }) {
+function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, pendingGalleryPhotos, setPendingGalleryPhotos, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, adminPushTokens, enableAdminPushNotifications, onLogout, showToast }) {
   // Same union fix as GalleryBrowser/AdminGallery's matching comment -
   // used here so a category with real gallery photos never becomes
   // unmanageable from Settings just because it isn't (or is no longer)
@@ -9441,6 +9620,22 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       setBackfillingThumbnails(false);
       setBackfillProgress(null);
     }
+  };
+
+  // Approving moves the photo into the REAL gallery (via the SAME
+  // persistGallery path any normal admin upload uses, so it gets
+  // uploaded/compressed/thumbnailed identically) - a partner's
+  // submission never touches the live gallery on its own, exactly the
+  // isolation pendingGalleryPhotos exists for.
+  const approveGalleryPhoto = async (photo) => {
+    const category = photo.category;
+    const nextCategoryPhotos = [...(gallery[category] || []), { id: photo.id, url: photo.url, origUrl: photo.origUrl, caption: photo.customerName ? ('Kaam: ' + photo.customerName) : '', createdAt: photo.createdAt }];
+    await setGallery({ ...gallery, [category]: nextCategoryPhotos });
+    setPendingGalleryPhotos(pendingGalleryPhotos.filter((p) => p.id !== photo.id));
+    showToast('Gallery mein add ho gaya');
+  };
+  const rejectGalleryPhoto = (photoId) => {
+    setPendingGalleryPhotos(pendingGalleryPhotos.filter((p) => p.id !== photoId));
   };
 
   const runSystemCheck = () => {
@@ -9889,6 +10084,24 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
             <Search size={14} /> {backfillingThumbnails ? (backfillProgress ? ('Ban rahi hain... (' + backfillProgress.done + '/' + backfillProgress.total + ')') : 'Shuru ho raha hai...') : 'Thumbnails Banayein'}
           </button>
         </div>
+
+        {pendingGalleryPhotos && pendingGalleryPhotos.length > 0 && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
+            <div style={styles.fieldLabel}>Regional Partner Ki Gallery Photos ({pendingGalleryPhotos.length})</div>
+            <div style={styles.plainTextMuted}>Partner ne poore kiye kaam ki photos bheji hain - approve karne par hi customer-facing gallery mein dikhengi.</div>
+            {pendingGalleryPhotos.map((p) => (
+              <div key={p.id} style={{ ...styles.formCard, marginTop: 8 }}>
+                <SmartImg src={p.url} origUrl={p.origUrl} alt={p.customerName} style={{ width: '100%', height: 160, objectFit: 'cover', borderRadius: 6 }} />
+                <div style={{ ...styles.itemSub, marginTop: 6 }}>{p.category} - {p.submittedBy} ne bheja{p.customerName ? (' (' + p.customerName + ')') : ''}</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => approveGalleryPhoto(p)}><CheckCircle2 size={13} /> Approve Karein</button>
+                  <button style={styles.cancelBtn} onClick={() => rejectGalleryPhoto(p.id)}>Reject</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
 
         {scanResults && (() => {
           const totalIssues = scanResults.photoIssues.length + scanResults.brochureIssues.length + scanResults.orphanedJobs.length;
