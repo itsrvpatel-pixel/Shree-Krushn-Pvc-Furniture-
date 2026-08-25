@@ -2496,6 +2496,34 @@ export default function App() {
     const myStaffId = session.staffId || staff.find((s) => s.name === session.staffName)?.id;
     const myStaffRecord = staff.find((s) => s.id === myStaffId);
     const myJobs = jobs.filter((j) => j.assignedStaffId === myStaffId);
+    const enableMyPush = async () => {
+      if (!window.pushMessaging) { showToast('Push notifications is browser mein supported nahi hai', true); return; }
+      const token = await window.pushMessaging.requestPermissionAndGetToken();
+      if (!token) { showToast('Notification permission nahi mili', true); return; }
+      const ok = await persistStaff(staff.map((s) => (s.id === myStaffId ? { ...s, pushToken: token } : s)));
+      if (ok) showToast('Notifications on ho gayi');
+    };
+    // A partner's own local lead (someone who called THEM directly,
+    // not through Shree Krushn's main channel) needs a way in - this
+    // writes against the FULL customers/jobs arrays (never myJobs),
+    // same reasoning as AdminCustomers' addNewCustomer: saving a
+    // filtered subset back would silently drop every other record.
+    // Auto-tags the new job with this partner's own staffId and
+    // city, so it shows up in their own list immediately without a
+    // separate assignment step.
+    const createMyCustomer = async (name, phone, city) => {
+      const normalized = normalizeIndianPhone(phone);
+      if (!name.trim()) { showToast('Naam daalein', true); return false; }
+      if (!normalized) { showToast('Sahi 10-digit mobile number daalein', true); return false; }
+      const newCustomer = { id: uid(), name: name.trim(), phone: normalized, createdAt: new Date().toISOString() };
+      await persistCustomers([newCustomer, ...customers]);
+      const newJob = emptyJob(newCustomer.id, newCustomer.name, newCustomer.phone);
+      newJob.assignedStaffId = myStaffId;
+      if (city && city.trim()) newJob.city = city.trim();
+      await persistJobs([newJob, ...jobs]);
+      showToast('Customer add ho gaya');
+      return newJob.id;
+    };
     return (
       <div style={styles.app}>
         <style>{fontImport}</style>
@@ -2504,6 +2532,10 @@ export default function App() {
           staffName={session.staffName}
           staffId={myStaffId}
           commissionPercent={myStaffRecord?.commissionPercent || 0}
+          commissionPayouts={myStaffRecord?.commissionPayouts || []}
+          hasPushToken={!!myStaffRecord?.pushToken}
+          onEnablePush={enableMyPush}
+          onCreateCustomer={createMyCustomer}
           onSaveJob={async (j) => {
             if (!myJobs.some((jj) => jj.id === j.id)) return false; // guard: only ever write a job assigned to this partner
             return await persistJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)));
@@ -5411,10 +5443,43 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
 // running commission total, but still funnels status changes through
 // admin (via a notification) rather than letting the partner directly
 // alter payment records themselves.
-function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, onSaveJob, onLogout, showToast, pushNotification }) {
+function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commissionPayouts, hasPushToken, onEnablePush, onCreateCustomer, onSaveJob, onLogout, showToast, pushNotification }) {
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
   const [lightbox, setLightbox] = useState(null);
+  // Appointment booking/confirming state - declared here, before the
+  // early return below, for the same Rules of Hooks reason documented
+  // throughout this codebase's other fixes: every hook must run every
+  // render regardless of which branch (list view vs job detail) ends
+  // up showing.
+  const [apptDate, setApptDate] = useState('');
+  const [apptTime, setApptTime] = useState('');
+  const [apptAddress, setApptAddress] = useState('');
+  const [newPaymentAmount, setNewPaymentAmount] = useState('');
+  const [newPaymentNote, setNewPaymentNote] = useState('');
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [newCustCity, setNewCustCity] = useState('');
+  const [suggestDesc, setSuggestDesc] = useState('');
+  const [suggestRate, setSuggestRate] = useState('');
+
+  // Kept entirely separate from job.items (the REAL, official estimate
+  // that determines what the customer owes) - a suggestion here NEVER
+  // touches jobTotal/jobPaid on its own, since the local market rate a
+  // partner knows for their own city still needs Shree Krushn's
+  // sign-off before it becomes something a customer is actually
+  // billed for. Admin moves an approved suggestion into job.items
+  // themselves (see AdminJobDetail's matching Approve action).
+  const suggestRateItem = (job) => {
+    if (!suggestDesc.trim() || !suggestRate) { showToast('Item aur rate dono daalein', true); return; }
+    const suggestion = { id: uid(), desc: suggestDesc.trim(), rate: suggestRate, suggestedBy: staffName, createdAt: new Date().toISOString() };
+    const next = { ...job, suggestedItems: [...(job.suggestedItems || []), suggestion] };
+    onSaveJob(next);
+    pushNotification('follow_up_needed', staffName + ' (Regional Partner) ne ' + job.customerName + ' ke liye rate suggest kiya hai: ' + suggestion.desc, job.id);
+    setSuggestDesc(''); setSuggestRate('');
+    showToast('Rate suggest kar diya - admin approve karenge');
+  };
 
   // Commission is earned on what's actually been COLLECTED from the
   // customer so far (jobPaid), not the full estimate value - an
@@ -5424,6 +5489,8 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, onSav
   // just once at job completion.
   const commissionByJob = jobs.map((j) => ({ job: j, commission: Math.round(jobPaid(j) * (commissionPercent / 100)) }));
   const totalCommission = commissionByJob.reduce((s, c) => s + c.commission, 0);
+  const totalPaidOut = (commissionPayouts || []).reduce((s, po) => s + Number(po.amount || 0), 0);
+  const balanceOwed = totalCommission - totalPaidOut;
 
   const addPhotos = async (job, photos) => {
     const newPhotos = [];
@@ -5447,6 +5514,40 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, onSav
     onSaveJob({ ...job, progressPhotos: (job.progressPhotos || []).filter((p) => p.id !== photoId) });
   };
 
+  // Books a fresh visit directly (no prior appointment exists at all) -
+  // the partner IS the one who'll actually make the visit, so unlike
+  // most of the rest of this job's lifecycle (which stays admin's
+  // call), scheduling it themselves is exactly the "poora process"
+  // (visit through completion) they need to handle end to end.
+  const bookAppointment = (job) => {
+    if (!apptDate || !apptAddress.trim()) { showToast('Date aur address zaroori hai', true); return; }
+    const nextAppt = {
+      preferredDate: apptDate, preferredTime: apptTime, address: apptAddress.trim(),
+      status: 'confirmed', confirmedDate: apptDate, confirmedTime: apptTime,
+      requestedAt: new Date().toISOString(), bookedByAdmin: false, bookedByRegionalPartner: true,
+    };
+    let next = { ...job, appointment: nextAppt, address: apptAddress.trim() };
+    next = logActivity(next, staffName + ' (Regional Partner) ne appointment book ki: ' + formatDate(apptDate) + (apptTime ? (', ' + formatTime12h(apptTime)) : ''));
+    onSaveJob(next);
+    pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(apptDate) + (apptTime ? (' - ' + formatTime12h(apptTime)) : '') + ' ke liye book ho gayi hai', job.id);
+    setApptDate(''); setApptTime(''); setApptAddress('');
+    showToast('Appointment book ho gayi');
+  };
+  // Confirms a date/time for a visit the customer already requested
+  // (appointment.status === 'requested') - same idea as bookAppointment
+  // above, just for the case where the customer initiated the request
+  // through the app first rather than the partner scheduling it fresh.
+  const confirmAppointment = (job) => {
+    if (!apptDate) { showToast('Date select karein', true); return; }
+    const nextAppt = { ...job.appointment, status: 'confirmed', confirmedDate: apptDate, confirmedTime: apptTime };
+    let next = { ...job, appointment: nextAppt };
+    next = logActivity(next, staffName + ' (Regional Partner) ne appointment confirm ki: ' + formatDate(apptDate) + (apptTime ? (', ' + formatTime12h(apptTime)) : ''));
+    onSaveJob(next);
+    pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(apptDate) + (apptTime ? (' - ' + formatTime12h(apptTime)) : '') + ' ke liye confirm ho gayi hai', job.id);
+    setApptDate(''); setApptTime('');
+    showToast('Appointment confirm ho gayi');
+  };
+
   const markVisitDone = (job) => {
     pushNotification('follow_up_needed', staffName + ' (Regional Partner) ne ' + job.customerName + ' ka visit complete kiya hai', job.id);
     showToast('Admin ko bata diya gaya');
@@ -5455,20 +5556,85 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, onSav
     pushNotification('work_completed_by_karigar', staffName + ' (Regional Partner) ne ' + job.customerName + ' ka kaam complete bataya hai', job.id);
     showToast('Admin ko bata diya gaya - wo confirm karke status update karenge');
   };
+  // Same auto-status-to-paid logic as AdminJobDetail's addPayment -
+  // kept identical so a payment recorded by the partner behaves
+  // exactly the same way as one admin enters directly, and pushes a
+  // notification to admin either way (unlike admin's own entry, which
+  // doesn't need to notify itself) so they're never in the dark about
+  // money the partner is holding on their behalf.
+  const recordPayment = (job) => {
+    if (!newPaymentAmount) { showToast('Amount daalein', true); return; }
+    let nextJob = { ...job, payments: [...(job.payments || []), { id: uid(), amount: newPaymentAmount, note: newPaymentNote.trim(), date: new Date().toISOString(), collectedBy: staffName + ' (Regional Partner)' }] };
+    nextJob = logActivity(nextJob, staffName + ' (Regional Partner) ne payment collect ki: ' + currency(newPaymentAmount));
+    if (jobTotal(nextJob) > 0 && jobDue(nextJob) <= 0 && nextJob.status !== 'paid') nextJob.status = 'paid';
+    onSaveJob(nextJob);
+    pushNotification('payment_received', staffName + ' (Regional Partner) ne ' + job.customerName + ' se ' + currency(newPaymentAmount) + ' collect kiya hai', job.id);
+    setNewPaymentAmount(''); setNewPaymentNote('');
+    showToast('Payment record ho gayi');
+  };
 
   if (activeJob) {
     const myCommission = Math.round(jobPaid(activeJob) * (commissionPercent / 100));
+    const curStatusIdx = STATUS_ORDER.indexOf(activeJob.status);
     return (
       <div style={{ paddingBottom: 20 }}>
         <TopBar title={activeJob.customerName} subtitle={STATUS[activeJob.status]?.label || activeJob.status} onBack={() => setActiveJobId(null)} hideLogout />
         <div style={{ padding: '12px 16px' }}>
-          <div style={{ ...styles.formCard, background: '#FFF9EE', borderColor: BRAND.gold }}>
+          {/* Same visual stepper pattern the customer's own progress
+              view uses, read-only here - a partner juggling jobs across
+              several cities benefits from seeing at a glance exactly
+              where THIS one stands (appointment vs already in progress
+              vs delivered), without needing to interpret a plain status
+              word. */}
+          <div style={styles.stageGridRead}>
+            {STATUS_ORDER.map((s) => {
+              const idx = STATUS_ORDER.indexOf(s);
+              const done = idx <= curStatusIdx;
+              const Icon = STATUS[s].icon;
+              return (
+                <div key={s} style={{ ...styles.progressStep, opacity: done ? 1 : 0.45 }}>
+                  <div style={{ ...styles.progressDot, background: done ? STATUS[s].color : '#D7DAE5' }}>
+                    <Icon size={12} color='#FFF' />
+                  </div>
+                  <span style={{ fontWeight: done ? 800 : 600 }}>{STATUS[s].label}</span>
+                  {done && idx === curStatusIdx && <span style={styles.currentTag}>current</span>}
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ ...styles.formCard, marginTop: 12, background: '#FFF9EE', borderColor: BRAND.gold }}>
             <div style={styles.fieldLabel}>Aapka Commission (Is Job Par)</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: BRAND.navy }}>{currency(myCommission)}</div>
             <div style={styles.itemSub}>{commissionPercent}% of {currency(jobPaid(activeJob))} collected</div>
           </div>
 
-          {activeJob.appointment && (
+          {!activeJob.appointment && (
+            <div style={{ ...styles.formCard, marginTop: 12 }}>
+              <div style={styles.fieldLabel}>Visit Book Karein</div>
+              <div style={styles.plainTextMuted}>Abhi tak koi appointment nahi hai - customer se baat karke date/address confirm karein.</div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input style={styles.input} type='date' value={apptDate} onChange={(e) => setApptDate(e.target.value)} />
+                <input style={styles.input} type='time' value={apptTime} onChange={(e) => setApptTime(e.target.value)} />
+              </div>
+              <input style={{ ...styles.input, marginTop: 8 }} placeholder='Address' value={apptAddress} onChange={(e) => setApptAddress(e.target.value)} />
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => bookAppointment(activeJob)}><Calendar size={14} /> Visit Book Karein</button>
+            </div>
+          )}
+
+          {activeJob.appointment && activeJob.appointment.status === 'requested' && (
+            <div style={{ ...styles.formCard, marginTop: 12 }}>
+              <div style={styles.fieldLabel}>Visit Confirm Karein</div>
+              <div style={styles.itemSub}>Customer ne chaha hai: {formatDate(activeJob.appointment.preferredDate)}{activeJob.appointment.preferredTime ? (' - ' + formatTime12h(activeJob.appointment.preferredTime)) : ''}</div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input style={styles.input} type='date' value={apptDate} onChange={(e) => setApptDate(e.target.value)} />
+                <input style={styles.input} type='time' value={apptTime} onChange={(e) => setApptTime(e.target.value)} />
+              </div>
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => confirmAppointment(activeJob)}><CheckCircle2 size={14} /> Visit Confirm Karein</button>
+            </div>
+          )}
+
+          {activeJob.appointment && (activeJob.appointment.status === 'confirmed' || activeJob.appointment.status === 'rescheduled') && (
             <div style={{ ...styles.formCard, marginTop: 12 }}>
               <div style={styles.fieldLabel}>Visit Details</div>
               <div style={styles.itemDesc}>{activeJob.appointment.address || activeJob.address || 'Address customer se poochhein'}</div>
@@ -5479,6 +5645,46 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, onSav
                 <a href={'tel:+91' + activeJob.phone} style={{ ...styles.addBtn, marginTop: 8, textDecoration: 'none' }}><Phone size={14} /> Customer ko Call Karein</a>
               )}
               <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => markVisitDone(activeJob)}><CheckCircle2 size={14} /> Visit Complete - Admin ko Batayein</button>
+            </div>
+          )}
+
+          {(activeJob.requirements || []).length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={styles.sectionTitle}>Customer Requirements</div>
+              {activeJob.requirements.map((r) => (
+                <div key={r.id} style={styles.reqRow}>
+                  {r.ownPhoto && (
+                    <button style={{ ...styles.reqThumb, border: 'none', padding: 0, cursor: 'pointer' }} onClick={() => setLightbox({ photos: [{ id: r.id, url: r.ownPhoto.url, origUrl: r.ownPhoto.origUrl, caption: r.text }], index: 0 })}>
+                      <SmartImg src={r.ownPhoto.url} origUrl={r.ownPhoto.origUrl} alt={r.text} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </button>
+                  )}
+                  <span style={styles.reqCatBadge}>{r.category}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={styles.reqText}>{r.text}</div>
+                    {r.dimensions && <div style={styles.itemSub}>{r.dimensions}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Read-only, same as KarigarApp - project direction is
+              admin/customer's call, partner's role here is to see what
+              was finalized, not to change plans themselves. */}
+          {(activeJob.projectNotes || []).length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={styles.sectionTitle}>Project Notes</div>
+              {activeJob.projectNotes.map((n) => (
+                <div key={n.id} style={styles.extraWorkCard}>
+                  <div style={styles.itemSub}>{n.authorName || (n.addedBy === 'admin' ? 'Admin' : 'Customer')} - {formatDate(n.createdAt)}</div>
+                  {n.text && <div style={{ ...styles.itemDesc, marginTop: 4 }}>{n.text}</div>}
+                  {n.photo && (
+                    <button style={{ border: 'none', padding: 0, background: 'none', cursor: 'pointer', width: '100%', display: 'block', marginTop: 8 }} onClick={() => setLightbox({ photos: [{ id: n.id, url: n.photo.url, origUrl: n.photo.origUrl, caption: n.text }], index: 0 })}>
+                      <SmartImg src={n.photo.url} origUrl={n.photo.origUrl} alt='note attachment' style={{ ...styles.reqThumb, width: '100%', height: 140 }} />
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 
@@ -5495,6 +5701,56 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, onSav
           ))}
           {(activeJob.items || []).length > 0 && (
             <div style={styles.totalBar}><span>Total</span><span style={styles.totalAmt}>{currency(jobTotal(activeJob))}</span></div>
+          )}
+
+          <div style={{ ...styles.formCard, marginTop: 16 }}>
+            <div style={styles.fieldLabel}>Local Rate Suggest Karein</div>
+            <div style={styles.plainTextMuted}>Aapke sheher ke market rate ke hisab se koi item/price suggest karein - admin approve karenge, tabhi estimate mein jodegа.</div>
+            {(activeJob.suggestedItems || []).length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                {activeJob.suggestedItems.map((s) => (
+                  <div key={s.id} style={styles.itemRow}>
+                    <div style={{ flex: 1 }}>
+                      <div style={styles.itemDesc}>{s.desc}</div>
+                      <div style={styles.itemSub}>Pending approval</div>
+                    </div>
+                    <div style={styles.itemDesc}>{currency(s.rate)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <input style={{ ...styles.input, marginTop: 8 }} placeholder='Item (jaise "Wardrobe - 8ft")' value={suggestDesc} onChange={(e) => setSuggestDesc(e.target.value)} />
+            <input style={{ ...styles.input, marginTop: 8 }} inputMode='numeric' placeholder='Suggested rate (₹)' value={suggestRate} onChange={(e) => setSuggestRate(e.target.value)} />
+            <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => suggestRateItem(activeJob)}>Rate Suggest Karein</button>
+          </div>
+
+          {jobTotal(activeJob) > 0 && (
+            <div style={{ ...styles.formCard, marginTop: 16 }}>
+              <div style={styles.fieldLabel}>Payment</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                <span style={styles.itemSub}>Collected: {currency(jobPaid(activeJob))}</span>
+                <span style={styles.itemSub}>Due: {currency(jobDue(activeJob))}</span>
+              </div>
+              {(activeJob.payments || []).length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  {activeJob.payments.map((p) => (
+                    <div key={p.id} style={styles.itemRow}>
+                      <div style={{ flex: 1 }}>
+                        <div style={styles.itemSub}>{formatDate(p.date)}{p.note ? (' - ' + p.note) : ''}</div>
+                      </div>
+                      <div style={styles.itemDesc}>{currency(p.amount)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {jobDue(activeJob) > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <input style={styles.input} inputMode='numeric' placeholder='Amount jo customer ne diya' value={newPaymentAmount} onChange={(e) => setNewPaymentAmount(e.target.value)} />
+                  <input style={{ ...styles.input, marginTop: 8 }} placeholder='Note (optional)' value={newPaymentNote} onChange={(e) => setNewPaymentNote(e.target.value)} />
+                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => recordPayment(activeJob)}><IndianRupee size={14} /> Payment Collect Karein</button>
+                </div>
+              )}
+            </div>
           )}
 
           {activeJob.status === 'in_progress' && (
@@ -5526,10 +5782,59 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, onSav
       <TopBar title='Regional Partner Panel' subtitle={'Logged in as ' + staffName} hideLogout />
       <div style={{ padding: '12px 16px' }}>
         <div style={{ ...styles.formCard, background: '#FFF9EE', borderColor: BRAND.gold }}>
-          <div style={styles.fieldLabel}>Total Commission (Ab Tak)</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: BRAND.navy }}>{currency(totalCommission)}</div>
-          <div style={styles.itemSub}>{commissionPercent}% commission rate</div>
+          <div style={styles.fieldLabel}>Commission Summary</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+            <div>
+              <div style={styles.itemSub}>Total Kamaya</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: BRAND.navy }}>{currency(totalCommission)}</div>
+            </div>
+            <div>
+              <div style={styles.itemSub}>Mila</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#2F7D4F' }}>{currency(totalPaidOut)}</div>
+            </div>
+            <div>
+              <div style={styles.itemSub}>Baaki Hai</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: balanceOwed > 0 ? BRAND.gold : '#2F7D4F' }}>{currency(balanceOwed)}</div>
+            </div>
+          </div>
+          <div style={{ ...styles.itemSub, marginTop: 8 }}>{commissionPercent}% commission rate</div>
         </div>
+
+        {!hasPushToken && (
+          <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={onEnablePush}><Bell size={14} /> Naye Kaam Ki Notification On Karein</button>
+        )}
+
+        {onCreateCustomer && (
+          <div style={{ marginTop: 10 }}>
+            {showAddCustomer ? (
+              <div style={styles.formCard}>
+                <div style={styles.fieldLabel}>Naam</div>
+                <input style={styles.input} value={newCustName} onChange={(e) => setNewCustName(e.target.value)} placeholder='Customer ka naam' autoFocus />
+                <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Mobile Number</div>
+                <input style={styles.input} inputMode='numeric' value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)} placeholder='98765 43210' />
+                <div style={{ ...styles.fieldLabel, marginTop: 10 }}>City (optional)</div>
+                <input style={styles.input} value={newCustCity} onChange={(e) => setNewCustCity(e.target.value)} placeholder='Jaise Rajkot' />
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button
+                    style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }}
+                    onClick={async () => {
+                      const newJobId = await onCreateCustomer(newCustName, newCustPhone, newCustCity);
+                      if (newJobId) {
+                        setNewCustName(''); setNewCustPhone(''); setNewCustCity(''); setShowAddCustomer(false);
+                        setActiveJobId(newJobId);
+                      }
+                    }}
+                  >
+                    Add Karein
+                  </button>
+                  <button style={styles.cancelBtn} onClick={() => { setShowAddCustomer(false); setNewCustName(''); setNewCustPhone(''); setNewCustCity(''); }}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button style={styles.addBtn} onClick={() => setShowAddCustomer(true)}><UserPlus size={14} /> Apna Naya Customer Add Karein</button>
+            )}
+          </div>
+        )}
 
         <div style={{ ...styles.sectionTitle, marginTop: 16 }}>Aapke assigned kaam ({jobs.length})</div>
         {jobs.length === 0 && <div style={styles.emptySmall}>Abhi koi kaam assign nahi hua hai.</div>}
@@ -5537,7 +5842,12 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, onSav
           <button key={j.id} style={styles.miniRowClickArea} onClick={() => setActiveJobId(j.id)}>
             <div style={{ flex: 1, textAlign: 'left' }}>
               <div style={styles.itemDesc}>{j.customerName}</div>
-              <div style={styles.itemSub}>{STATUS[j.status]?.label || j.status} - Commission: {currency(commission)}</div>
+              <div style={styles.itemSub}>
+                {STATUS[j.status]?.label || j.status} - Commission: {currency(commission)}
+                {!j.appointment && ' - Visit book karna baaki hai'}
+                {j.appointment && j.appointment.status === 'requested' && ' - Visit confirm karna baaki hai'}
+                {j.appointment && (j.appointment.status === 'confirmed' || j.appointment.status === 'rescheduled') && j.appointment.confirmedDate && (' - Visit: ' + formatDate(j.appointment.confirmedDate))}
+              </div>
             </div>
             <ChevronRight size={16} color='#C7CCDC' />
           </button>
@@ -5977,32 +6287,85 @@ function AdminKarigarPerformance({ staff, jobs, attendance }) {
 // partner's own app computes it (percentage of what's actually been
 // COLLECTED so far, not the full estimate), so the two always agree on
 // the number, and nobody's surprised at payout time.
-function AdminCommissionReport({ staff, jobs }) {
+function AdminCommissionReport({ staff, jobs, setStaff, showToast }) {
+  const [payoutAmountByPartner, setPayoutAmountByPartner] = useState({});
   const partners = staff.filter((s) => s.role === 'regional_partner');
   const rows = partners.map((p) => {
     const assignedJobs = jobs.filter((j) => j.assignedStaffId === p.id);
+    const completedJobs = assignedJobs.filter((j) => j.status === 'delivered' || j.status === 'paid');
     const commissionByJob = assignedJobs.map((j) => ({ job: j, commission: Math.round(jobPaid(j) * ((p.commissionPercent || 0) / 100)) }));
-    const totalCommission = commissionByJob.reduce((s, c) => s + c.commission, 0);
-    return { partner: p, assignedJobs, commissionByJob, totalCommission };
+    const totalEarned = commissionByJob.reduce((s, c) => s + c.commission, 0);
+    const totalPaidOut = (p.commissionPayouts || []).reduce((s, po) => s + Number(po.amount || 0), 0);
+    const balanceOwed = totalEarned - totalPaidOut;
+    return { partner: p, assignedJobs, completedCount: completedJobs.length, commissionByJob, totalEarned, totalPaidOut, balanceOwed };
   });
-  const grandTotal = rows.reduce((s, r) => s + r.totalCommission, 0);
+  const grandTotalOwed = rows.reduce((s, r) => s + r.balanceOwed, 0);
+  const leaderboard = [...rows].sort((a, b) => b.completedCount - a.completedCount);
+
+  // Recorded directly on the partner's own staff record (not a
+  // separate collection) - a payout is inherently tied to one partner,
+  // and keeping it there means AdminCommissionReport and the partner's
+  // own app (which reads this same staff record) always show the
+  // exact same running balance without needing to sync two places.
+  const recordPayout = (partnerId) => {
+    const amount = payoutAmountByPartner[partnerId];
+    if (!amount || Number(amount) <= 0) { showToast('Sahi amount daalein', true); return; }
+    const payout = { id: uid(), amount: Number(amount), date: new Date().toISOString() };
+    setStaff(staff.map((s) => (s.id === partnerId ? { ...s, commissionPayouts: [...(s.commissionPayouts || []), payout] } : s)));
+    setPayoutAmountByPartner({ ...payoutAmountByPartner, [partnerId]: '' });
+    showToast('Payout record ho gaya');
+  };
 
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Regional Partner Commission</div>
-      <div style={styles.plainTextMuted}>Har partner ko ab tak kitna commission bantа hai - jo customer se collect ho chuka hai, usी par.</div>
+      <div style={styles.plainTextMuted}>Har partner ko ab tak kitna commission bantа hai, kितna de diya hai, aur kितna baaki hai.</div>
+      {leaderboard.length > 1 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={styles.fieldLabel}>Leaderboard</div>
+          {leaderboard.map((r, i) => (
+            <div key={r.partner.id} style={{ ...styles.itemRow, marginTop: 6 }}>
+              <div style={{ width: 22, fontWeight: 800 }}>#{i + 1}</div>
+              <div style={{ flex: 1 }}>
+                <div style={styles.itemDesc}>{r.partner.name}</div>
+              </div>
+              <div style={styles.itemDesc}>{r.completedCount} kaam poore</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi Regional Partner add nahi kiya.</div>}
       {rows.length > 0 && (
         <div style={{ ...styles.statRow2, marginTop: 10 }}>
           <StatCard icon={<Users size={16} />} label='Partners' value={rows.length} />
-          <StatCard icon={<IndianRupee size={16} />} label='Total Owed' value={currency(grandTotal)} accent />
+          <StatCard icon={<IndianRupee size={16} />} label='Total Baaki' value={currency(grandTotalOwed)} accent />
         </div>
       )}
       {rows.map((r) => (
         <div key={r.partner.id} style={{ ...styles.reviewCard, marginTop: 10 }}>
           <div style={styles.cardName}>{r.partner.name}</div>
           <div style={styles.itemSub}>{r.partner.commissionPercent}% commission - {r.assignedJobs.length} job{r.assignedJobs.length !== 1 ? 's' : ''} assigned</div>
-          <div style={{ fontSize: 18, fontWeight: 800, color: BRAND.navy, marginTop: 6 }}>{currency(r.totalCommission)}</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+            <div>
+              <div style={styles.itemSub}>Total Kamaya</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: BRAND.navy }}>{currency(r.totalEarned)}</div>
+            </div>
+            <div>
+              <div style={styles.itemSub}>De Diya</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: '#2F7D4F' }}>{currency(r.totalPaidOut)}</div>
+            </div>
+            <div>
+              <div style={styles.itemSub}>Baaki Hai</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: r.balanceOwed > 0 ? BRAND.gold : '#2F7D4F' }}>{currency(r.balanceOwed)}</div>
+            </div>
+          </div>
+          {r.balanceOwed > 0 && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <input style={styles.input} inputMode='numeric' placeholder='Amount de diya' value={payoutAmountByPartner[r.partner.id] || ''} onChange={(e) => setPayoutAmountByPartner({ ...payoutAmountByPartner, [r.partner.id]: e.target.value })} />
+              <button style={{ ...styles.cardActionBtn, flexShrink: 0 }} onClick={() => recordPayout(r.partner.id)}>Payout Record Karein</button>
+            </div>
+          )}
           {r.commissionByJob.filter((c) => c.commission > 0).map((c) => (
             <div key={c.job.id} style={{ ...styles.itemRow, marginTop: 6 }}>
               <div style={{ flex: 1 }}>
@@ -6276,7 +6639,7 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
         if (branchFilter !== 'all' && (!job || job.branch !== branchFilter)) return false;
         if (query.trim()) {
           const q = query.toLowerCase();
-          return customer.name.toLowerCase().includes(q) || customer.phone.includes(q) || (job?.flatNo || '').toLowerCase().includes(q);
+          return customer.name.toLowerCase().includes(q) || customer.phone.includes(q) || (job?.flatNo || '').toLowerCase().includes(q) || (job?.city || '').toLowerCase().includes(q);
         }
         return true;
       });
@@ -6418,6 +6781,7 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
                     {customer.phoneVerified && <span style={styles.verifiedTag}><ShieldCheck size={10} /> Verified</span>}
                     <span style={styles.metaItem}><Calendar size={11} /> {formatDate(customer.createdAt)}</span>
                     {BUSINESS.branches.length > 1 && job?.branch && <span style={styles.metaItem}>{job.branch}</span>}
+                    {job?.city && <span style={styles.metaItem}>{job.city}</span>}
                   </div>
                 </div>
                 {job && <StageBadge status={job.status} />}
@@ -6735,6 +7099,23 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
         <button style={styles.addBtn} onClick={addItem}><Plus size={14} /> Add item</button>
         {itemTemplates && <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={saveCurrentAsTemplate}>Save as template</button>}
       </div>
+
+      {(job.suggestedItems || []).length > 0 && (
+        <div style={{ ...styles.card, marginTop: 12, borderColor: BRAND.gold, borderWidth: 1.5 }}>
+          <div style={styles.fieldLabel}>Regional Partner Ke Suggestions</div>
+          <div style={styles.plainTextMuted}>Local rate suggest kiye hain - approve karne par hi estimate mein add hoगा.</div>
+          {job.suggestedItems.map((s) => (
+            <div key={s.id} style={{ ...styles.formCard, marginTop: 8 }}>
+              <div style={styles.itemDesc}>{s.desc}</div>
+              <div style={styles.itemSub}>{currency(s.rate)} - {s.suggestedBy} ne suggest kiya</div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => approveSuggestedItem(s)}><CheckCircle2 size={13} /> Approve Karein</button>
+                <button style={styles.cancelBtn} onClick={() => rejectSuggestedItem(s.id)}>Reject</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {(job.items || []).length === 0 && <div style={styles.emptySmall}>No items added yet.</div>}
 
@@ -7271,6 +7652,20 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     onSave({ ...job, items: job.items.map((it) => (it.id === id ? { ...it, ...patch } : it)) });
   };
   const removeItem = (id) => onSave({ ...job, items: job.items.filter((it) => it.id !== id) });
+  // Moves a Regional Partner's suggested local rate into the REAL
+  // estimate (job.items) - the only way a suggestion ever actually
+  // affects what the customer is billed, since suggestedItems itself
+  // is never read by jobTotal/jobPaid anywhere in the app.
+  const approveSuggestedItem = (suggestion) => {
+    const item = { id: uid(), desc: suggestion.desc, length: '', height: '', qty: '1', rate: suggestion.rate };
+    let next = { ...job, items: [...(job.items || []), item], suggestedItems: (job.suggestedItems || []).filter((s) => s.id !== suggestion.id) };
+    next = logActivity(next, 'Partner suggestion approved: ' + suggestion.desc);
+    onSave(next);
+    showToast('Estimate mein add ho gaya');
+  };
+  const rejectSuggestedItem = (suggestionId) => {
+    onSave({ ...job, suggestedItems: (job.suggestedItems || []).filter((s) => s.id !== suggestionId) });
+  };
 
   const addPayment = () => {
     if (!newPayment.amount) return;
@@ -7439,7 +7834,27 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
             {staff && staff.some((s) => s.role === 'karigar' || s.role === 'regional_partner') && (
               <div style={{ marginTop: 16 }}>
                 <div style={styles.fieldLabel}>Karigar / Regional Partner assign karein</div>
-                <select style={styles.input} value={job.assignedStaffId || ''} onChange={(e) => onSave({ ...job, assignedStaffId: e.target.value || null })}>
+                <select
+                  style={styles.input}
+                  value={job.assignedStaffId || ''}
+                  onChange={(e) => {
+                    const newStaffId = e.target.value || null;
+                    onSave({ ...job, assignedStaffId: newStaffId });
+                    // A staff-targeted push (not admin-bound or
+                    // customer-bound, so it goes straight through
+                    // window.pushMessaging here rather than the shared
+                    // pushNotification helper) - only fires when this
+                    // is a genuinely NEW assignment (not re-selecting
+                    // the same person), and only if that person has
+                    // ever enabled notifications on their own device.
+                    if (newStaffId && newStaffId !== job.assignedStaffId && window.pushMessaging) {
+                      const assignedStaff = staff.find((s) => s.id === newStaffId);
+                      if (assignedStaff?.pushToken) {
+                        window.pushMessaging.sendPush(assignedStaff.pushToken, BUSINESS.name, 'Aapko ' + job.customerName + ' ka naya kaam assign hua hai').catch(() => {});
+                      }
+                    }
+                  }}
+                >
                   <option value=''>Koi assign nahi</option>
                   {staff.filter((s) => s.role === 'karigar' || s.role === 'regional_partner').map((s) => <option key={s.id} value={s.id}>{s.name}{s.role === 'regional_partner' ? ' (Regional Partner)' : ''}</option>)}
                 </select>
@@ -9138,7 +9553,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         <div style={{ padding: '12px 16px 0' }}>
           <button style={styles.backLink} onClick={() => setShowCommissionReport(false)}><ArrowLeft size={13} /> Settings</button>
         </div>
-        <AdminCommissionReport staff={staff} jobs={jobs || []} />
+        <AdminCommissionReport staff={staff} jobs={jobs || []} setStaff={setStaff} showToast={showToast} />
       </div>
     );
   }
