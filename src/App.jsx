@@ -281,6 +281,8 @@ const BUSINESS = {
   website: 'www.shreekrushnpvcfurniture.site',
 };
 
+const PAYMENT_METHODS = ['Cash', 'UPI', 'Bank Transfer', 'Cheque', 'Card'];
+
 const ESTIMATE_TERMS = [
   {
     title: 'Payment Terms',
@@ -472,18 +474,28 @@ async function buildReceiptPdfDoc(job, payment) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
-  // Navy header band with the logo and business name, matching the
-  // app's own brand colors - a plain black-text-on-white header (the
-  // old design) didn't look distinctly "this business", especially
-  // once printed or viewed as a thumbnail in WhatsApp.
+  // Navy header band with the logo, business name, and tagline -
+  // matching the app's own brand colors throughout, and the tagline
+  // specifically because it's what turns "a company that sells
+  // furniture" into "Premium PVC Interior Solutions" in the reader's
+  // first glance - the same positioning cue used across the app's own
+  // branding, not something this PDF should be the one place missing.
   const navy = [15, 27, 61];
   const gold = [168, 151, 95];
   doc.setFillColor(...navy);
-  doc.rect(0, 0, pageWidth, 38, 'F');
+  doc.rect(0, 0, pageWidth, 40, 'F');
 
   try {
     const logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
-    doc.addImage(logoDataUrl, 'PNG', 15, 7, 24, 24);
+    doc.addImage(logoDataUrl, 'PNG', 15, 8, 24, 24);
+    // A large, very faint version of the same logo in the page body -
+    // a watermark is what makes a document read as an official,
+    // branded original rather than something that could be a generic
+    // template with the business's name typed in.
+    doc.saveGraphicsState();
+    doc.setGState(new doc.GState({ opacity: 0.05 }));
+    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 45, pageHeight / 2 - 45, 90, 90);
+    doc.restoreGraphicsState();
   } catch (e) {
     // Logo fetch failed (offline, blocked, etc.) - the receipt is still
     // fully valid and usable without it, just without the image.
@@ -492,20 +504,25 @@ async function buildReceiptPdfDoc(job, payment) {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(15);
   doc.setFont(undefined, 'bold');
-  doc.text(BUSINESS.name, 44, 17);
-  doc.setFontSize(8.5);
+  doc.text(BUSINESS.name, 44, 16);
+  doc.setFontSize(8);
+  doc.setFont(undefined, 'italic');
+  doc.setTextColor(...gold);
+  doc.text(BUSINESS.tagline, 44, 21);
   doc.setFont(undefined, 'normal');
-  doc.text(BUSINESS.addressLine, 44, 23);
-  doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, 44, 28);
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(8.5);
+  doc.text(BUSINESS.addressLine, 44, 27);
+  doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, 44, 32);
 
   // Thin formal border frame around the rest of the page, below the
   // header band - the same "this is a document worth keeping, not
   // just a chat message" cue the warranty certificate uses.
   doc.setDrawColor(...gold);
   doc.setLineWidth(0.6);
-  doc.rect(8, 44, pageWidth - 16, pageHeight - 60);
+  doc.rect(8, 46, pageWidth - 16, pageHeight - 62);
 
-  let y = 56;
+  let y = 58;
   doc.setTextColor(...navy);
   doc.setFontSize(14);
   doc.setFont(undefined, 'bold');
@@ -514,7 +531,19 @@ async function buildReceiptPdfDoc(job, payment) {
   doc.setDrawColor(...gold);
   doc.setLineWidth(0.8);
   doc.line(pageWidth / 2 - 22, y, pageWidth / 2 + 22, y);
-  y += 12;
+
+  // PAID badge - a small stamp-like element in the corner, the kind
+  // of visual confirmation a formal receipt is expected to carry so
+  // it doesn't read as a plain itemized note.
+  doc.setDrawColor(...gold);
+  doc.setLineWidth(0.6);
+  doc.roundedRect(pageWidth - 42, 50, 24, 10, 2, 2, 'D');
+  doc.setFontSize(9);
+  doc.setFont(undefined, 'bold');
+  doc.setTextColor(...gold);
+  doc.text('PAID', pageWidth - 30, 56.5, { align: 'center' });
+
+  y += 14;
 
   // A neat two-column key/value block instead of a plain left-aligned
   // list - the fixed label column width keeps every value lined up
@@ -537,8 +566,16 @@ async function buildReceiptPdfDoc(job, payment) {
     doc.text(formatPhoneDisplay(job.phone), valueX, y);
     y += 7;
   }
+  if (job.flatNo || job.address) {
+    doc.text('Address', labelX, y);
+    doc.text([job.flatNo, job.address].filter(Boolean).join(', '), valueX, y, { maxWidth: pageWidth - valueX - 15 });
+    y += 7;
+  }
   doc.text('Receipt Date', labelX, y);
   doc.text(formatDate(payment.date), valueX, y);
+  y += 7;
+  doc.text('Payment Method', labelX, y);
+  doc.text(payment.method || 'Cash', valueX, y);
   y += 7;
   doc.text('Receipt No', labelX, y);
   doc.setFont(undefined, 'bold');
@@ -579,6 +616,27 @@ async function buildReceiptPdfDoc(job, payment) {
   doc.line(15, y, pageWidth - 15, y);
   y += 10;
 
+  // Items this payment relates to - a receipt that only shows an
+  // amount, with no link back to what was actually being paid for,
+  // leaves the reader needing to cross-reference against the
+  // estimate separately.
+  const items = job.items || [];
+  if (items.length > 0) {
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(...navy);
+    doc.text('Work Covered', 15, y);
+    y += 5.5;
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(80, 80, 80);
+    items.forEach((it) => {
+      doc.text('-  ' + it.desc, 18, y);
+      y += 5;
+    });
+    y += 5;
+  }
+
   const total = jobTotal(job);
   const paidTillNow = jobPaid(job);
   const dueNow = jobDue(job);
@@ -611,6 +669,11 @@ async function buildReceiptPdfDoc(job, payment) {
   doc.setTextColor(100, 100, 100);
   doc.setFont(undefined, 'normal');
   doc.text('Authorized Signatory', pageWidth - 46, y, { align: 'center' });
+  y += 4.5;
+  doc.setFont(undefined, 'bold');
+  doc.setTextColor(...navy);
+  doc.setFontSize(8);
+  doc.text(BUSINESS.owner, pageWidth - 46, y, { align: 'center' });
 
   doc.setFontSize(9);
   doc.setFont(undefined, 'italic');
@@ -631,38 +694,52 @@ async function buildReceiptPdfDoc(job, payment) {
 async function buildWarrantyPdfDoc(job) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
   const navy = [15, 27, 61];
   const gold = [168, 151, 95];
   const paper = [248, 250, 251];
 
-  // Navy header band with logo - matches the same professional header
-  // style the price list PDF already uses, rather than the certificate
-  // looking like a visually different document from everything else
-  // the business hands a customer.
+  // Navy header band with logo and tagline - matches the same
+  // professional header style the receipt/price list PDFs use, rather
+  // than the certificate looking like a visually different document
+  // from everything else the business hands a customer.
   doc.setFillColor(...navy);
-  doc.rect(0, 0, pageWidth, 34, 'F');
+  doc.rect(0, 0, pageWidth, 36, 'F');
+  let logoDataUrl = null;
   try {
-    const logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
+    logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
     doc.addImage(logoDataUrl, 'PNG', 15, 6, 22, 22);
+    // Large, very faint watermark version of the logo in the page
+    // body - the same "reads as an official original, not a generic
+    // template" cue the receipt now carries.
+    doc.saveGraphicsState();
+    doc.setGState(new doc.GState({ opacity: 0.05 }));
+    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 48, pageHeight / 2 - 48, 96, 96);
+    doc.restoreGraphicsState();
   } catch (e) {
     // Logo fetch failed - certificate is still fully valid without it.
   }
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(14);
   doc.setFont(undefined, 'bold');
-  doc.text(BUSINESS.name, 42, 15);
-  doc.setFontSize(8);
+  doc.text(BUSINESS.name, 42, 14);
+  doc.setFontSize(7.5);
+  doc.setFont(undefined, 'italic');
+  doc.setTextColor(...gold);
+  doc.text(BUSINESS.tagline, 42, 19);
   doc.setFont(undefined, 'normal');
-  doc.text(BUSINESS.addressLine, 42, 21);
-  doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, 42, 26);
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(8);
+  doc.text(BUSINESS.addressLine, 42, 25);
+  doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, 42, 30);
 
   // Full-page border frame, since a certificate customarily reads as
   // more formal/keepsake than an ordinary transactional document.
   doc.setDrawColor(...gold);
   doc.setLineWidth(0.8);
-  doc.rect(8, 40, pageWidth - 16, doc.internal.pageSize.getHeight() - 48);
+  doc.rect(8, 42, pageWidth - 16, pageHeight - 50);
 
-  let y = 54;
+  let y = 56;
   doc.setTextColor(...navy);
   doc.setFontSize(19);
   doc.setFont(undefined, 'bold');
@@ -715,7 +792,7 @@ async function buildWarrantyPdfDoc(job) {
     doc.setFontSize(9);
     doc.setTextColor(70, 70, 70);
     items.forEach((it) => {
-      doc.text('•  ' + it.desc, 23, y);
+      doc.text('-  ' + it.desc, 23, y);
       y += 5.5;
     });
     y += 5;
@@ -779,7 +856,18 @@ async function buildWarrantyPdfDoc(job) {
   doc.setTextColor(90, 90, 90);
   doc.text('Delivery Date: ' + formatDate(job.expectedCompletionDate || job.createdAt), 20, y);
   doc.text('Certificate No: WC-' + job.id.slice(-8).toUpperCase(), pageWidth - 20, y, { align: 'right' });
-  y += 22;
+  y += 7;
+
+  // For a warranty specifically, "who do I actually call if something
+  // needs fixing years from now" is exactly the detail that goes
+  // missing without it - putting BOTH branch contacts here (not just
+  // the head office) matters since a customer may be closer to Vadodara
+  // than Ahmedabad by the time they need to use this.
+  doc.setFontSize(8);
+  doc.setTextColor(110, 110, 110);
+  const contactLine = BUSINESS.branches.map((b) => b.city + ': ' + b.phone).join('   |   ');
+  doc.text('Warranty Claims: ' + contactLine, 20, y, { maxWidth: pageWidth - 40 });
+  y += 15;
 
   doc.setDrawColor(180, 180, 180);
   doc.line(pageWidth - 72, y, pageWidth - 20, y);
@@ -790,6 +878,11 @@ async function buildWarrantyPdfDoc(job) {
   y += 4.5;
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...navy);
+  doc.text(BUSINESS.owner, pageWidth - 46, y, { align: 'center' });
+  y += 4;
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(120, 120, 120);
   doc.text(BUSINESS.name, pageWidth - 46, y, { align: 'center' });
 
   return doc;
@@ -5755,24 +5848,31 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
                   <div key={s.id} style={styles.itemRow}>
                     <div style={{ flex: 1 }}>
                       <div style={styles.itemDesc}>{s.desc}</div>
-                      {s.length && s.height && <div style={styles.itemSub}>{s.length}&quot; x {s.height}&quot;{s.qty > 1 ? (' x ' + s.qty) : ''}</div>}
+                      {s.length && s.height && <div style={styles.itemSub}>{s.length}&quot; x {s.height}&quot; = {estimateItemSqft(s).toFixed(2)} sq ft{s.qty > 1 ? (' x ' + s.qty) : ''}</div>}
                       <div style={styles.itemSub}>Pending approval</div>
                     </div>
-                    <div style={styles.itemDesc}>{currency(s.rate)}</div>
+                    <div style={styles.itemDesc}>{currency(estimateItemAmount(s))}</div>
                   </div>
                 ))}
-                <div style={styles.totalBar}><span>Suggested Total</span><span style={styles.totalAmt}>{currency(activeJob.suggestedItems.reduce((sum, s) => sum + (Number(s.qty || 1) * Number(s.rate || 0)), 0))}</span></div>
+                <div style={styles.totalBar}><span>Suggested Total</span><span style={styles.totalAmt}>{currency(activeJob.suggestedItems.reduce((sum, s) => sum + estimateItemAmount(s), 0))}</span></div>
               </div>
             )}
             <input style={{ ...styles.input, marginTop: 8 }} placeholder='Item (jaise "Wardrobe")' value={suggestDesc} onChange={(e) => setSuggestDesc(e.target.value)} />
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <input style={styles.input} inputMode='decimal' placeholder='Length (ft)' value={suggestLength} onChange={(e) => setSuggestLength(e.target.value)} />
-              <input style={styles.input} inputMode='decimal' placeholder='Height (ft)' value={suggestHeight} onChange={(e) => setSuggestHeight(e.target.value)} />
+              <input style={styles.input} inputMode='decimal' placeholder='Length (inch)' value={suggestLength} onChange={(e) => setSuggestLength(e.target.value)} />
+              <input style={styles.input} inputMode='decimal' placeholder='Height (inch)' value={suggestHeight} onChange={(e) => setSuggestHeight(e.target.value)} />
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <input style={styles.input} inputMode='numeric' placeholder='Qty' value={suggestQty} onChange={(e) => setSuggestQty(e.target.value)} />
               <input style={styles.input} inputMode='numeric' placeholder='Rate (₹)' value={suggestRate} onChange={(e) => setSuggestRate(e.target.value)} />
             </div>
+            <div style={styles.hintText}>Length x Height se sq ft auto-calculate hoga (inch to sq ft: LxH/144). Bina naap ke item ho to yeh khaali chhod ke Qty use karein.</div>
+            {suggestLength && suggestHeight && (
+              <div style={{ ...styles.itemSub, marginTop: 4 }}>
+                {suggestLength}&quot; x {suggestHeight}&quot; = <b>{estimateItemSqft({ length: suggestLength, height: suggestHeight }).toFixed(2)} sq ft</b>
+                {suggestRate && <span> x {currency(suggestRate)} = <b>{currency(estimateItemAmount({ length: suggestLength, height: suggestHeight, qty: suggestQty, rate: suggestRate }))}</b></span>}
+              </div>
+            )}
             <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => suggestRateItem(activeJob)}>Item Add Karein</button>
           </div>
 
@@ -7285,8 +7385,8 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
           {job.suggestedItems.map((s) => (
             <div key={s.id} style={{ ...styles.formCard, marginTop: 8 }}>
               <div style={styles.itemDesc}>{s.desc}</div>
-              {s.length && s.height && <div style={styles.itemSub}>{s.length}&quot; x {s.height}&quot;{s.qty > 1 ? (' x ' + s.qty) : ''}</div>}
-              <div style={styles.itemSub}>{currency(s.rate)} - {s.suggestedBy} ne banaya</div>
+              {s.length && s.height && <div style={styles.itemSub}>{s.length}&quot; x {s.height}&quot; = {estimateItemSqft(s).toFixed(2)} sq ft{s.qty > 1 ? (' x ' + s.qty) : ''}</div>}
+              <div style={styles.itemSub}>{currency(estimateItemAmount(s))} - {s.suggestedBy} ne banaya</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => approveSuggestedItem(s)}><CheckCircle2 size={13} /> Approve Karein</button>
                 <button style={styles.cancelBtn} onClick={() => rejectSuggestedItem(s.id)}>Reject</button>
@@ -7751,7 +7851,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
   };
   const [resolutionNoteText, setResolutionNoteText] = useState('');
   const [newItem, setNewItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
-  const [newPayment, setNewPayment] = useState({ amount: '', note: '' });
+  const [newPayment, setNewPayment] = useState({ amount: '', note: '', method: 'Cash' });
   const [newExtraWork, setNewExtraWork] = useState({ title: '', items: [] });
   const [newExtraWorkItem, setNewExtraWorkItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
   const [pricingItems, setPricingItems] = useState([]);
@@ -7848,7 +7948,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
 
   const addPayment = () => {
     if (!newPayment.amount) return;
-    let nextJob = { ...job, payments: [...(job.payments || []), { id: uid(), amount: newPayment.amount, note: newPayment.note.trim(), date: new Date().toISOString() }] };
+    let nextJob = { ...job, payments: [...(job.payments || []), { id: uid(), amount: newPayment.amount, note: newPayment.note.trim(), method: newPayment.method, date: new Date().toISOString() }] };
     nextJob = logActivity(nextJob, 'Payment received: ' + currency(newPayment.amount));
     // jobTotal(nextJob) > 0 guards against a job with NO estimate yet
     // (jobTotal is 0, so jobDue is trivially 0 too) auto-flipping to
@@ -7858,7 +7958,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     // job straight past appointment/estimate/in_progress to paid.
     if (jobTotal(nextJob) > 0 && jobDue(nextJob) <= 0 && nextJob.status !== 'paid') nextJob.status = 'paid';
     onSave(nextJob);
-    setNewPayment({ amount: '', note: '' });
+    setNewPayment({ amount: '', note: '', method: 'Cash' });
     showToast('Payment recorded');
   };
   const removePayment = (id) => onSave({ ...job, payments: job.payments.filter((p) => p.id !== id) });
@@ -8301,6 +8401,9 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
               <input style={{ ...styles.input, flex: 1 }} placeholder='Amount ₹' inputMode='decimal' value={newPayment.amount} onChange={(e) => setNewPayment((n) => ({ ...n, amount: e.target.value }))} />
               <input style={{ ...styles.input, flex: 1.4 }} placeholder='Note' value={newPayment.note} onChange={(e) => setNewPayment((n) => ({ ...n, note: e.target.value }))} />
             </div>
+            <select style={{ ...styles.input, marginTop: 8 }} value={newPayment.method} onChange={(e) => setNewPayment((n) => ({ ...n, method: e.target.value }))}>
+              {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
             <button style={styles.addBtn} onClick={addPayment}><Plus size={14} /> Record payment</button>
           </div>
         )}
