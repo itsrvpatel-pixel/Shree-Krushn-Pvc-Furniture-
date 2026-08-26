@@ -2379,7 +2379,7 @@ export default function App() {
   // a specific customer (admin did something that customer needs to
   // know) - decides who real push notifications actually get sent to,
   // alongside the existing in-app bell entry every type already gets.
-  const ADMIN_BOUND_NOTIFICATION_TYPES = ['new_appointment', 'estimate_approved', 'estimate_change_request', 'estimate_cancelled', 'extra_work_requested', 'extra_work_needs_price', 'follow_up_needed', 'customer_birthday', 'karigar_message', 'payment_received', 'complaint_reported'];
+  const ADMIN_BOUND_NOTIFICATION_TYPES = ['new_appointment', 'estimate_approved', 'estimate_change_request', 'estimate_cancelled', 'extra_work_requested', 'extra_work_needs_price', 'follow_up_needed', 'customer_birthday', 'karigar_message', 'payment_received', 'complaint_reported', 'work_completed_by_karigar'];
   const CUSTOMER_BOUND_NOTIFICATION_TYPES = ['appointment_confirmed', 'payment_due', 'extra_work_approved', 'extra_work_rejected', 'complaint_in_progress', 'complaint_resolved'];
   const pushNotification = useCallback((type, message, jobId) => {
     setNotificationsRaw((current) => {
@@ -2628,6 +2628,7 @@ export default function App() {
       newJob.assignedStaffId = myStaffId;
       if (city && city.trim()) newJob.city = city.trim();
       await persistJobs([newJob, ...jobs]);
+      pushNotification('follow_up_needed', session.staffName + ' (Regional Partner) ne naya customer add kiya: ' + newCustomer.name, newJob.id);
       showToast('Customer add ho gaya');
       return newJob.id;
     };
@@ -5327,17 +5328,7 @@ function ReviewPanel({ job, onSave, showToast }) {
         ))}
       </div>
       <textarea style={{ ...styles.input, minHeight: 90, resize: 'vertical', marginTop: 10 }} value={text} onChange={(e) => setText(e.target.value)} placeholder='Kaam, quality, service ke baare mein likhein...' />
-      <button style={styles.primaryBtn2} onClick={submit}><Send size={14} /> Submit Review</button>
-
-      {job.review && (
-        <div style={styles.reviewPreview}>
-          <div style={styles.fieldLabel}>Aapki last submitted review</div>
-          <div style={{ display: 'flex', gap: 2, marginBottom: 4 }}>
-            {[1,2,3,4,5].map((n) => <Star key={n} size={14} fill={n <= job.review.rating ? BRAND.gold : 'none'} color={n <= job.review.rating ? BRAND.gold : '#D7DAE5'} />)}
-          </div>
-          <div style={styles.plainText}>{job.review.text}</div>
-        </div>
-      )}
+      <button style={styles.primaryBtn2} onClick={submit}><Send size={14} /> {job.review ? 'Review Update Karein' : 'Submit Review'}</button>
     </div>
   );
 }
@@ -5646,6 +5637,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
   const submitPhotoToGallery = (job, photo) => {
     if (!submitCategory) { showToast('Category select karein', true); return; }
     onSubmitGalleryPhoto({ id: uid(), url: photo.url, origUrl: photo.origUrl, category: submitCategory, submittedBy: staffName, jobId: job.id, customerName: job.customerName, createdAt: new Date().toISOString() });
+    pushNotification('follow_up_needed', staffName + ' (Regional Partner) ne gallery ke liye ek photo bheji hai (' + submitCategory + ') - approve karein', job.id);
     setSubmittingPhotoId(null); setSubmitCategory('');
     showToast('Gallery ke liye bhej diya - admin approve karenge');
   };
