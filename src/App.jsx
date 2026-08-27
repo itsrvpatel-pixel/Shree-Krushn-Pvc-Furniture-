@@ -798,52 +798,46 @@ async function buildWarrantyPdfDoc(job) {
     y += 5;
   }
 
-  // Two clearly separated warranty terms, side by side where space
-  // allows - the material warranty (against manufacturing defects) and
-  // the business's own maintenance warranty (covering minor service
-  // visits/adjustments) are genuinely different promises with
-  // different durations, so presenting them as one merged paragraph
-  // would blur exactly the distinction a customer would want to refer
-  // back to later.
-  const boxWidth = (pageWidth - 40 - 8) / 2;
-  const boxHeight = 34;
-  const box1X = 20;
-  const box2X = 20 + boxWidth + 8;
+  // A single, centered warranty box - Shree Krushn's own 2-year
+  // maintenance warranty (free service visits for fitting/adjustment
+  // issues). Previously showed this alongside a separate "5 Years
+  // Material Warranty" box, but that covered manufacturing defects on
+  // material/hardware supplied by third-party companies, not something
+  // Shree Krushn itself administers - keeping only the warranty the
+  // business actually stands behind avoids the certificate implying a
+  // guarantee on someone else's product.
+  const boxWidth = pageWidth - 80;
+  const boxHeight = 36;
+  const boxX = 40;
   const boxTop = y;
 
   doc.setFillColor(...paper);
   doc.setDrawColor(...gold);
   doc.setLineWidth(0.4);
-  doc.roundedRect(box1X, boxTop, boxWidth, boxHeight, 2, 2, 'FD');
-  doc.roundedRect(box2X, boxTop, boxWidth, boxHeight, 2, 2, 'FD');
+  doc.roundedRect(boxX, boxTop, boxWidth, boxHeight, 2, 2, 'FD');
 
-  doc.setFontSize(16);
+  doc.setFontSize(20);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...gold);
-  doc.text('5 Years', box1X + boxWidth / 2, boxTop + 11, { align: 'center' });
-  doc.text('2 Years', box2X + boxWidth / 2, boxTop + 11, { align: 'center' });
+  doc.text('2 Years', pageWidth / 2, boxTop + 13, { align: 'center' });
 
-  doc.setFontSize(8.5);
+  doc.setFontSize(10);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...navy);
-  doc.text('Material Warranty', box1X + boxWidth / 2, boxTop + 17, { align: 'center' });
-  doc.text('Shree Krushn', box2X + boxWidth / 2, boxTop + 17, { align: 'center' });
-  doc.text('Maintenance Warranty', box2X + boxWidth / 2, boxTop + 21, { align: 'center' });
+  doc.text('Shree Krushn Maintenance Warranty', pageWidth / 2, boxTop + 21, { align: 'center' });
 
-  doc.setFontSize(7);
+  doc.setFontSize(8);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(100, 100, 100);
-  doc.text('Manufacturing defects in', box1X + boxWidth / 2, boxTop + 25, { align: 'center' });
-  doc.text('material/hardware only', box1X + boxWidth / 2, boxTop + 29, { align: 'center' });
-  doc.text('Free service visits for', box2X + boxWidth / 2, boxTop + 27, { align: 'center' });
-  doc.text('fitting/adjustment issues', box2X + boxWidth / 2, boxTop + 31, { align: 'center' });
+  doc.text('Free service visits for fitting/adjustment issues', pageWidth / 2, boxTop + 27, { align: 'center' });
+  doc.text('on the work covered above', pageWidth / 2, boxTop + 32, { align: 'center' });
 
   y = boxTop + boxHeight + 10;
 
   doc.setFontSize(8);
   doc.setFont(undefined, 'italic');
   doc.setTextColor(120, 120, 120);
-  doc.text('Both warranties exclude physical damage, misuse, water damage beyond normal use, and normal wear and tear.', pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - 44 });
+  doc.text('This warranty excludes physical damage, misuse, water damage beyond normal use, and normal wear and tear.', pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - 44 });
   y += 12;
 
   doc.setDrawColor(220, 220, 220);
@@ -1452,62 +1446,28 @@ function SmartImg({ src, origUrl, alt, style, onError: onErrorProp }) {
    the actual PDF file lives in Firebase Storage (not Firestore - a single
    PDF can be tens of MB, far past Firestore's 1MiB document cap), and
    'url' is the direct HTTPS download link Firebase Storage hands back
-   after upload. Opening a brochure is just following that link - no
-   separate fetch step needed. ---- */
-// Fetches the PDF (from wherever it's actually hosted - Firebase
-// Storage) and opens it as a local blob: URL instead of the original
-// link directly - a customer opening a brochure or estimate PDF would
-// otherwise see the raw storage URL (firebasestorage.googleapis.com/...)
-// in their browser's address bar, which exposes which backend
-// infrastructure the app runs on. A blob: URL is generated entirely
-// in the browser from the downloaded file, so the address bar just
-// shows a local blob reference, never the original hosting domain.
-//
-// The blank tab is opened FIRST, synchronously, before any await -
-// window.open() called after an await has already run is treated by
-// most browsers as no longer tied to the original user tap, and gets
-// silently popup-blocked. Opening blank immediately (still within the
-// click handler's synchronous execution) preserves that "this came
-// from a real tap" status, and the tab's location is then set once the
-// blob is ready. `noopener` is deliberately left off this specific
-// call (unlike other window.open calls in this file) because keeping
-// a reference to the new tab is exactly what's needed to navigate it
-// afterward - this is a same-app blob: URL being loaded into a tab we
-// just opened ourselves, not an arbitrary external link, so the usual
-// tabnabbing concern noopener guards against doesn't apply here.
+   after upload. ---- */
+// Opens the PDF directly at its real URL, in a new tab - a PREVIOUS
+// version of this fetched the PDF and opened it as a blob: URL instead
+// (to hide the Firebase Storage hosting domain from the address bar),
+// but that runs into a well-documented iOS Safari bug where navigating
+// a tab to a blob: URL frequently renders a BLANK PAGE instead of the
+// PDF - exactly the "catalog PDF opens but shows blank" complaint this
+// was built to fix. These are public-facing company catalogs, not
+// sensitive data, so the minor cosmetic benefit of hiding the storage
+// URL isn't worth the real risk of the PDF failing to open at all on a
+// large share of customers' phones.
 async function openOrDownloadPdf(url, filename) {
-  const win = window.open('', '_blank', 'noreferrer');
   try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('fetch failed');
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    if (win && !win.closed) {
-      win.location.href = blobUrl;
-    } else {
-      window.location.href = blobUrl;
+    const win = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!win) {
+      // Popup blocked - fall back to navigating the current tab, which
+      // still gets the customer to the PDF even if it's not a new tab.
+      window.location.href = url;
     }
-    // Revoking too soon can break the tab still loading the PDF, so
-    // this waits well past any reasonable load time rather than
-    // revoking immediately.
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
     return true;
   } catch (e) {
-    // Fetch/blob approach failed (network hiccup, host blocks
-    // cross-origin fetch, etc.) - fall back to the original direct-URL
-    // behavior in that same already-open tab, so the PDF still opens,
-    // just without hiding the host in this one fallback case.
-    if (win && !win.closed) {
-      win.location.href = url;
-    } else {
-      try {
-        const win2 = window.open(url, '_blank', 'noopener,noreferrer');
-        if (!win2) window.location.href = url;
-      } catch (e2) {
-        return false;
-      }
-    }
-    return true;
+    return false;
   }
 }
 
@@ -1847,6 +1807,18 @@ export default function App() {
           }
         })();
       }
+    } catch (e) {
+      // Any failure here (network hiccup, a transient Firestore error,
+      // etc.) previously left galleryLoadedRef permanently set to true
+      // from the top of this function, silently blocking every future
+      // load attempt for the rest of the session - a customer whose
+      // very first app-load happened to race a flaky connection would
+      // see an empty Gallery for good, with no way to retry short of
+      // fully closing and reopening the app. Resetting the ref here
+      // means the NEXT call (opening the Gallery tab again, or the
+      // next app-level retry) genuinely tries again instead of
+      // silently no-op-ing.
+      galleryLoadedRef.current = false;
     } finally {
       setGalleryLoading(false);
     }
@@ -2000,6 +1972,16 @@ export default function App() {
   // once-per-calendar-day dedup pattern as the payment-due check above,
   // so admin gets a nudge to call the customer rather than the lead
   // silently sitting untouched.
+  //
+  // Counts from estimateGivenAt (set the moment items first appear on
+  // the job - see AdminJobDetail's addItem/approveSuggestedItem/
+  // mergeExtraWorkIntoEstimate), NOT job.createdAt (when the customer
+  // originally registered) - those two can be days apart if admin
+  // doesn't build the estimate right away, and counting from
+  // registration would fire a "hasn't responded" alert for a customer
+  // who received their estimate only hours ago. Falls back to
+  // createdAt only for jobs from before this field existed, so old
+  // jobs already sitting stale don't silently stop getting flagged.
   const FOLLOW_UP_AFTER_DAYS = 3;
   useEffect(() => {
     if (!loaded) return;
@@ -2008,9 +1990,10 @@ export default function App() {
     const needsFollowUp = jobs.filter((j) => {
       if (j.estimateStatus) return false; // already responded to
       if ((j.items || []).length === 0) return false; // no estimate given yet
-      if (!j.createdAt) return false;
-      const daysSinceCreated = (now - new Date(j.createdAt).getTime()) / (1000 * 60 * 60 * 24);
-      return daysSinceCreated >= FOLLOW_UP_AFTER_DAYS && j.lastFollowUpAlertDate !== todayKey;
+      const sinceDate = j.estimateGivenAt || j.createdAt;
+      if (!sinceDate) return false;
+      const daysSinceGiven = (now - new Date(sinceDate).getTime()) / (1000 * 60 * 60 * 24);
+      return daysSinceGiven >= FOLLOW_UP_AFTER_DAYS && j.lastFollowUpAlertDate !== todayKey;
     });
     if (needsFollowUp.length === 0) return;
     const next = jobs.map((j) =>
@@ -2380,7 +2363,7 @@ export default function App() {
   // know) - decides who real push notifications actually get sent to,
   // alongside the existing in-app bell entry every type already gets.
   const ADMIN_BOUND_NOTIFICATION_TYPES = ['new_appointment', 'estimate_approved', 'estimate_change_request', 'estimate_cancelled', 'extra_work_requested', 'extra_work_needs_price', 'follow_up_needed', 'customer_birthday', 'karigar_message', 'payment_received', 'complaint_reported', 'work_completed_by_karigar'];
-  const CUSTOMER_BOUND_NOTIFICATION_TYPES = ['appointment_confirmed', 'payment_due', 'extra_work_approved', 'extra_work_rejected', 'complaint_in_progress', 'complaint_resolved'];
+  const CUSTOMER_BOUND_NOTIFICATION_TYPES = ['appointment_confirmed', 'payment_due', 'extra_work_approved', 'extra_work_rejected', 'complaint_in_progress', 'complaint_resolved', 'payment_completed'];
   const pushNotification = useCallback((type, message, jobId) => {
     setNotificationsRaw((current) => {
       const entry = { id: uid(), type, message, jobId: jobId || null, createdAt: new Date().toISOString(), readBy: [] };
@@ -2649,6 +2632,7 @@ export default function App() {
           onCreateCustomer={createMyCustomer}
           gallery={gallery}
           galleryLoading={galleryLoading}
+          loadGalleryData={loadGalleryData}
           brochures={brochures}
           categories={categories}
           onSubmitGalleryPhoto={submitMyGalleryPhoto}
@@ -3063,6 +3047,7 @@ const NOTIFICATION_META = {
   complaint_in_progress: { icon: 'Hammer', label: 'Repair Started' },
   complaint_resolved: { icon: 'CheckCircle2', label: 'Complaint Resolved' },
   work_completed_by_karigar: { icon: 'CheckCircle2', label: 'Karigar Marked Complete' },
+  payment_completed: { icon: 'ThumbsUp', label: 'Payment Complete' },
 };
 const NOTIFICATION_ICONS = { Calendar, CheckCircle2, ThumbsUp, MessageSquare, XCircle, IndianRupee, AlertCircle, Hammer, Star };
 
@@ -3426,7 +3411,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
       {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
       {galleryEverVisited && (
         <div style={{ display: tab === 'gallery' ? 'block' : 'none' }}>
-          <GalleryBrowser gallery={gallery} galleryLoading={galleryLoading} brochures={brochures} categories={categories} testimonials={testimonials} job={job} onSaveJob={onSaveJob} showToast={showToast} />
+          <GalleryBrowser gallery={gallery} galleryLoading={galleryLoading} loadGalleryData={loadGalleryData} brochures={brochures} categories={categories} testimonials={testimonials} job={job} onSaveJob={onSaveJob} showToast={showToast} />
         </div>
       )}
       {tab === 'requirements' && <RequirementsPanel job={job} onSave={onSaveJob} showToast={showToast} categories={categories} customer={customer} gallery={gallery} />}
@@ -3502,8 +3487,12 @@ function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout }) {
           // work sometimes genuinely runs a little past the original
           // estimate for good reason, and the customer's own admin
           // contact is the right place for a status update, not a
-          // banner implying something's wrong.
-          mainText = <span>Expected: <b>{dateText}</b></span>;
+          // banner implying something's wrong. Labeled "Delivery Date"
+          // rather than "Expected" here specifically - once the date
+          // has passed, "Expected" reads like the app is still
+          // predicting a FUTURE date, when it's actually just showing
+          // the date admin already committed to, now overdue.
+          mainText = <span>Delivery Date: <b>{dateText}</b></span>;
         }
         return (
           <div style={styles.deliveryDateBanner}>
@@ -3576,13 +3565,22 @@ function QuickTile({ icon, label, onClick }) {
 }
 
 /* ---- Gallery browser ---- */
-function GalleryBrowser({ gallery, galleryLoading, brochures, categories, testimonials, job, onSaveJob, showToast }) {
+function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, categories, testimonials, job, onSaveJob, showToast }) {
   const [activeCat, setActiveCat] = useState(null);
   const [lightbox, setLightbox] = useState(null);
   const [showBrochures, setShowBrochures] = useState(false);
   const [showTestimonials, setShowTestimonials] = useState(false);
   const [query, setQuery] = useState('');
   const [showAllPhotos, setShowAllPhotos] = useState(false);
+  // Safety-net retry: loadGalleryData's own internal guard (see its
+  // definition) makes this a safe no-op if the gallery already loaded
+  // successfully at app startup - but if that FIRST attempt failed
+  // (a network hiccup, most commonly), this is what actually gives it
+  // another chance, since opening this screen is the natural moment a
+  // customer would notice something's missing and want it to try again.
+  useEffect(() => {
+    if (loadGalleryData) loadGalleryData();
+  }, [loadGalleryData]);
   // How many photo cards are actually rendered into the DOM at once,
   // regardless of how many exist in the current view - a category with
   // 700 photos rendering all 700 <img>+wrapper elements immediately
@@ -4467,14 +4465,54 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
 // rate types, using the rates admin sets in Settings; nothing here
 // gets saved anywhere or sent to admin, unlike Requirements.
 function InstantEstimateCalculator({ estimateRates, showToast, onBack }) {
-  const [calcItems, setCalcItems] = useState([]);
+  // Persisted to localStorage (not just React state) specifically
+  // because customers reported losing everything they'd entered on a
+  // refresh, or just by tapping back to Home and returning - this is a
+  // scratch calculation with no real customer/job attached yet, so
+  // there's nothing in Firestore to save it against; localStorage is
+  // the right place for a personal, this-device, work-in-progress
+  // draft like this. Cleared explicitly (see resetCalculator below),
+  // not automatically, since customers may come back to it over
+  // several sessions while comparing options before an actual visit.
+  const CALC_STORAGE_KEY = 'instant_estimate_draft';
+  const loadStoredCalc = () => {
+    try {
+      const raw = window.localStorage.getItem(CALC_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : { items: [], rateId: null };
+    } catch (e) {
+      return { items: [], rateId: null };
+    }
+  };
+  const storedCalc = loadStoredCalc();
+  const [calcItems, setCalcItems] = useState(storedCalc.items || []);
   const [calcLength, setCalcLength] = useState('');
   const [calcHeight, setCalcHeight] = useState('');
   const [calcQty, setCalcQty] = useState('1');
   const rates = (estimateRates && estimateRates.length > 0) ? estimateRates : [{ id: 'r1', name: 'Laminate', rate: '1000', unit: 'sqft' }, { id: 'r2', name: 'Without Laminate', rate: '700', unit: 'sqft' }];
-  const [calcRateId, setCalcRateId] = useState(rates[0]?.id);
+  const [calcRateId, setCalcRateId] = useState(storedCalc.rateId && rates.some((r) => r.id === storedCalc.rateId) ? storedCalc.rateId : rates[0]?.id);
   const calcSelectedRate = rates.find((r) => r.id === calcRateId);
   const calcIsPieceType = calcSelectedRate?.unit === 'piece';
+
+  // Saves on every change rather than only on unmount/navigate-away,
+  // since a refresh happening mid-session (the exact complaint) means
+  // there's no "on the way out" moment to rely on - whatever was saved
+  // most recently is what survives.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CALC_STORAGE_KEY, JSON.stringify({ items: calcItems, rateId: calcRateId }));
+    } catch (e) {
+      // Storage full or unavailable (private browsing, etc.) - the
+      // calculator still works for this session, it just won't
+      // survive a refresh in that case.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calcItems, calcRateId]);
+
+  const resetCalculator = () => {
+    setCalcItems([]);
+    try { window.localStorage.removeItem(CALC_STORAGE_KEY); } catch (e) {}
+    showToast('Calculator clear ho gaya');
+  };
 
   const calcItemAmount = (it) => {
     const rateEntry = rates.find((r) => r.id === it.rateId);
@@ -4503,7 +4541,10 @@ function InstantEstimateCalculator({ estimateRates, showToast, onBack }) {
   return (
     <div style={{ padding: '12px 16px' }}>
       {onBack && <button style={styles.backLink} onClick={onBack}><ArrowLeft size={13} /> Home</button>}
-      <div style={{ ...styles.sectionTitle, marginTop: onBack ? 10 : 0 }}>Instant Estimate Calculator</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: onBack ? 10 : 0 }}>
+        <div style={styles.sectionTitle}>Instant Estimate Calculator</div>
+        {calcItems.length > 0 && <button style={styles.linkBtn2} onClick={resetCalculator}>Clear Karein</button>}
+      </div>
       <div style={styles.plainTextMuted}>Apni measurements daal ke turant approx price dekhein. Ye ek approx estimate hai, final estimate admin banayenge site visit ke baad.</div>
 
       <div style={{ ...styles.formCard, marginTop: 14 }}>
@@ -4942,17 +4983,47 @@ function EstimateView({ job, onSave, showToast }) {
                     </tr>
                   );
                 })}
-                {(job.extraWork || []).filter((e) => e.status === 'approved' && !e.mergedIntoEstimate).map((e, i) => (
-                  <tr key={e.id} style={{ background: '#FBF6EC' }}>
-                    <td style={styles.qtd}>{(job.items || []).length + i + 1}</td>
-                    <td style={{ ...styles.qtd, textAlign: 'left' }}>{e.desc} <span style={styles.reqCatBadge}>Extra Work</span></td>
-                    <td style={styles.qtd}>-</td>
-                    <td style={styles.qtd}>-</td>
-                    <td style={styles.qtd}>-</td>
-                    <td style={styles.qtd}>-</td>
-                    <td style={{ ...styles.qtd, fontWeight: 800 }}>{currency(e.amount)}</td>
-                  </tr>
-                ))}
+                {(job.extraWork || []).filter((e) => e.status === 'approved' && !e.mergedIntoEstimate).map((e, i) => {
+                  const rowOffset = (job.items || []).length + i + 1;
+                  // Extra work priced with a full item breakdown (length/
+                  // height/qty/rate, same shape as a regular estimate
+                  // item - see AdminJobDetail's pricing flow) shows that
+                  // breakdown here too, sub-item by sub-item, exactly
+                  // like the main estimate above it - a customer
+                  // approving extra work deserves to see the same
+                  // measurement detail they'd see for anything else on
+                  // the estimate, not just a lump description and price.
+                  // Falls back to the old single dashed row only for
+                  // extra work that was priced as a flat amount with no
+                  // item breakdown at all.
+                  if (e.items && e.items.length > 0) {
+                    return e.items.map((it, j) => {
+                      const sqft = estimateItemSqft(it);
+                      return (
+                        <tr key={e.id + '-' + it.id} style={{ background: '#FBF6EC' }}>
+                          <td style={styles.qtd}>{rowOffset}{e.items.length > 1 ? ('.' + (j + 1)) : ''}</td>
+                          <td style={{ ...styles.qtd, textAlign: 'left' }}>{it.desc}{j === 0 && <span style={styles.reqCatBadge}> Extra Work</span>}</td>
+                          <td style={styles.qtd}>{sqft !== null ? it.length : '-'}</td>
+                          <td style={styles.qtd}>{sqft !== null ? it.height : '-'}</td>
+                          <td style={styles.qtd}>{sqft !== null ? sqft.toFixed(2) : (it.qty || 1)}</td>
+                          <td style={styles.qtd}>{currency(it.rate)}</td>
+                          <td style={{ ...styles.qtd, fontWeight: 800 }}>{currency(estimateItemAmount(it))}</td>
+                        </tr>
+                      );
+                    });
+                  }
+                  return (
+                    <tr key={e.id} style={{ background: '#FBF6EC' }}>
+                      <td style={styles.qtd}>{rowOffset}</td>
+                      <td style={{ ...styles.qtd, textAlign: 'left' }}>{e.desc} <span style={styles.reqCatBadge}>Extra Work</span></td>
+                      <td style={styles.qtd}>-</td>
+                      <td style={styles.qtd}>-</td>
+                      <td style={styles.qtd}>-</td>
+                      <td style={styles.qtd}>-</td>
+                      <td style={{ ...styles.qtd, fontWeight: 800 }}>{currency(e.amount)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -5054,17 +5125,47 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
   const complaints = job.complaints || [];
   const [showComplaintForm, setShowComplaintForm] = useState(false);
   const [complaintText, setComplaintText] = useState('');
+  const [complaintPhotoDataUri, setComplaintPhotoDataUri] = useState(null);
   const addComplaint = async () => {
     if (!complaintText.trim()) { showToast('Problem ka detail likhein', true); return; }
     const entry = { id: uid(), text: complaintText.trim(), status: 'open', createdAt: new Date().toISOString() };
+    // Uploaded here (not left as a data: URI on the complaint itself) -
+    // same reasoning as every other photo in this app: a data: URI
+    // embedded directly in the job document would make it huge and hit
+    // Firestore's document-size limits fast, whereas Firebase Storage
+    // has no such cap.
+    if (complaintPhotoDataUri) {
+      const uploaded = await window.fileStorage.upload('complaint_' + entry.id, complaintPhotoDataUri);
+      if (uploaded && !uploaded.error) {
+        entry.photo = { url: uploaded.url, origUrl: null };
+      } else {
+        showToast('Photo upload nahi ho payi, lekin complaint bhej rahe hain', true);
+      }
+    }
     let next = { ...job, complaints: [entry, ...complaints] };
     next = logActivity(next, 'Complaint reported: ' + entry.text);
     const ok = await onSave(next);
     if (ok) {
-      setComplaintText('');
+      setComplaintText(''); setComplaintPhotoDataUri(null);
       setShowComplaintForm(false);
       showToast('Complaint darj ho gayi, admin ko bata diya gaya hai');
       if (pushNotification) pushNotification('complaint_reported', (customer?.name || job.customerName) + ' ne ek problem report ki hai', job.id);
+    }
+  };
+  const [uploadingComplaintPhoto, setUploadingComplaintPhoto] = useState(false);
+  const handleComplaintPhotoPicked = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('Sirf image file select karein', true); return; }
+    setUploadingComplaintPhoto(true);
+    try {
+      const dataUri = await prepareImageForUpload(file);
+      setComplaintPhotoDataUri(dataUri);
+    } catch (err) {
+      showToast('Photo load nahi ho payi', true);
+    } finally {
+      setUploadingComplaintPhoto(false);
     }
   };
 
@@ -5158,9 +5259,20 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
           {showComplaintForm ? (
             <div style={{ marginTop: 10 }}>
               <textarea style={{ ...styles.input, minHeight: 70, resize: 'vertical' }} placeholder='Kya problem hai, detail mein likhein...' value={complaintText} onChange={(e) => setComplaintText(e.target.value)} autoFocus />
+              {complaintPhotoDataUri ? (
+                <div style={{ position: 'relative', marginTop: 8, width: 90, height: 90 }}>
+                  <img src={complaintPhotoDataUri} alt='Problem' style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} />
+                  <button style={styles.photoDeleteBtn} onClick={() => setComplaintPhotoDataUri(null)}><Trash2 size={12} color='#FFF' /></button>
+                </div>
+              ) : (
+                <label style={{ ...styles.addBtn, marginTop: 8, cursor: 'pointer', display: 'inline-flex' }}>
+                  <Camera size={14} /> {uploadingComplaintPhoto ? 'Load ho raha hai...' : 'Photo Add Karein'}
+                  <input type='file' accept='image/*' style={{ display: 'none' }} onChange={handleComplaintPhotoPicked} disabled={uploadingComplaintPhoto} />
+                </label>
+              )}
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addComplaint}>Report Karein</button>
-                <button style={styles.cancelBtn} onClick={() => { setShowComplaintForm(false); setComplaintText(''); }}>Cancel</button>
+                <button style={styles.cancelBtn} onClick={() => { setShowComplaintForm(false); setComplaintText(''); setComplaintPhotoDataUri(null); }}>Cancel</button>
               </div>
             </div>
           ) : (
@@ -5549,7 +5661,7 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
 // running commission total, but still funnels status changes through
 // admin (via a notification) rather than letting the partner directly
 // alter payment records themselves.
-function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commissionPayouts, hasPushToken, onEnablePush, onCreateCustomer, gallery, galleryLoading, brochures, categories, onSubmitGalleryPhoto, onSaveJob, onLogout, showToast, pushNotification }) {
+function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commissionPayouts, hasPushToken, onEnablePush, onCreateCustomer, gallery, galleryLoading, loadGalleryData, brochures, categories, onSubmitGalleryPhoto, onSaveJob, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('jobs');
   const [jobQuery, setJobQuery] = useState('');
   const [activeJobId, setActiveJobId] = useState(null);
@@ -5694,9 +5806,13 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
     if (!newPaymentAmount) { showToast('Amount daalein', true); return; }
     let nextJob = { ...job, payments: [...(job.payments || []), { id: uid(), amount: newPaymentAmount, note: newPaymentNote.trim(), date: new Date().toISOString(), collectedBy: staffName + ' (Regional Partner)' }] };
     nextJob = logActivity(nextJob, staffName + ' (Regional Partner) ne payment collect ki: ' + currency(newPaymentAmount));
-    if (jobTotal(nextJob) > 0 && jobDue(nextJob) <= 0 && nextJob.status !== 'paid') nextJob.status = 'paid';
+    const justCompletedPayment = jobTotal(nextJob) > 0 && jobDue(nextJob) <= 0 && nextJob.status !== 'paid';
+    if (justCompletedPayment) nextJob.status = 'paid';
     onSaveJob(nextJob);
     pushNotification('payment_received', staffName + ' (Regional Partner) ne ' + job.customerName + ' se ' + currency(newPaymentAmount) + ' collect kiya hai', job.id);
+    if (justCompletedPayment) {
+      pushNotification('payment_completed', 'Aapka poora payment ho gaya hai - ' + BUSINESS.name + ' ki taraf se dhanyavaad! Hume aapke saath kaam karke khushi hui.', job.id);
+    }
     setNewPaymentAmount(''); setNewPaymentNote('');
     showToast('Payment record ho gayi');
   };
@@ -6030,7 +6146,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
       )}
 
       {tab === 'gallery' && (
-        <GalleryBrowser gallery={gallery} galleryLoading={galleryLoading} brochures={brochures} categories={categories} testimonials={[]} job={null} onSaveJob={() => {}} showToast={showToast} />
+        <GalleryBrowser gallery={gallery} galleryLoading={galleryLoading} loadGalleryData={loadGalleryData} brochures={brochures} categories={categories} testimonials={[]} job={null} onSaveJob={() => {}} showToast={showToast} />
       )}
 
       {tab === 'notifications' && (
@@ -6268,6 +6384,24 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
     return daysSince >= STALE_DAYS_THRESHOLD;
   });
 
+  // Same estimate-given-but-no-response jobs the top-level App
+  // component already pushes a notification for (see its matching
+  // comment) - repeated here as a proper, always-visible list rather
+  // than relying on admin having seen and kept that one notification,
+  // which is easy to miss or accidentally dismiss. Uses the same
+  // estimateGivenAt-based timing (falling back to createdAt only for
+  // older jobs from before that field existed) so this list and the
+  // notification always agree on which jobs actually qualify.
+  const FOLLOW_UP_AFTER_DAYS_DISPLAY = 3;
+  const followUpJobs = visibleJobs.filter((j) => {
+    if (j.estimateStatus) return false;
+    if ((j.items || []).length === 0) return false;
+    const sinceDate = j.estimateGivenAt || j.createdAt;
+    if (!sinceDate) return false;
+    const daysSince = Math.floor((new Date() - new Date(sinceDate)) / (1000 * 60 * 60 * 24));
+    return daysSince >= FOLLOW_UP_AFTER_DAYS_DISPLAY;
+  });
+
   if (showList === 'inProgress') {
     return (
       <div>
@@ -6366,6 +6500,36 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
       </div>
     );
   }
+  if (showList === 'followUpJobs') {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          <div style={styles.sectionTitle}>Follow-up Chahiye</div>
+          <div style={styles.plainTextMuted}>In customers ko estimate mila hai lekin {FOLLOW_UP_AFTER_DAYS_DISPLAY}+ din se koi response nahi - ek call/message karke follow-up karein, lead thanda na ho.</div>
+          {followUpJobs.length === 0 && <div style={styles.emptySmall}>Koi pending follow-up nahi hai - sab estimates par response aa chuka hai.</div>}
+          {followUpJobs.map((j) => {
+            const sinceDate = j.estimateGivenAt || j.createdAt;
+            const daysSince = Math.floor((new Date() - new Date(sinceDate)) / (1000 * 60 * 60 * 24));
+            const followUpText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'Aapko humne estimate bheja tha - koi sawaal ho ya kuch clarify karna ho to bataiye, hum madad karenge.' + NEWLINE + NEWLINE + '- ' + BUSINESS.name;
+            return (
+              <div key={j.id} style={styles.reviewCard}>
+                <button style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }} onClick={() => onOpenJob(j.id)}>
+                  <div style={styles.cardName}>{j.customerName}</div>
+                  <div style={styles.itemSub}>{daysSince} din se estimate par response nahi</div>
+                </button>
+                <a href={whatsAppShareUrl(j.phone, followUpText)} target='_blank' rel='noopener noreferrer' style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
+                  <Send size={13} /> Follow-up Bhejein
+                </a>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
   if (showList === 'allEstimates') {
     return (
       <div>
@@ -6410,6 +6574,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <StatCard icon={<Calendar size={16} />} label="Aaj ki Visits" value={todaysVisits.length} onClick={() => setShowList('todaysVisits')} />
         <StatCard icon={<Send size={16} />} label="Kal ki Visits" value={tomorrowsVisits.length} onClick={() => setShowList('tomorrowsVisits')} />
         <StatCard icon={<AlertCircle size={16} />} label="Update Chahiye" value={staleJobs.length} accent={staleJobs.length > 0} onClick={() => setShowList('staleJobs')} />
+        <StatCard icon={<MessageSquare size={16} />} label="Follow-up Chahiye" value={followUpJobs.length} accent={followUpJobs.length > 0} onClick={() => setShowList('followUpJobs')} />
         <StatCard icon={<FileText size={16} />} label='Estimates Given' value={jobs.filter((j) => (j.items || []).length > 0).length} onClick={() => setShowList('allEstimates')} />
         <StatCard icon={<UserPlus size={16} />} label='New Appointments' value={pendingAppointments} onClick={() => setShowList('newAppointments')} />
       </div>
@@ -7705,6 +7870,19 @@ function QuotationPreview({ job, onClose, showToast }) {
         </div>
         <div style={{ ...styles.sheetBody, padding: 0 }}>
           <div style={styles.quoteDoc} id='quotation-print-area'>
+            {/* Faint background watermark - same "reads as an official
+                original, not a generic template" touch the receipt and
+                warranty PDFs already carry (see their matching
+                comments) - this one's a plain <img> with CSS opacity
+                rather than jsPDF's GState API, since the estimate PDF
+                is built by screenshotting this DOM element
+                (html2canvas), not drawn directly with jsPDF calls. */}
+            <img
+              src='/icon-512.png'
+              alt=''
+              style={{ position: 'absolute', top: '50%', left: '50%', width: 260, height: 260, transform: 'translate(-50%, -50%)', opacity: 0.05, pointerEvents: 'none', zIndex: 0 }}
+            />
+            <div style={{ position: 'relative', zIndex: 1 }}>
             <div style={styles.quoteBlessingLine}>श्री कृष्ण शरणं ममः</div>
 
             <div style={styles.quoteHeader}>
@@ -7823,6 +8001,7 @@ function QuotationPreview({ job, onClose, showToast }) {
             ))}
 
             <div style={styles.quoteFooter}>Thank you for choosing {BUSINESS.name}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -7903,6 +8082,27 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     showToast('Complaint resolved mark ho gayi');
     if (pushNotification) pushNotification('complaint_resolved', 'Aapki complaint solve ho gayi hai', job.id);
   };
+  // Lets admin log a repair directly on an already-delivered job, even
+  // when the customer never reported anything through the app (a phone
+  // call, or admin noticing something on their own during a routine
+  // visit) - reuses the exact same complaints array and open/in_progress/
+  // resolved lifecycle a customer-reported complaint goes through, just
+  // tagged with source:'admin' so it's clear where it came from without
+  // needing a second, separate tracking list. This is specifically what
+  // gives admin a durable record of repair work done well after
+  // delivery, on customers who'd otherwise have no complaint trail at
+  // all if they just called instead of using the app.
+  const [showAdminRepairForm, setShowAdminRepairForm] = useState(false);
+  const [adminRepairText, setAdminRepairText] = useState('');
+  const addAdminRepair = () => {
+    if (!adminRepairText.trim()) { showToast('Repair ka detail likhein', true); return; }
+    const entry = { id: uid(), text: adminRepairText.trim(), status: 'open', source: 'admin', createdAt: new Date().toISOString() };
+    let next = { ...job, complaints: [entry, ...(job.complaints || [])] };
+    next = logActivity(next, 'Repair admin ne add kiya: ' + entry.text);
+    onSave(next);
+    setAdminRepairText(''); setShowAdminRepairForm(false);
+    showToast('Repair add ho gaya');
+  };
 
   const addItem = () => {
     if (!newItem.desc.trim()) return;
@@ -7915,6 +8115,14 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
       rate: newItem.rate || '0',
     };
     let next = { ...job, items: [...(job.items || []), item] };
+    // Marks exactly when the customer FIRST actually had an estimate to
+    // respond to - the follow-up reminder below needs this, not
+    // job.createdAt (customer registration date), since those two can
+    // be days apart if admin doesn't build the estimate right away. Set
+    // once, on the transition from 0 items to 1+ - never touched again,
+    // so adding more items later or an admin correction doesn't reset
+    // the "customer's clock" the follow-up reminder is running against.
+    if (!(job.items || []).length) next.estimateGivenAt = new Date().toISOString();
     next = logActivity(next, 'Estimate item added: ' + newItem.desc.trim());
     onSave(next);
     setNewItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
@@ -7930,6 +8138,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
   const approveSuggestedItem = (suggestion) => {
     const item = { id: uid(), desc: suggestion.desc, length: suggestion.length || '', height: suggestion.height || '', qty: suggestion.qty || '1', rate: suggestion.rate };
     let next = { ...job, items: [...(job.items || []), item], suggestedItems: (job.suggestedItems || []).filter((s) => s.id !== suggestion.id) };
+    if (!(job.items || []).length) next.estimateGivenAt = new Date().toISOString();
     next = logActivity(next, 'Partner suggestion approved: ' + suggestion.desc);
     onSave(next);
     showToast('Estimate mein add ho gaya');
@@ -7948,8 +8157,12 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     // tab is reachable at any stage, even before an estimate exists, so
     // without this guard a payment entered too early would skip the
     // job straight past appointment/estimate/in_progress to paid.
-    if (jobTotal(nextJob) > 0 && jobDue(nextJob) <= 0 && nextJob.status !== 'paid') nextJob.status = 'paid';
+    const justCompletedPayment = jobTotal(nextJob) > 0 && jobDue(nextJob) <= 0 && nextJob.status !== 'paid';
+    if (justCompletedPayment) nextJob.status = 'paid';
     onSave(nextJob);
+    if (justCompletedPayment && pushNotification) {
+      pushNotification('payment_completed', 'Aapka poora payment ho gaya hai - ' + BUSINESS.name + ' ki taraf se dhanyavaad! Hume aapke saath kaam karke khushi hui.', job.id);
+    }
     setNewPayment({ amount: '', note: '', method: 'Cash' });
     showToast('Payment recorded');
   };
@@ -8035,6 +8248,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
       items: [...(job.items || []), ...itemsToAdd],
       extraWork: extraWork.map((e) => (e.id === entry.id ? { ...e, mergedIntoEstimate: true } : e)),
     };
+    if (!(job.items || []).length) next.estimateGivenAt = new Date().toISOString();
     next = logActivity(next, 'Extra work estimate mein merge kiya: ' + entry.desc + ' (' + currency(entry.amount) + ')');
     onSave(next);
     showToast('Estimate mein merge ho gaya');
@@ -8132,12 +8346,35 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
               </div>
             )}
 
+            {(job.status === 'delivered' || job.status === 'paid') && (
+              <div style={{ marginTop: 16 }}>
+                <div style={styles.fieldLabel}>Repair Ka Record Rakhein</div>
+                <div style={styles.plainTextMuted}>Agar customer ne phone par bataya ho ya aapko khud pata chala ho ki kuch theek karna hai - yahan add karein, taaki record rahe.</div>
+                {showAdminRepairForm ? (
+                  <div style={{ marginTop: 8 }}>
+                    <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} placeholder='Kya repair karna hai, detail likhein...' value={adminRepairText} onChange={(e) => setAdminRepairText(e.target.value)} autoFocus />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addAdminRepair}>Add Karein</button>
+                      <button style={styles.cancelBtn} onClick={() => { setShowAdminRepairForm(false); setAdminRepairText(''); }}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => setShowAdminRepairForm(true)}><Plus size={14} /> Repair Add Karein</button>
+                )}
+              </div>
+            )}
+
             {(job.complaints || []).length > 0 && (
               <div style={{ marginTop: 16 }}>
                 <div style={styles.fieldLabel}>Complaints ({job.complaints.length})</div>
                 {job.complaints.map((c) => (
                   <div key={c.id} style={{ ...styles.formCard, marginTop: 8, padding: 10 }}>
-                    <div style={styles.itemDesc}>{c.text}</div>
+                    <div style={styles.itemDesc}>{c.text} {c.source === 'admin' && <span style={styles.reqCatBadge}>Admin ne add kiya</span>}</div>
+                    {c.photo && (
+                      <button style={{ border: 'none', padding: 0, background: 'none', cursor: 'pointer', marginTop: 8, display: 'block' }} onClick={() => setReqLightbox({ photos: [{ id: c.id, url: c.photo.url, origUrl: c.photo.origUrl, caption: c.text }], index: 0 })}>
+                        <SmartImg src={c.photo.url} origUrl={c.photo.origUrl} alt='Problem' style={{ width: 90, height: 90, objectFit: 'cover', borderRadius: 8 }} />
+                      </button>
+                    )}
                     <div style={styles.itemSub}>{formatDate(c.createdAt)}</div>
                     <ComplaintStageStepper status={c.status} />
                     {c.status === 'open' && (
@@ -10744,7 +10981,7 @@ const styles = {
   estItemRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: '1px solid #EEF0F5' },
   estItemNo: { width: 18, fontSize: 11, fontWeight: 700, color: BRAND.textMuted, flexShrink: 0 },
 
-  quoteDoc: { background: '#FFF', padding: '20px 18px 30px' },
+  quoteDoc: { background: '#FFF', padding: '20px 18px 30px', position: 'relative', overflow: 'hidden' },
   quoteHeader: { display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 14, borderBottom: '2px solid ' + BRAND.navy },
   quoteBizName: { fontWeight: 800, fontSize: 16, color: BRAND.navy, letterSpacing: -0.2 },
   quoteBlessingLine: { textAlign: 'center', fontSize: 12, fontWeight: 700, color: BRAND.gold, marginBottom: 10 },
