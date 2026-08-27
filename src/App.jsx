@@ -1627,6 +1627,8 @@ export default function App() {
   // both sources.
   const [archivedReviews, setArchivedReviewsRaw] = useState([]);
   const [faqs, setFaqsRaw] = useState([]);
+  const [materialSpecs, setMaterialSpecsRaw] = useState([]);
+  const [companyBenefits, setCompanyBenefitsRaw] = useState([]);
   const [itemTemplates, setItemTemplatesRaw] = useState([]);
   const [attendance, setAttendanceRaw] = useState([]);
   const [brochures, setBrochures] = useState([]);
@@ -1827,11 +1829,12 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw] = await Promise.all([
+        const [c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw] = await Promise.all([
           safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
           safeGet('archived_reviews'), safeGet('admin_push_tokens'), safeGet('faqs'), safeGet('dh_partner_pin'), safeGet('pending_gallery_photos'),
+          safeGet('material_specs'), safeGet('company_benefits'),
         ]);
         if (c) setCustomers(JSON.parse(c));
         if (j) setJobs(JSON.parse(j));
@@ -1851,6 +1854,8 @@ export default function App() {
         if (faqsRaw) setFaqsRaw(JSON.parse(faqsRaw));
         if (dhPp) setDhPartnerPin(dhPp);
         if (pendingGalleryRaw) setPendingGalleryPhotos(JSON.parse(pendingGalleryRaw));
+        if (materialSpecsRaw) setMaterialSpecsRaw(JSON.parse(materialSpecsRaw));
+        if (companyBenefitsRaw) setCompanyBenefitsRaw(JSON.parse(companyBenefitsRaw));
         // Gallery loads here too (not just lazily on tab-open) so the
         // app's overall startup behavior stays exactly as it always
         // was - loadGalleryData's own galleryLoadedRef guard means
@@ -2290,6 +2295,16 @@ export default function App() {
     try { await window.storage.set('faqs', JSON.stringify(list), true); }
     catch (e) { showToast('FAQ save failed', true); }
   }, []);
+  const persistMaterialSpecs = useCallback(async (list) => {
+    setMaterialSpecsRaw(list);
+    try { await window.storage.set('material_specs', JSON.stringify(list), true); }
+    catch (e) { showToast('Material specs save failed', true); }
+  }, []);
+  const persistCompanyBenefits = useCallback(async (list) => {
+    setCompanyBenefitsRaw(list);
+    try { await window.storage.set('company_benefits', JSON.stringify(list), true); }
+    catch (e) { showToast('Company benefits save failed', true); }
+  }, []);
   const persistPartnerPin = useCallback(async (pin) => {
     setPartnerPin(pin);
     try { await window.storage.set('partner_pin', pin, true); }
@@ -2363,7 +2378,7 @@ export default function App() {
   // know) - decides who real push notifications actually get sent to,
   // alongside the existing in-app bell entry every type already gets.
   const ADMIN_BOUND_NOTIFICATION_TYPES = ['new_appointment', 'estimate_approved', 'estimate_change_request', 'estimate_cancelled', 'extra_work_requested', 'extra_work_needs_price', 'follow_up_needed', 'customer_birthday', 'karigar_message', 'payment_received', 'complaint_reported', 'work_completed_by_karigar'];
-  const CUSTOMER_BOUND_NOTIFICATION_TYPES = ['appointment_confirmed', 'payment_due', 'extra_work_approved', 'extra_work_rejected', 'complaint_in_progress', 'complaint_resolved', 'payment_completed'];
+  const CUSTOMER_BOUND_NOTIFICATION_TYPES = ['appointment_confirmed', 'payment_due', 'extra_work_approved', 'extra_work_rejected', 'complaint_in_progress', 'complaint_resolved', 'payment_completed', 'question_answered'];
   const pushNotification = useCallback((type, message, jobId) => {
     setNotificationsRaw((current) => {
       const entry = { id: uid(), type, message, jobId: jobId || null, createdAt: new Date().toISOString(), readBy: [] };
@@ -2528,6 +2543,8 @@ export default function App() {
           attendance={attendance}
           estimateRates={estimateRates} setEstimateRates={persistEstimateRates}
           faqs={faqs} setFaqs={persistFaqs}
+          materialSpecs={materialSpecs} setMaterialSpecs={persistMaterialSpecs}
+          companyBenefits={companyBenefits} setCompanyBenefits={persistCompanyBenefits}
           archivedReviews={archivedReviews} setArchivedReviews={persistArchivedReviews}
           pendingGalleryPhotos={pendingGalleryPhotos} setPendingGalleryPhotos={persistPendingGalleryPhotos}
           pushNotification={pushNotification}
@@ -2712,6 +2729,8 @@ export default function App() {
         testimonials={featuredTestimonials}
         estimateRates={estimateRates}
         faqs={faqs}
+        materialSpecs={materialSpecs}
+        companyBenefits={companyBenefits}
         pushNotification={pushNotification}
         notifications={myNotifications}
         markNotificationRead={markNotificationRead}
@@ -3048,6 +3067,7 @@ const NOTIFICATION_META = {
   complaint_resolved: { icon: 'CheckCircle2', label: 'Complaint Resolved' },
   work_completed_by_karigar: { icon: 'CheckCircle2', label: 'Karigar Marked Complete' },
   payment_completed: { icon: 'ThumbsUp', label: 'Payment Complete' },
+  question_answered: { icon: 'MessageSquare', label: 'Question Answered' },
 };
 const NOTIFICATION_ICONS = { Calendar, CheckCircle2, ThumbsUp, MessageSquare, XCircle, IndianRupee, AlertCircle, Hammer, Star };
 
@@ -3267,8 +3287,83 @@ function StageBadge({ status, size }) {
 
 /* ===================== CUSTOMER APP ===================== */
 /* Everything below receives ONLY this one customer's data - never a list of others. */
-function HelpScreen({ faqs, onBack }) {
+// Two admin-curated lists, shown together on one screen a customer
+// reaches from Home - the physical facts about the material itself
+// (Material Specifications) and the case for choosing this business
+// specifically (why join Shree Krushn) are different questions, but a
+// customer deciding whether to move forward is usually weighing both
+// at once, so keeping them on the same screen (rather than splitting
+// across two separate taps) matches how someone actually reads this.
+function MaterialSpecsScreen({ materialSpecs, companyBenefits, onBack }) {
+  return (
+    <div style={{ paddingBottom: 20 }}>
+      <TopBar title='Hamari Khaasiyat' onBack={onBack} hideLogout />
+      <div style={{ padding: '12px 16px' }}>
+        <div style={styles.sectionTitle}>Hamare Material Ki Specifications</div>
+        {(!materialSpecs || materialSpecs.length === 0) ? (
+          <div style={styles.emptySmall}>Abhi koi specification add nahi hui hai.</div>
+        ) : (
+          materialSpecs.map((s) => (
+            <div key={s.id} style={{ ...styles.formCard, marginTop: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <ShieldCheck size={16} color={BRAND.gold} style={{ flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 13.5, color: BRAND.navy }}>{s.title}</div>
+                  <div style={{ ...styles.plainTextMuted, marginTop: 4 }}>{s.desc}</div>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+
+        <div style={{ ...styles.sectionTitle, marginTop: 20 }}>Hamare Saath Judne Ke Fayde</div>
+        {(!companyBenefits || companyBenefits.length === 0) ? (
+          <div style={styles.emptySmall}>Abhi koi benefit add nahi hua hai.</div>
+        ) : (
+          companyBenefits.map((b) => (
+            <div key={b.id} style={{ ...styles.formCard, marginTop: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <ThumbsUp size={16} color={BRAND.gold} style={{ flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 13.5, color: BRAND.navy }}>{b.title}</div>
+                  <div style={{ ...styles.plainTextMuted, marginTop: 4 }}>{b.desc}</div>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HelpScreen({ faqs, job, onSaveJob, pushNotification, customer, showToast, onBack }) {
   const [openId, setOpenId] = useState(null);
+  const [showAskForm, setShowAskForm] = useState(false);
+  const [questionText, setQuestionText] = useState('');
+  const questions = (job && job.questions) || [];
+
+  // A customer's own question, kept on the same job record their
+  // complaints/requirements already live on - visible only to this
+  // customer (they only ever see their own job) and to admin, same
+  // privacy boundary everything else on the job already has. Separate
+  // from the FAQ list above (which is a fixed, admin-curated set of
+  // common answers) since a question here is inherently personal - "my
+  // wardrobe" or "my delivery date" - not something a generic FAQ
+  // entry could answer.
+  const askQuestion = async () => {
+    if (!questionText.trim()) { showToast('Sawaal likhein', true); return; }
+    if (!job) { showToast('Pehle apna profile complete karein', true); return; }
+    const entry = { id: uid(), text: questionText.trim(), status: 'open', createdAt: new Date().toISOString() };
+    const next = { ...job, questions: [entry, ...questions] };
+    const ok = await onSaveJob(next);
+    if (ok) {
+      setQuestionText(''); setShowAskForm(false);
+      showToast('Sawaal bhej diya, jaldi jawab milega');
+      if (pushNotification) pushNotification('follow_up_needed', (customer?.name || job.customerName) + ' ne ek sawaal poocha hai', job.id);
+    }
+  };
+
   return (
     <div style={{ paddingBottom: 20 }}>
       <TopBar title='Help / FAQ' onBack={onBack} hideLogout />
@@ -3289,13 +3384,49 @@ function HelpScreen({ faqs, onBack }) {
             );
           })
         )}
+
+        {job && (
+          <div style={{ marginTop: 20 }}>
+            <div style={styles.sectionTitle}>Apna Sawaal Poochhein</div>
+            {questions.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                {questions.map((q) => (
+                  <div key={q.id} style={{ ...styles.formCard, marginTop: 8 }}>
+                    <div style={styles.itemDesc}>{q.text}</div>
+                    <div style={styles.itemSub}>{formatDate(q.createdAt)}</div>
+                    {q.status === 'answered' ? (
+                      <div style={{ ...styles.formCard, background: '#F0F7F0', marginTop: 8, padding: 8 }}>
+                        <div style={styles.itemSub}>{BUSINESS.name} ka jawab:</div>
+                        <div style={{ ...styles.itemDesc, marginTop: 2 }}>{q.answer}</div>
+                      </div>
+                    ) : (
+                      <div style={{ ...styles.itemSub, marginTop: 6, color: BRAND.gold }}>Jawab ka wait ho raha hai...</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {showAskForm ? (
+              <div style={{ ...styles.formCard, marginTop: 8 }}>
+                <textarea style={{ ...styles.input, minHeight: 70, resize: 'vertical' }} placeholder='Aapka sawaal likhein...' value={questionText} onChange={(e) => setQuestionText(e.target.value)} autoFocus />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={askQuestion}>Bhej Dein</button>
+                  <button style={styles.cancelBtn} onClick={() => { setShowAskForm(false); setQuestionText(''); }}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => setShowAskForm(true)}><Plus size={14} /> Naya Sawaal Poochhein</button>
+            )}
+          </div>
+        )}
+
         <div style={{ ...styles.plainTextMuted, marginTop: 16, textAlign: 'center' }}>Aur koi sawaal ho to {BUSINESS.phone} par call/WhatsApp karein.</div>
       </div>
     </div>
   );
 }
 
-function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, faqs, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
+function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, faqs, materialSpecs, companyBenefits, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
   // Registers this customer's own device for push notifications
   // (visit confirmed, payment due, etc.) - the token is stored
   // directly on their job record, since that's what pushNotification
@@ -3319,6 +3450,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
   const [tab, setTab] = useState('home');
   const [showProfile, setShowProfile] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showSpecs, setShowSpecs] = useState(false);
   // Once the Gallery tab has been visited, it stays MOUNTED (just
   // hidden via CSS when a different tab is active) instead of being
   // unmounted/remounted every time someone switches away and back -
@@ -3335,7 +3467,11 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
   }, [tab, galleryEverVisited]);
 
   if (showHelp) {
-    return <HelpScreen faqs={faqs} onBack={() => setShowHelp(false)} />;
+    return <HelpScreen faqs={faqs} job={job} onSaveJob={onSaveJob} pushNotification={pushNotification} customer={customer} showToast={showToast} onBack={() => setShowHelp(false)} />;
+  }
+
+  if (showSpecs) {
+    return <MaterialSpecsScreen materialSpecs={materialSpecs} companyBenefits={companyBenefits} onBack={() => setShowSpecs(false)} />;
   }
 
   if (showProfile) {
@@ -3367,6 +3503,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
           >
             <Send size={14} /> App Doston Ko Bhejein
           </a>
+          <button style={{ ...styles.addBtn, marginTop: 12 }} onClick={() => setShowSpecs(true)}><ShieldCheck size={14} /> Hamari Khaasiyat</button>
           <button style={{ ...styles.addBtn, marginTop: 12 }} onClick={() => setShowHelp(true)}><HelpCircle size={14} /> Help / FAQ</button>
           <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
         </div>
@@ -6217,7 +6354,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
   );
 }
 
-function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, archivedReviews, setArchivedReviews, pendingGalleryPhotos, setPendingGalleryPhotos, staffName, isPartner, isDhPartner, onLogout, showToast, pushNotification }) {
+function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, archivedReviews, setArchivedReviews, pendingGalleryPhotos, setPendingGalleryPhotos, staffName, isPartner, isDhPartner, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
@@ -6301,7 +6438,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
       {tab === 'settings' && (
         (isPartner || isDhPartner)
           ? <PartnerSettings staffName={staffName} onLogout={onLogout} />
-          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} dhPartnerPin={dhPartnerPin} setDhPartnerPin={setDhPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} pendingGalleryPhotos={pendingGalleryPhotos} setPendingGalleryPhotos={setPendingGalleryPhotos} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} faqs={faqs} setFaqs={setFaqs} adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications} onLogout={onLogout} showToast={showToast} />
+          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} dhPartnerPin={dhPartnerPin} setDhPartnerPin={setDhPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} pendingGalleryPhotos={pendingGalleryPhotos} setPendingGalleryPhotos={setPendingGalleryPhotos} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} faqs={faqs} setFaqs={setFaqs} materialSpecs={materialSpecs} setMaterialSpecs={setMaterialSpecs} companyBenefits={companyBenefits} setCompanyBenefits={setCompanyBenefits} adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications} onLogout={onLogout} showToast={showToast} />
       )}
 
       <BottomNav
@@ -6401,6 +6538,14 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
     const daysSince = Math.floor((new Date() - new Date(sinceDate)) / (1000 * 60 * 60 * 24));
     return daysSince >= FOLLOW_UP_AFTER_DAYS_DISPLAY;
   });
+
+  // Customer questions asked from Help/FAQ (see HelpScreen's askQuestion
+  // and AdminJobDetail's answerQuestion) still waiting on a reply -
+  // surfaced here the same way follow-up/stale jobs are, since a
+  // question sitting unanswered is easy to miss buried inside one
+  // specific job's detail screen otherwise.
+  const jobsWithPendingQuestions = visibleJobs.filter((j) => (j.questions || []).some((q) => q.status !== 'answered'));
+  const pendingQuestionsCount = visibleJobs.reduce((s, j) => s + (j.questions || []).filter((q) => q.status !== 'answered').length, 0);
 
   if (showList === 'inProgress') {
     return (
@@ -6530,6 +6675,32 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
       </div>
     );
   }
+  if (showList === 'pendingQuestions') {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          <div style={styles.sectionTitle}>Sawaal Ka Jawab Chahiye</div>
+          <div style={styles.plainTextMuted}>Customers ne Help/FAQ se sawaal poochhe hain - job kholke jawab dein.</div>
+          {jobsWithPendingQuestions.length === 0 && <div style={styles.emptySmall}>Koi pending sawaal nahi hai.</div>}
+          {jobsWithPendingQuestions.map((j) => {
+            const openCount = (j.questions || []).filter((q) => q.status !== 'answered').length;
+            return (
+              <button key={j.id} style={styles.miniRowClickArea} onClick={() => onOpenJob(j.id)}>
+                <div style={{ flex: 1, textAlign: 'left' }}>
+                  <div style={styles.itemDesc}>{j.customerName}</div>
+                  <div style={styles.itemSub}>{openCount} sawaal ka jawab baaki hai</div>
+                </div>
+                <ChevronRight size={16} color='#C7CCDC' />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
   if (showList === 'allEstimates') {
     return (
       <div>
@@ -6575,6 +6746,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <StatCard icon={<Send size={16} />} label="Kal ki Visits" value={tomorrowsVisits.length} onClick={() => setShowList('tomorrowsVisits')} />
         <StatCard icon={<AlertCircle size={16} />} label="Update Chahiye" value={staleJobs.length} accent={staleJobs.length > 0} onClick={() => setShowList('staleJobs')} />
         <StatCard icon={<MessageSquare size={16} />} label="Follow-up Chahiye" value={followUpJobs.length} accent={followUpJobs.length > 0} onClick={() => setShowList('followUpJobs')} />
+        <StatCard icon={<HelpCircle size={16} />} label="Sawaal Ka Jawab" value={pendingQuestionsCount} accent={pendingQuestionsCount > 0} onClick={() => setShowList('pendingQuestions')} />
         <StatCard icon={<FileText size={16} />} label='Estimates Given' value={jobs.filter((j) => (j.items || []).length > 0).length} onClick={() => setShowList('allEstimates')} />
         <StatCard icon={<UserPlus size={16} />} label='New Appointments' value={pendingAppointments} onClick={() => setShowList('newAppointments')} />
       </div>
@@ -8104,6 +8276,22 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     showToast('Repair add ho gaya');
   };
 
+  // Customer questions asked from the Help/FAQ screen (see HelpScreen's
+  // matching askQuestion) - answering here is what actually notifies
+  // the customer and marks their question resolved on their end.
+  const [answeringQuestionId, setAnsweringQuestionId] = useState(null);
+  const [answerText, setAnswerText] = useState('');
+  const answerQuestion = (id) => {
+    if (!answerText.trim()) { showToast('Jawab likhein', true); return; }
+    const questions = (job.questions || []).map((q) => (q.id === id ? { ...q, status: 'answered', answer: answerText.trim(), answeredAt: new Date().toISOString() } : q));
+    let next = { ...job, questions };
+    next = logActivity(next, 'Customer ke sawaal ka jawab diya');
+    onSave(next);
+    setAnsweringQuestionId(null); setAnswerText('');
+    showToast('Jawab bhej diya');
+    if (pushNotification) pushNotification('question_answered', 'Aapke sawaal ka jawab mil gaya hai', job.id);
+  };
+
   const addItem = () => {
     if (!newItem.desc.trim()) return;
     const item = {
@@ -8361,6 +8549,34 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                 ) : (
                   <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => setShowAdminRepairForm(true)}><Plus size={14} /> Repair Add Karein</button>
                 )}
+              </div>
+            )}
+
+            {(job.questions || []).length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={styles.fieldLabel}>Customer Ke Sawaal ({job.questions.length})</div>
+                {job.questions.map((q) => (
+                  <div key={q.id} style={{ ...styles.formCard, marginTop: 8, padding: 10 }}>
+                    <div style={styles.itemDesc}>{q.text}</div>
+                    <div style={styles.itemSub}>{formatDate(q.createdAt)}</div>
+                    {q.status === 'answered' ? (
+                      <div style={{ ...styles.formCard, background: '#F0F7F0', marginTop: 8, padding: 8 }}>
+                        <div style={styles.itemSub}>Aapka jawab:</div>
+                        <div style={{ ...styles.itemDesc, marginTop: 2 }}>{q.answer}</div>
+                      </div>
+                    ) : answeringQuestionId === q.id ? (
+                      <div style={{ marginTop: 8 }}>
+                        <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} placeholder='Jawab likhein...' value={answerText} onChange={(e) => setAnswerText(e.target.value)} autoFocus />
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => answerQuestion(q.id)}>Jawab Bhejein</button>
+                          <button style={styles.cancelBtn} onClick={() => { setAnsweringQuestionId(null); setAnswerText(''); }}>Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={() => setAnsweringQuestionId(q.id)}><MessageSquare size={13} /> Jawab Dein</button>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
 
@@ -9770,8 +9986,28 @@ function FaqEditForm({ faq, onSave, onCancel }) {
     </div>
   );
 }
+// Same shape as FaqEditForm above, just generic title/desc field names -
+// used for both Material Specs ("100% Virgin PVC" / "no warping,
+// termite or water damage") and Company Benefits ("5+ Years
+// Experience" / "500+ happy families across Ahmedabad & Vadodara"),
+// which share this exact title+description structure even though
+// they answer different questions for the customer.
+function TitleDescEditForm({ item, onSave, onCancel }) {
+  const [title, setTitle] = useState(item.title);
+  const [desc, setDesc] = useState(item.desc);
+  return (
+    <div>
+      <input style={styles.input} value={title} onChange={(e) => setTitle(e.target.value)} />
+      <textarea style={{ ...styles.input, marginTop: 8, minHeight: 60, resize: 'vertical' }} value={desc} onChange={(e) => setDesc(e.target.value)} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => onSave(title, desc)}>Save</button>
+        <button style={styles.cancelBtn} onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  );
+}
 
-function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, pendingGalleryPhotos, setPendingGalleryPhotos, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, adminPushTokens, enableAdminPushNotifications, onLogout, showToast }) {
+function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, pendingGalleryPhotos, setPendingGalleryPhotos, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, adminPushTokens, enableAdminPushNotifications, onLogout, showToast }) {
   // Same union fix as GalleryBrowser/AdminGallery's matching comment -
   // used here so a category with real gallery photos never becomes
   // unmanageable from Settings just because it isn't (or is no longer)
@@ -9838,6 +10074,63 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     [list[idx], list[swapIdx]] = [list[swapIdx], list[idx]];
     setFaqs(list);
   };
+  // Same admin-authored, fully-controlled list pattern as FAQ above -
+  // material specs (what the PVC/hardware actually is, physically) and
+  // company benefits (why choose Shree Krushn specifically) are shown
+  // together on one customer-facing screen (see MaterialSpecsScreen),
+  // but kept as two separate lists here since they answer genuinely
+  // different questions and a customer or admin thinking about one
+  // isn't necessarily thinking about the other.
+  const [newSpecTitle, setNewSpecTitle] = useState('');
+  const [newSpecDesc, setNewSpecDesc] = useState('');
+  const [editingSpecId, setEditingSpecId] = useState(null);
+  const addMaterialSpec = () => {
+    if (!newSpecTitle.trim()) { showToast('Title likhein', true); return; }
+    const next = [...(materialSpecs || []), { id: uid(), title: newSpecTitle.trim(), desc: newSpecDesc.trim() }];
+    setMaterialSpecs(next);
+    setNewSpecTitle(''); setNewSpecDesc('');
+    showToast('Specification add ho gayi');
+  };
+  const updateMaterialSpec = (id, title, desc) => {
+    setMaterialSpecs((materialSpecs || []).map((s) => (s.id === id ? { ...s, title, desc } : s)));
+    setEditingSpecId(null);
+    showToast('Specification update ho gayi');
+  };
+  const removeMaterialSpec = (id) => setMaterialSpecs((materialSpecs || []).filter((s) => s.id !== id));
+  const moveMaterialSpec = (id, dir) => {
+    const list = [...(materialSpecs || [])];
+    const idx = list.findIndex((s) => s.id === id);
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= list.length) return;
+    [list[idx], list[swapIdx]] = [list[swapIdx], list[idx]];
+    setMaterialSpecs(list);
+  };
+
+  const [newBenefitTitle, setNewBenefitTitle] = useState('');
+  const [newBenefitDesc, setNewBenefitDesc] = useState('');
+  const [editingBenefitId, setEditingBenefitId] = useState(null);
+  const addCompanyBenefit = () => {
+    if (!newBenefitTitle.trim()) { showToast('Title likhein', true); return; }
+    const next = [...(companyBenefits || []), { id: uid(), title: newBenefitTitle.trim(), desc: newBenefitDesc.trim() }];
+    setCompanyBenefits(next);
+    setNewBenefitTitle(''); setNewBenefitDesc('');
+    showToast('Benefit add ho gaya');
+  };
+  const updateCompanyBenefit = (id, title, desc) => {
+    setCompanyBenefits((companyBenefits || []).map((b) => (b.id === id ? { ...b, title, desc } : b)));
+    setEditingBenefitId(null);
+    showToast('Benefit update ho gaya');
+  };
+  const removeCompanyBenefit = (id) => setCompanyBenefits((companyBenefits || []).filter((b) => b.id !== id));
+  const moveCompanyBenefit = (id, dir) => {
+    const list = [...(companyBenefits || [])];
+    const idx = list.findIndex((b) => b.id === id);
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= list.length) return;
+    [list[idx], list[swapIdx]] = [list[swapIdx], list[idx]];
+    setCompanyBenefits(list);
+  };
+
   const [scanning, setScanning] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [recoveringCategories, setRecoveringCategories] = useState(false);
@@ -10376,6 +10669,82 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <input style={{ ...styles.input, marginTop: 6 }} placeholder='Sawaal (jaise: PVC furniture waterproof hai?)' value={newFaqQuestion} onChange={(e) => setNewFaqQuestion(e.target.value)} />
           <textarea style={{ ...styles.input, marginTop: 8, minHeight: 70, resize: 'vertical' }} placeholder='Jawab' value={newFaqAnswer} onChange={(e) => setNewFaqAnswer(e.target.value)} />
           <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addFaq}><Plus size={14} /> FAQ Add Karein</button>
+        </div>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <ShieldCheck size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Material Specifications</div>
+        </div>
+        <div style={styles.plainTextMuted}>Aapke material ki khasiyat - customer ko dikhti hain, unki app ke ek dedicated screen par.</div>
+        {(materialSpecs || []).map((s, i) => (
+          <div key={s.id} style={{ ...styles.formCard, marginTop: 10 }}>
+            {editingSpecId === s.id ? (
+              <TitleDescEditForm item={s} onSave={(t, d) => updateMaterialSpec(s.id, t, d)} onCancel={() => setEditingSpecId(null)} />
+            ) : (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={styles.itemDesc}>{s.title}</div>
+                    <div style={{ ...styles.itemSub, marginTop: 4 }}>{s.desc}</div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <button style={styles.iconBtnSmall} onClick={() => moveMaterialSpec(s.id, -1)} disabled={i === 0}><ChevronUp size={13} color='#B3B8C6' /></button>
+                    <button style={styles.iconBtnSmall} onClick={() => moveMaterialSpec(s.id, 1)} disabled={i === materialSpecs.length - 1}><ChevronDown size={13} color='#B3B8C6' /></button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button style={{ ...styles.cardActionBtn, flex: 1 }} onClick={() => setEditingSpecId(s.id)}><Edit3 size={12} /> Edit</button>
+                  <button style={{ ...styles.cardActionBtn, flex: 1 }} onClick={() => removeMaterialSpec(s.id)}><Trash2 size={12} /> Hataein</button>
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+        <div style={{ ...styles.formCard, marginTop: 10, background: '#FFF9EE', borderColor: BRAND.gold }}>
+          <div style={styles.fieldLabel}>Nayi Specification Add Karein</div>
+          <input style={{ ...styles.input, marginTop: 6 }} placeholder='Title (jaise: 100% Virgin PVC)' value={newSpecTitle} onChange={(e) => setNewSpecTitle(e.target.value)} />
+          <textarea style={{ ...styles.input, marginTop: 8, minHeight: 60, resize: 'vertical' }} placeholder='Detail (jaise: Termite-proof, waterproof, koi warping nahi)' value={newSpecDesc} onChange={(e) => setNewSpecDesc(e.target.value)} />
+          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addMaterialSpec}><Plus size={14} /> Specification Add Karein</button>
+        </div>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <ThumbsUp size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Hamare Saath Judne Ke Fayde</div>
+        </div>
+        <div style={styles.plainTextMuted}>Aapki company ke saath kaam karne ke benefits - customer ko same screen par dikhte hain.</div>
+        {(companyBenefits || []).map((b, i) => (
+          <div key={b.id} style={{ ...styles.formCard, marginTop: 10 }}>
+            {editingBenefitId === b.id ? (
+              <TitleDescEditForm item={b} onSave={(t, d) => updateCompanyBenefit(b.id, t, d)} onCancel={() => setEditingBenefitId(null)} />
+            ) : (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={styles.itemDesc}>{b.title}</div>
+                    <div style={{ ...styles.itemSub, marginTop: 4 }}>{b.desc}</div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <button style={styles.iconBtnSmall} onClick={() => moveCompanyBenefit(b.id, -1)} disabled={i === 0}><ChevronUp size={13} color='#B3B8C6' /></button>
+                    <button style={styles.iconBtnSmall} onClick={() => moveCompanyBenefit(b.id, 1)} disabled={i === companyBenefits.length - 1}><ChevronDown size={13} color='#B3B8C6' /></button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button style={{ ...styles.cardActionBtn, flex: 1 }} onClick={() => setEditingBenefitId(b.id)}><Edit3 size={12} /> Edit</button>
+                  <button style={{ ...styles.cardActionBtn, flex: 1 }} onClick={() => removeCompanyBenefit(b.id)}><Trash2 size={12} /> Hataein</button>
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+        <div style={{ ...styles.formCard, marginTop: 10, background: '#FFF9EE', borderColor: BRAND.gold }}>
+          <div style={styles.fieldLabel}>Naya Benefit Add Karein</div>
+          <input style={{ ...styles.input, marginTop: 6 }} placeholder='Title (jaise: 5+ Years Experience)' value={newBenefitTitle} onChange={(e) => setNewBenefitTitle(e.target.value)} />
+          <textarea style={{ ...styles.input, marginTop: 8, minHeight: 60, resize: 'vertical' }} placeholder='Detail (jaise: 500+ khush customers Ahmedabad aur Vadodara mein)' value={newBenefitDesc} onChange={(e) => setNewBenefitDesc(e.target.value)} />
+          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addCompanyBenefit}><Plus size={14} /> Benefit Add Karein</button>
         </div>
       </div>
 
