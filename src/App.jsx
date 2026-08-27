@@ -3760,9 +3760,19 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
   // is only to keep this hook call itself unconditional), which is
   // fine at this photo count - no meaningful cost, and it stays
   // trivially correct as photos get added/moved/removed.
+  // Categories excluded from the mixed "All Photos" showcase view -
+  // Color/POP and Electrical work belong to DH Home Decor's own trade
+  // (a partner business), not Shree Krushn's core PVC furniture work,
+  // so mixing them into the general browsing view would show a
+  // customer coming for furniture a category unrelated to what they're
+  // actually shopping for. These stay fully visible and browsable in
+  // their OWN category tile though - a customer specifically looking
+  // for that work can still find it there.
+  const ALL_PHOTOS_EXCLUDED_CATEGORIES = ['Color/POP Work', 'Electrical Work'];
   const allPhotosFlat = useMemo(() => {
     const combined = [];
     for (const cat of galleryCategories) {
+      if (ALL_PHOTOS_EXCLUDED_CATEGORIES.includes(cat)) continue;
       for (const p of (gallery[cat] || [])) combined.push({ ...p, category: cat });
     }
     return combined.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
@@ -3792,6 +3802,13 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
   useEffect(() => {
     const PRELOAD_COUNT = 15;
     for (const cat of galleryCategories) {
+      // Same exclusion as allPhotosFlat above - preloading these too
+      // was adding unnecessary network activity right when Gallery
+      // opens, competing for bandwidth with the furniture categories
+      // a customer is actually there to browse. A customer who
+      // specifically taps into Color/POP or Electrical still gets
+      // those photos loaded normally, just not pre-warmed in advance.
+      if (ALL_PHOTOS_EXCLUDED_CATEGORIES.includes(cat)) continue;
       const photos = (gallery[cat] || []).slice(0, PRELOAD_COUNT);
       for (const p of photos) {
         if (p.url && !preloadedUrlsRef.current.has(p.url)) {
