@@ -2377,7 +2377,7 @@ export default function App() {
   // a specific customer (admin did something that customer needs to
   // know) - decides who real push notifications actually get sent to,
   // alongside the existing in-app bell entry every type already gets.
-  const ADMIN_BOUND_NOTIFICATION_TYPES = ['new_appointment', 'estimate_approved', 'estimate_change_request', 'estimate_cancelled', 'extra_work_requested', 'extra_work_needs_price', 'follow_up_needed', 'customer_birthday', 'karigar_message', 'payment_received', 'complaint_reported', 'work_completed_by_karigar'];
+  const ADMIN_BOUND_NOTIFICATION_TYPES = ['new_appointment', 'estimate_approved', 'estimate_change_request', 'estimate_cancelled', 'extra_work_requested', 'extra_work_needs_price', 'follow_up_needed', 'customer_birthday', 'karigar_message', 'payment_received', 'complaint_reported', 'work_completed_by_karigar', 'new_customer_registered'];
   const CUSTOMER_BOUND_NOTIFICATION_TYPES = ['appointment_confirmed', 'payment_due', 'extra_work_approved', 'extra_work_rejected', 'complaint_in_progress', 'complaint_resolved', 'payment_completed', 'question_answered'];
   const pushNotification = useCallback((type, message, jobId) => {
     setNotificationsRaw((current) => {
@@ -2510,6 +2510,15 @@ export default function App() {
             persistJobs([job, ...jobs]);
             setSession({ role: 'customer', customerId: cust.id });
             showToast('Registered! Welcome ' + cust.name);
+            // The registration moment itself is the very first signal a
+            // brand-new lead exists - previously admin only found out
+            // once that customer went further and booked an appointment
+            // (which does notify separately), meaning someone who
+            // registered but hadn't taken the next step yet was
+            // invisible unless admin happened to check the Customers
+            // tab. jobId is the empty job just created above, so tapping
+            // this notification takes admin straight to that customer.
+            pushNotification('new_customer_registered', cust.name + ' ne naya account banaya hai', job.id);
           }}
           onAdminLogin={(staffName, role, staffId) => setSession({ role: role || 'admin', staffName, staffId })}
         />
@@ -3068,8 +3077,9 @@ const NOTIFICATION_META = {
   work_completed_by_karigar: { icon: 'CheckCircle2', label: 'Karigar Marked Complete' },
   payment_completed: { icon: 'ThumbsUp', label: 'Payment Complete' },
   question_answered: { icon: 'MessageSquare', label: 'Question Answered' },
+  new_customer_registered: { icon: 'UserPlus', label: 'New Customer' },
 };
-const NOTIFICATION_ICONS = { Calendar, CheckCircle2, ThumbsUp, MessageSquare, XCircle, IndianRupee, AlertCircle, Hammer, Star };
+const NOTIFICATION_ICONS = { Calendar, CheckCircle2, ThumbsUp, MessageSquare, XCircle, IndianRupee, AlertCircle, Hammer, Star, UserPlus };
 
 function FavoritesButton({ job, onSaveJob, showToast, categories, gallery }) {
   const [open, setOpen] = useState(false);
