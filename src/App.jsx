@@ -2715,10 +2715,20 @@ export default function App() {
   // customers since deleted) - see archivedReviews' definition above
   // for why testimonials need to survive independently of the
   // underlying job record.
+  // Deduplicated by (customerName + text + date) as a safety net - the
+  // live-jobs list and the archived-on-delete list are meant to be
+  // mutually exclusive (a review only ever moves to archivedReviews
+  // once its job is gone), but a customer delete that got interrupted
+  // partway, or a rare merge-timing edge case, could in principle leave
+  // the same review counted in both lists at once. Deduping here means
+  // a testimonial never visibly repeats regardless of how that
+  // happened, without needing to first track down which exact path
+  // produced the overlap.
   const featuredTestimonials = jobs
     .filter((j) => j.review && j.review.featured)
     .map((j) => ({ customerName: j.customerName, rating: j.review.rating, text: j.review.text, date: j.review.date }))
     .concat((archivedReviews || []).map((r) => ({ customerName: r.customerName, rating: r.rating, text: r.text, date: r.date })))
+    .filter((t, idx, arr) => arr.findIndex((o) => o.customerName === t.customerName && o.text === t.text && o.date === t.date) === idx)
     .sort((a, b) => new Date(b.date) - new Date(a.date));
 
   // Customer notifications: filtered down to only this customer's own job
@@ -7308,6 +7318,8 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
   useEffect(() => { customersRef.current = customers; }, [customers]);
   const jobsRef = useRef(jobs);
   useEffect(() => { jobsRef.current = jobs; }, [jobs]);
+  const archivedReviewsRef = useRef(archivedReviews);
+  useEffect(() => { archivedReviewsRef.current = archivedReviews; }, [archivedReviews]);
   const [showReferralReport, setShowReferralReport] = useState(false);
   const [showAllEstimates, setShowAllEstimates] = useState(false);
   const [showAddCustomer, setShowAddCustomer] = useState(false);
@@ -7429,12 +7441,14 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
     // are worth keeping here since those are the ones actually being
     // used as marketing testimonials; an un-featured review had no
     // active use beyond the job record it lived on.
-    const customerJobs = jobs.filter((j) => j.customerId === deletingCustomer.id);
+    const customerJobs = jobsRef.current.filter((j) => j.customerId === deletingCustomer.id);
     const reviewsToArchive = customerJobs
       .filter((j) => j.review && j.review.featured)
       .map((j) => ({ id: uid(), customerName: j.customerName, rating: j.review.rating, text: j.review.text, date: j.review.date, featured: true }));
     if (reviewsToArchive.length > 0) {
-      setArchivedReviews([...archivedReviews, ...reviewsToArchive]);
+      const nextArchived = [...archivedReviewsRef.current, ...reviewsToArchive];
+      archivedReviewsRef.current = nextArchived;
+      setArchivedReviews(nextArchived);
     }
     setCustomers(customersRef.current.filter((c) => c.id !== deletingCustomer.id));
     setJobs(jobsRef.current.filter((j) => j.customerId !== deletingCustomer.id));
@@ -10113,24 +10127,69 @@ function AdminDuePaymentsList({ jobs, expenses, onOpenJob }) {
 }
 
 function AdminProfitReport({ jobs, expenses }) {
+  // "Is Saal" vs "Sab Milaake" - lets admin see just one year's numbers
+  // without ever deleting or archiving anything. Deleting old data
+  // after a year would break the 2-year maintenance warranty (a
+  // customer's job record needs to still exist to honor a warranty
+  // claim), lose the history repeat customers/referrals rely on, and
+  // conflict with how long business records typically need to be kept
+  // for tax purposes - a view filter gets the "fresh start" feeling
+  // admin wants for reporting without any of that risk.
+  const availableYears = useMemo(() => {
+    const years = new Set();
+    for (const j of jobs) {
+      for (const p of (j.payments || [])) years.add(new Date(p.date).getFullYear());
+    }
+    for (const e of expenses) years.add(new Date(e.date).getFullYear());
+    return Array.from(years).filter((y) => !isNaN(y)).sort((a, b) => b - a);
+  }, [jobs, expenses]);
+  const [selectedYear, setSelectedYear] = useState('all');
+
+  // Recomputes collected/expense per job using only payments/expenses
+  // that actually fall within the selected year - a job created in one
+  // year but paid off in the next would otherwise misattribute revenue
+  // to the wrong year if this filtered by job.createdAt instead of the
+  // individual payment/expense dates themselves.
+  const jobProfitForYear = (job, allExpenses, year) => {
+    if (year === 'all') return jobProfit(job, allExpenses);
+    const collected = (job.payments || [])
+      .filter((p) => new Date(p.date).getFullYear() === year)
+      .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const linkedExpenses = (allExpenses || [])
+      .filter((e) => e.jobId === job.id && new Date(e.date).getFullYear() === year)
+      .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    return { collected, linkedExpenses, profit: collected - linkedExpenses };
+  };
+
   const rows = useMemo(() => {
     return jobs
-      .map((j) => ({ job: j, ...jobProfit(j, expenses) }))
+      .map((j) => ({ job: j, ...jobProfitForYear(j, expenses, selectedYear) }))
       .filter((r) => r.collected > 0 || r.linkedExpenses > 0)
       .sort((a, b) => b.profit - a.profit);
-  }, [jobs, expenses]);
+  }, [jobs, expenses, selectedYear]);
 
   const totalCollected = rows.reduce((s, r) => s + r.collected, 0);
   const totalLinkedExpense = rows.reduce((s, r) => s + r.linkedExpenses, 0);
   const totalProfit = totalCollected - totalLinkedExpense;
-  const unlinkedExpenseTotal = expenses.filter((e) => !e.jobId).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const unlinkedExpenseTotal = expenses
+    .filter((e) => !e.jobId && (selectedYear === 'all' || new Date(e.date).getFullYear() === selectedYear))
+    .reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Project-wise Profit Report</div>
       <div style={styles.plainTextMuted}>Har project mein kitna collect hua, kitna expense laga, aur profit kitna hai.</div>
 
-      <div style={styles.statRow2}>
+      {availableYears.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+          <button style={{ ...styles.chip, ...(selectedYear === 'all' ? styles.chipActive : {}) }} onClick={() => setSelectedYear('all')}>Sab Milaake</button>
+          {availableYears.map((y) => (
+            <button key={y} style={{ ...styles.chip, ...(selectedYear === y ? styles.chipActive : {}) }} onClick={() => setSelectedYear(y)}>{y}</button>
+          ))}
+        </div>
+      )}
+
+      <div style={{ ...styles.statRow2, marginTop: 12 }}>
         <StatCard icon={<IndianRupee size={16} />} label='Collected' value={currency(totalCollected)} />
         <StatCard icon={<TrendingUp size={16} />} label='Linked Expense' value={currency(totalLinkedExpense)} />
         <StatCard icon={<CheckCircle2 size={16} />} label='Profit' value={currency(totalProfit)} accent />
