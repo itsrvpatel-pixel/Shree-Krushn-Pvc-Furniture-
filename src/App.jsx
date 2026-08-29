@@ -1104,18 +1104,21 @@ async function buildEstimatePdfFromDom(elementId) {
       tableWrapEl.style.overflowX = 'visible';
     }
 
-    // scale: 3 (was 2) and PNG instead of JPEG - the estimate is
-    // mostly text/numbers, and JPEG's compression specifically blurs
-    // sharp edges like text characters (it's built for photos, not
-    // documents), which is what was actually behind the estimate PDF
-    // looking noticeably less crisp than the receipt/warranty PDFs
-    // (which are built directly as vector text via jsPDF, never
-    // screenshotted) - especially once WhatsApp's own preview/transfer
-    // compression is layered on top of an already-JPEG-compressed
-    // image. PNG is lossless, so text stays sharp at whatever
-    // resolution it's captured at; the higher scale is what raises
-    // that resolution in the first place.
-    const canvas = await window.html2canvas(element, { scale: 3, useCORS: true, backgroundColor: '#ffffff' });
+    // PNG (not JPEG) keeps this crisp - JPEG's compression specifically
+    // blurs sharp edges like text characters (it's built for photos,
+    // not documents), which is what made the estimate PDF look
+    // noticeably less crisp than the receipt/warranty PDFs (those are
+    // drawn directly as vector text via jsPDF, never screenshotted).
+    //
+    // Scale is back to 2 (a brief attempt at 3 made text sharper but
+    // produced a WhatsApp-unfriendly multi-MB file - scale increases
+    // pixel count with the SQUARE of the value, so 3 was already 2.25x
+    // more pixels than 2 before PNG's lossless encoding even factors
+    // in) - 2 is the balance point: still meaningfully sharper than the
+    // old JPEG-at-scale-2 baseline (PNG has zero compression artifacts
+    // at any resolution), while keeping the file a size a customer can
+    // actually receive quickly over mobile data.
+    const canvas = await window.html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
     const imgData = canvas.toDataURL('image/png');
     const doc = new jsPDF('p', 'mm', 'a4');
     const pdfWidth = doc.internal.pageSize.getWidth();
@@ -3087,6 +3090,9 @@ function FavoritesButton({ job, onSaveJob, showToast, categories, gallery }) {
   const [addingId, setAddingId] = useState(null);
   const [addCategory, setAddCategory] = useState(categories[0]);
   const savedDesigns = job.savedDesigns || [];
+  // Same stale-prop fix as AdminJobDetail (see its matching comment).
+  const jobRef = useRef(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
 
   // Favorited entries only store a photoId (see Lightbox's toggleSave for
   // why) - the actual image data is resolved here from the live gallery
@@ -3106,7 +3112,9 @@ function FavoritesButton({ job, onSaveJob, showToast, categories, gallery }) {
     .filter((d) => d.resolved);
 
   const removeSavedDesign = (photoId) => {
-    onSaveJob({ ...job, savedDesigns: savedDesigns.filter((d) => d.photoId !== photoId) });
+    const nextJob = { ...jobRef.current, savedDesigns: (jobRef.current.savedDesigns || []).filter((d) => d.photoId !== photoId) };
+    jobRef.current = nextJob;
+    onSaveJob(nextJob);
     showToast('Favorites se hataya gaya');
   };
 
@@ -3126,8 +3134,10 @@ function FavoritesButton({ job, onSaveJob, showToast, categories, gallery }) {
       photoRef: { photoId: d.photoId },
       createdAt: new Date().toISOString(),
     };
-    let next = { ...job, requirements: [req, ...(job.requirements || [])] };
+    const base = jobRef.current;
+    let next = { ...base, requirements: [req, ...(base.requirements || [])] };
     next = logActivity(next, 'Requirement added: ' + addCategory + ' (saved design)');
+    jobRef.current = next;
     const ok = await onSaveJob(next);
     setAddingId(null);
     if (ok) showToast('Project mein add ho gaya');
@@ -4105,6 +4115,10 @@ const APPT_PURPOSES = ['Site measurement', 'Design consultation', 'Showroom visi
 
 function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
   const appt = job.appointment;
+  // Same stale-prop fix as AdminJobDetail (see its matching comment).
+  const jobRef = useRef(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
+  const saveJob = (next) => { jobRef.current = next; return onSave(next); };
   // manualEdit only tracks "the user explicitly tapped edit" - it does
   // NOT decide on its own whether to show the form. Whether to show the
   // booked-visit view or the form is recomputed fresh on every render
@@ -4149,10 +4163,10 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
       confirmedDate: null,
       confirmedTime: null,
     };
-    let next = { ...job, appointment: nextAppt, address: form.address.trim(), branch: form.branch };
+    let next = { ...jobRef.current, appointment: nextAppt, address: form.address.trim(), branch: form.branch };
     const itemsNote = form.items.length ? (' - ' + form.items.join(', ')) : '';
     next = logActivity(next, 'Appointment requested: ' + formatDate(form.preferredDate) + (form.preferredTime ? ', ' + form.preferredTime : '') + itemsNote);
-    onSave(next);
+    saveJob(next);
     setManualEdit(false);
     showToast('Appointment request bhej di gayi');
   };
@@ -4165,9 +4179,10 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
   // work, "Request naya / edit karein" (already below) lets them submit
   // a different preferred date/time instead of silently doing nothing.
   const confirmReschedule = () => {
-    let next = { ...job, appointment: { ...appt, status: 'confirmed' } };
+    const base = jobRef.current;
+    let next = { ...base, appointment: { ...base.appointment, status: 'confirmed' } };
     next = logActivity(next, 'Customer ne rescheduled time confirm kiya: ' + formatDate(appt.confirmedDate) + (appt.confirmedTime ? (', ' + appt.confirmedTime) : ''));
-    onSave(next);
+    saveJob(next);
     showToast('Time confirm ho gaya');
   };
 
@@ -4218,7 +4233,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
         </div>
 
         {(job.status === 'in_progress' || job.status === 'delivered') && (
-          <AdditionalVisitsPanel job={job} onSave={onSave} showToast={showToast} />
+          <AdditionalVisitsPanel job={jobRef.current} onSave={saveJob} showToast={showToast} />
         )}
       </div>
     );
@@ -4309,12 +4324,17 @@ function AdditionalVisitsPanel({ job, onSave, showToast }) {
   const [preferredDate, setPreferredDate] = useState('');
   const [preferredTime, setPreferredTime] = useState('');
   const visits = job.additionalVisits || [];
+  // Same stale-prop fix as AdminJobDetail (see its matching comment).
+  const jobRef = useRef(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
 
   const requestVisit = () => {
     if (!reason.trim() || !preferredDate) { showToast('Reason aur date zaroori hai', true); return; }
     const entry = { id: uid(), reason: reason.trim(), preferredDate, preferredTime, status: 'requested', requestedAt: new Date().toISOString() };
-    let next = { ...job, additionalVisits: [entry, ...visits] };
+    const base = jobRef.current;
+    let next = { ...base, additionalVisits: [entry, ...(base.additionalVisits || [])] };
     next = logActivity(next, 'Customer ne naya visit request kiya: ' + entry.reason);
+    jobRef.current = next;
     onSave(next);
     setReason(''); setPreferredDate(''); setPreferredTime('');
     setShowForm(false);
@@ -4376,6 +4396,11 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
   const isAdmin = authorRole === 'admin';
   const [openFolder, setOpenFolder] = useState(null);
   const [lightbox, setLightbox] = useState(null);
+  // Same stale-prop fix as AdminJobDetail (see its matching comment) -
+  // protects rapid successive note adds (e.g. adding a design note
+  // then immediately a measurement note) from overwriting each other.
+  const jobRef = useRef(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
 
   // Note types (Color/Design/Reference/Handle/Measurement/Other) let a
   // note within an item's folder be labeled with WHAT KIND of detail it
@@ -4460,8 +4485,9 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
     // finished, so a failed save (flaky connection, etc.) still looked
     // like it worked until a later background refresh replaced local
     // state with the real (note-less) server data.
-    let nextJob = { ...job, projectNotes: [entry, ...notes] };
+    let nextJob = { ...jobRef.current, projectNotes: [entry, ...(jobRef.current.projectNotes || [])] };
     nextJob = logActivity(nextJob, noteType + ' note added for ' + noteCategory + (entry.text ? ': ' + entry.text.slice(0, 60) : ''));
+    jobRef.current = nextJob;
     const ok = await onSave(nextJob);
     if (ok) {
       setText('');
@@ -4475,7 +4501,9 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
   };
 
   const removeNote = (id) => {
-    onSave({ ...job, projectNotes: notes.filter((n) => n.id !== id) });
+    const nextJob = { ...jobRef.current, projectNotes: (jobRef.current.projectNotes || []).filter((n) => n.id !== id) };
+    jobRef.current = nextJob;
+    onSave(nextJob);
   };
 
   // Once admin approves a note (e.g. "final design confirmed" or "this
@@ -4485,11 +4513,14 @@ function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorName, cat
   // by a later note once work has already moved forward based on it;
   // the customer can still see it, just not modify it.
   const approveNote = async (id) => {
-    const approvedNote = notes.find((n) => n.id === id);
-    let nextJob = { ...job, projectNotes: notes.map((n) => (n.id === id ? { ...n, locked: true } : n)) };
+    const base = jobRef.current;
+    const baseNotes = base.projectNotes || [];
+    const approvedNote = baseNotes.find((n) => n.id === id);
+    let nextJob = { ...base, projectNotes: baseNotes.map((n) => (n.id === id ? { ...n, locked: true } : n)) };
     if (approvedNote) {
       nextJob = logActivity(nextJob, (approvedNote.category || 'Design') + ' final ho gaya: ' + (approvedNote.text || approvedNote.noteType));
     }
+    jobRef.current = nextJob;
     const ok = await onSave(nextJob);
     if (ok) showToast('Note approve ho gaya, ab locked hai');
   };
@@ -4759,6 +4790,12 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
   const [priority, setPriority] = useState('normal');
   const [showForm, setShowForm] = useState((job.requirements || []).length === 0);
   const [lightbox, setLightbox] = useState(null);
+  // Same stale-prop fix as AdminJobDetail (see its matching comment) -
+  // protects a customer adding several requirements/photos back-to-back
+  // from the second add silently overwriting the first.
+  const jobRef = useRef(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
+  const saveJob = (next) => { jobRef.current = next; return onSave(next); };
   const savedDesigns = job.savedDesigns || [];
   // A photo the customer uploads directly from their own phone (not
   // from the gallery) - e.g. a photo of a design they saw elsewhere,
@@ -4847,9 +4884,10 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
       ownPhoto,
       createdAt: new Date().toISOString(),
     };
-    let next = { ...job, requirements: [req, ...(job.requirements || [])] };
+    const base = jobRef.current;
+    let next = { ...base, requirements: [req, ...(base.requirements || [])] };
     next = logActivity(next, 'Requirement added: ' + category + (photoRef ? ' (saved design)' : (ownPhoto ? ' (photo attached)' : '')));
-    const ok = await onSave(next);
+    const ok = await saveJob(next);
     if (ok) {
       setText(''); setDimensions(''); setPriority('normal'); setOwnPhotoDataUri(null);
       setShowForm(false);
@@ -4857,9 +4895,9 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
     }
   };
   const removeSavedDesign = (photoId) => {
-    onSave({ ...job, savedDesigns: savedDesigns.filter((d) => d.photoId !== photoId) });
+    saveJob({ ...jobRef.current, savedDesigns: (jobRef.current.savedDesigns || []).filter((d) => d.photoId !== photoId) });
   };
-  const remove = (id) => onSave({ ...job, requirements: (job.requirements || []).filter((r) => r.id !== id) });
+  const remove = (id) => saveJob({ ...jobRef.current, requirements: (jobRef.current.requirements || []).filter((r) => r.id !== id) });
 
   // group existing requirements by category for a cleaner professional view
   const grouped = useMemo(() => {
@@ -5018,6 +5056,9 @@ function EstimateView({ job, onSave, showToast }) {
   const estimateStatus = job.estimateStatus || null;
   const estimateDrafts = job.estimateDrafts || [];
   const draftTotal = (d) => (d.items || []).reduce((s, it) => s + estimateItemAmount(it), 0);
+  // Same stale-prop fix as AdminJobDetail (see its matching comment).
+  const jobRef = useRef(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
 
   // Customer picking one of admin's material options (e.g. Laminate vs
   // Without Laminate) turns that draft into the job's real estimate -
@@ -5029,25 +5070,27 @@ function EstimateView({ job, onSave, showToast }) {
   // decision is made would just be confusing leftover state.
   const chooseDraft = (d) => {
     let next = {
-      ...job,
+      ...jobRef.current,
       items: d.items,
       materialCompany: d.materialCompany || '',
       sheetWeightKg: d.sheetWeightKg || '',
       estimateDrafts: [],
     };
     next = logActivity(next, 'Customer ne "' + d.label + '" option choose kiya - final estimate ban gaya');
+    jobRef.current = next;
     onSave(next);
     showToast(d.label + ' option select ho gaya');
   };
 
   const respondToEstimate = (status, note) => {
-    let next = { ...job, estimateStatus: status, estimateResponseNote: note || null, estimateRespondedAt: new Date().toISOString() };
+    let next = { ...jobRef.current, estimateStatus: status, estimateResponseNote: note || null, estimateRespondedAt: new Date().toISOString() };
     const activityText = status === 'approved'
       ? 'Customer ne estimate approve kiya - kaam shuru karein'
       : status === 'change_requested'
         ? 'Customer ne estimate mein change maanga: ' + (note || '')
         : 'Customer ne estimate cancel kiya';
     next = logActivity(next, activityText);
+    jobRef.current = next;
     onSave(next);
     setShowChangeRequestBox(false);
     setChangeRequestText('');
@@ -5279,6 +5322,12 @@ function ComplaintStageStepper({ status }) {
 function ProgressView({ job, onSave, showToast, customer, categories, pushNotification }) {
   const [lightbox, setLightbox] = useState(null);
   const photos = job.progressPhotos || [];
+  // Same stale-prop fix as AdminJobDetail (see its matching comment) -
+  // protects the complaint-reporting flow below from a rapid second
+  // action overwriting a not-yet-synced first one.
+  const jobRef = useRef(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
+  const saveJob = (next) => { jobRef.current = next; return onSave(next); };
 
   // Post-delivery complaint tracking - a customer reporting a problem
   // after the work is marked delivered needs its own, separate trail
@@ -5306,9 +5355,10 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
         showToast('Photo upload nahi ho payi, lekin complaint bhej rahe hain', true);
       }
     }
-    let next = { ...job, complaints: [entry, ...complaints] };
+    const base = jobRef.current;
+    let next = { ...base, complaints: [entry, ...(base.complaints || [])] };
     next = logActivity(next, 'Complaint reported: ' + entry.text);
-    const ok = await onSave(next);
+    const ok = await saveJob(next);
     if (ok) {
       setComplaintText(''); setComplaintPhotoDataUri(null);
       setShowComplaintForm(false);
@@ -5347,16 +5397,18 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
   const requestExtraWork = () => {
     if (!extraWorkDesc.trim()) return;
     const entry = { id: uid(), desc: extraWorkDesc.trim(), amount: null, addedBy: 'customer', status: 'pending_admin_price', createdAt: new Date().toISOString() };
-    let next = { ...job, extraWork: [entry, ...extraWork] };
+    const base = jobRef.current;
+    let next = { ...base, extraWork: [entry, ...(base.extraWork || [])] };
     next = logActivity(next, 'Customer ne extra kaam request kiya: ' + entry.desc);
-    onSave(next);
+    saveJob(next);
     setExtraWorkDesc('');
     setShowExtraWorkForm(false);
     showToast('Extra kaam request bhej di gayi - admin price set karega');
   };
 
   const respondToExtraWork = (item, approve) => {
-    let next = { ...job, extraWork: extraWork.map((e) => (e.id === item.id ? { ...e, status: approve ? 'approved' : 'rejected', respondedAt: new Date().toISOString() } : e)) };
+    const base = jobRef.current;
+    let next = { ...base, extraWork: (base.extraWork || []).map((e) => (e.id === item.id ? { ...e, status: approve ? 'approved' : 'rejected', respondedAt: new Date().toISOString() } : e)) };
     // Approving extra work raises jobTotal (see jobTotal's own comment),
     // which can leave a job that was already marked 'paid' owing money
     // again - status is a plain stored field, not derived, so without
@@ -5368,7 +5420,7 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
     if (approve && next.status === 'paid' && jobDue(next) > 0) {
       next = { ...next, status: 'delivered' };
     }
-    onSave(logActivity(next, 'Customer ne extra kaam ' + (approve ? 'approve' : 'reject') + ' kiya: ' + item.desc));
+    saveJob(logActivity(next, 'Customer ne extra kaam ' + (approve ? 'approve' : 'reject') + ' kiya: ' + item.desc));
     showToast(approve ? 'Extra kaam approve ho gaya' : 'Extra kaam reject kar diya gaya');
   };
 
@@ -5572,11 +5624,14 @@ function ReviewPanel({ job, onSave, showToast }) {
   // can still see/keep it below, even if the job's status doesn't
   // currently qualify.
   const canReview = job.status === 'delivered' || job.status === 'paid';
+  const jobRef = useRef(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
 
   const submit = () => {
     if (!rating) { showToast('Rating select karein', true); return; }
-    let next = { ...job, review: { rating, text: text.trim(), date: new Date().toISOString() } };
+    let next = { ...jobRef.current, review: { rating, text: text.trim(), date: new Date().toISOString() } };
     next = logActivity(next, 'Review submitted (' + rating + '*)');
+    jobRef.current = next;
     onSave(next);
     showToast('Review submit ho gayi. Dhanyavaad!');
   };
@@ -5620,6 +5675,13 @@ function ReviewPanel({ job, onSave, showToast }) {
 function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, pushNotification, attendance, setAttendance }) {
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
+  // Same stale-prop fix as AdminJobDetail/RegionalPartnerApp (see their
+  // matching comments) - protects against two rapid edits (e.g. adding
+  // several progress photos back-to-back) each reading the same
+  // not-yet-updated activeJob and silently overwriting one another.
+  const jobRef = useRef(activeJob);
+  useEffect(() => { if (activeJob) jobRef.current = activeJob; }, [activeJob]);
+  const saveJob = (next) => { jobRef.current = next; return onSaveJob(next); };
   const [msgText, setMsgText] = useState('');
   const [lightbox, setLightbox] = useState(null);
 
@@ -5657,14 +5719,16 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
       }
     }
     if (newPhotos.length === 0) return false;
-    let next = { ...job, progressPhotos: [...(job.progressPhotos || []), ...newPhotos] };
+    const base = jobRef.current || job;
+    let next = { ...base, progressPhotos: [...(base.progressPhotos || []), ...newPhotos] };
     next = logActivity(next, newPhotos.length + ' progress photo' + (newPhotos.length !== 1 ? 's' : '') + ' added by ' + staffName);
-    const ok = await onSaveJob(next);
+    const ok = await saveJob(next);
     if (ok) showToast(newPhotos.length + ' photo' + (newPhotos.length !== 1 ? 's' : '') + ' add ho gayi');
     return ok;
   };
   const removePhoto = (job, photoId) => {
-    onSaveJob({ ...job, progressPhotos: (job.progressPhotos || []).filter((p) => p.id !== photoId) });
+    const base = jobRef.current || job;
+    saveJob({ ...base, progressPhotos: (base.progressPhotos || []).filter((p) => p.id !== photoId) });
   };
 
   // Two-way thread so a karigar can ask admin a mid-work question (e.g.
@@ -5674,8 +5738,9 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
   const sendKarigarMessage = (job) => {
     if (!msgText.trim()) return;
     const entry = { id: uid(), text: msgText.trim(), from: 'karigar', authorName: staffName, createdAt: new Date().toISOString() };
-    const next = { ...job, karigarMessages: [...(job.karigarMessages || []), entry] };
-    onSaveJob(next);
+    const base = jobRef.current || job;
+    const next = { ...base, karigarMessages: [...(base.karigarMessages || []), entry] };
+    saveJob(next);
     pushNotification('karigar_message', staffName + ' (' + job.customerName + ' ka kaam): ' + msgText.trim(), job.id);
     setMsgText('');
     showToast('Message bhej diya');
@@ -5830,6 +5895,16 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
   const [jobQuery, setJobQuery] = useState('');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
+  // Same stale-prop fix as AdminJobDetail (see its matching comment) -
+  // activeJob is re-derived from the jobs prop every render, so two
+  // rapid edits (e.g. suggesting two estimate items back-to-back)
+  // could otherwise both read the same not-yet-updated activeJob and
+  // the second save would silently overwrite the first. jobRef always
+  // holds the latest intended state; saveJob is what every handler
+  // below calls instead of onSaveJob directly.
+  const jobRef = useRef(activeJob);
+  useEffect(() => { if (activeJob) jobRef.current = activeJob; }, [activeJob]);
+  const saveJob = (next) => { jobRef.current = next; return onSaveJob(next); };
   const [lightbox, setLightbox] = useState(null);
   // Appointment booking/confirming state - declared here, before the
   // early return below, for the same Rules of Hooks reason documented
@@ -5866,8 +5941,9 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
   const suggestRateItem = (job) => {
     if (!suggestDesc.trim() || !suggestRate) { showToast('Item aur rate dono daalein', true); return; }
     const suggestion = { id: uid(), desc: suggestDesc.trim(), length: suggestLength || '', height: suggestHeight || '', qty: suggestQty || '1', rate: suggestRate, suggestedBy: staffName, createdAt: new Date().toISOString() };
-    const next = { ...job, suggestedItems: [...(job.suggestedItems || []), suggestion] };
-    onSaveJob(next);
+    const base = jobRef.current || job;
+    const next = { ...base, suggestedItems: [...(base.suggestedItems || []), suggestion] };
+    saveJob(next);
     pushNotification('follow_up_needed', staffName + ' (Regional Partner) ne ' + job.customerName + ' ke liye estimate item banaya hai: ' + suggestion.desc, job.id);
     setSuggestDesc(''); setSuggestLength(''); setSuggestHeight(''); setSuggestQty('1'); setSuggestRate('');
     showToast('Item add ho gaya - admin approve karenge');
@@ -5896,14 +5972,16 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
       }
     }
     if (newPhotos.length === 0) return false;
-    let next = { ...job, progressPhotos: [...(job.progressPhotos || []), ...newPhotos] };
+    const base = jobRef.current || job;
+    let next = { ...base, progressPhotos: [...(base.progressPhotos || []), ...newPhotos] };
     next = logActivity(next, newPhotos.length + ' progress photo' + (newPhotos.length !== 1 ? 's' : '') + ' added by ' + staffName + ' (Regional Partner)');
-    const ok = await onSaveJob(next);
+    const ok = await saveJob(next);
     if (ok) showToast(newPhotos.length + ' photo' + (newPhotos.length !== 1 ? 's' : '') + ' add ho gayi');
     return ok;
   };
   const removePhoto = (job, photoId) => {
-    onSaveJob({ ...job, progressPhotos: (job.progressPhotos || []).filter((p) => p.id !== photoId) });
+    const base = jobRef.current || job;
+    saveJob({ ...base, progressPhotos: (base.progressPhotos || []).filter((p) => p.id !== photoId) });
   };
   // Sends a completed-work photo toward the business's real, public
   // gallery - held in a separate pending queue (never written directly
@@ -5930,9 +6008,10 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
       status: 'confirmed', confirmedDate: apptDate, confirmedTime: apptTime,
       requestedAt: new Date().toISOString(), bookedByAdmin: false, bookedByRegionalPartner: true,
     };
-    let next = { ...job, appointment: nextAppt, address: apptAddress.trim() };
+    const base = jobRef.current || job;
+    let next = { ...base, appointment: nextAppt, address: apptAddress.trim() };
     next = logActivity(next, staffName + ' (Regional Partner) ne appointment book ki: ' + formatDate(apptDate) + (apptTime ? (', ' + formatTime12h(apptTime)) : ''));
-    onSaveJob(next);
+    saveJob(next);
     pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(apptDate) + (apptTime ? (' - ' + formatTime12h(apptTime)) : '') + ' ke liye book ho gayi hai', job.id);
     setApptDate(''); setApptTime(''); setApptAddress('');
     showToast('Appointment book ho gayi');
@@ -5943,10 +6022,11 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
   // through the app first rather than the partner scheduling it fresh.
   const confirmAppointment = (job) => {
     if (!apptDate) { showToast('Date select karein', true); return; }
-    const nextAppt = { ...job.appointment, status: 'confirmed', confirmedDate: apptDate, confirmedTime: apptTime };
-    let next = { ...job, appointment: nextAppt };
+    const base = jobRef.current || job;
+    const nextAppt = { ...base.appointment, status: 'confirmed', confirmedDate: apptDate, confirmedTime: apptTime };
+    let next = { ...base, appointment: nextAppt };
     next = logActivity(next, staffName + ' (Regional Partner) ne appointment confirm ki: ' + formatDate(apptDate) + (apptTime ? (', ' + formatTime12h(apptTime)) : ''));
-    onSaveJob(next);
+    saveJob(next);
     pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(apptDate) + (apptTime ? (' - ' + formatTime12h(apptTime)) : '') + ' ke liye confirm ho gayi hai', job.id);
     setApptDate(''); setApptTime('');
     showToast('Appointment confirm ho gayi');
@@ -5968,11 +6048,12 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
   // money the partner is holding on their behalf.
   const recordPayment = (job) => {
     if (!newPaymentAmount) { showToast('Amount daalein', true); return; }
-    let nextJob = { ...job, payments: [...(job.payments || []), { id: uid(), amount: newPaymentAmount, note: newPaymentNote.trim(), date: new Date().toISOString(), collectedBy: staffName + ' (Regional Partner)' }] };
+    const base = jobRef.current || job;
+    let nextJob = { ...base, payments: [...(base.payments || []), { id: uid(), amount: newPaymentAmount, note: newPaymentNote.trim(), date: new Date().toISOString(), collectedBy: staffName + ' (Regional Partner)' }] };
     nextJob = logActivity(nextJob, staffName + ' (Regional Partner) ne payment collect ki: ' + currency(newPaymentAmount));
     const justCompletedPayment = jobTotal(nextJob) > 0 && jobDue(nextJob) <= 0 && nextJob.status !== 'paid';
     if (justCompletedPayment) nextJob.status = 'paid';
-    onSaveJob(nextJob);
+    saveJob(nextJob);
     pushNotification('payment_received', staffName + ' (Regional Partner) ne ' + job.customerName + ' se ' + currency(newPaymentAmount) + ' collect kiya hai', job.id);
     if (justCompletedPayment) {
       pushNotification('payment_completed', 'Aapka poora payment ho gaya hai - ' + BUSINESS.name + ' ki taraf se dhanyavaad! Hume aapke saath kaam karke khushi hui.', job.id);
@@ -7220,6 +7301,13 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
   const [sort, setSort] = useState('recent');
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [deletingCustomer, setDeletingCustomer] = useState(null);
+  // Same stale-prop fix as AdminJobDetail (see its matching comment) -
+  // protects rapid successive customer add/edit/delete actions from
+  // each other, the same way it protects rapid estimate-item adds.
+  const customersRef = useRef(customers);
+  useEffect(() => { customersRef.current = customers; }, [customers]);
+  const jobsRef = useRef(jobs);
+  useEffect(() => { jobsRef.current = jobs; }, [jobs]);
   const [showReferralReport, setShowReferralReport] = useState(false);
   const [showAllEstimates, setShowAllEstimates] = useState(false);
   const [showAddCustomer, setShowAddCustomer] = useState(false);
@@ -7248,10 +7336,14 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
     if (!newCustName.trim()) { showToast('Naam daalein', true); return; }
     if (!normalized) { showToast('Sahi 10-digit mobile number daalein', true); return; }
     const newCustomer = { id: uid(), name: newCustName.trim(), phone: normalized, createdAt: new Date().toISOString(), businessUnit: isDhPartner ? 'dh_home_decor' : undefined };
-    setCustomers([newCustomer, ...customers]);
+    const nextCustomers = [newCustomer, ...customersRef.current];
+    customersRef.current = nextCustomers;
+    setCustomers(nextCustomers);
     const newJob = emptyJob(newCustomer.id, newCustomer.name, newCustomer.phone);
     if (isDhPartner) newJob.businessUnit = 'dh_home_decor';
-    setJobs([newJob, ...jobs]);
+    const nextJobs = [newJob, ...jobsRef.current];
+    jobsRef.current = nextJobs;
+    setJobs(nextJobs);
     setNewCustName(''); setNewCustPhone(''); setShowAddCustomer(false);
     showToast('Customer add ho gaya');
     onOpenJob(newJob.id);
@@ -7323,8 +7415,8 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
     }
     const dupe = customers.find((c) => c.phone === normalized && c.id !== updated.id);
     if (dupe) { showToast('Ye phone number pehle se kisi aur customer ka hai', true); return; }
-    setCustomers(customers.map((c) => (c.id === updated.id ? { ...c, name: updated.name.trim(), phone: normalized, birthdayMonthDay: updated.birthdayMonthDay } : c)));
-    setJobs(jobs.map((j) => (j.customerId === updated.id ? { ...j, customerName: updated.name.trim(), phone: normalized } : j)));
+    setCustomers(customersRef.current.map((c) => (c.id === updated.id ? { ...c, name: updated.name.trim(), phone: normalized, birthdayMonthDay: updated.birthdayMonthDay } : c)));
+    setJobs(jobsRef.current.map((j) => (j.customerId === updated.id ? { ...j, customerName: updated.name.trim(), phone: normalized } : j)));
     setEditingCustomer(null);
     showToast('Customer updated');
   };
@@ -7344,8 +7436,8 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
     if (reviewsToArchive.length > 0) {
       setArchivedReviews([...archivedReviews, ...reviewsToArchive]);
     }
-    setCustomers(customers.filter((c) => c.id !== deletingCustomer.id));
-    setJobs(jobs.filter((j) => j.customerId !== deletingCustomer.id));
+    setCustomers(customersRef.current.filter((c) => c.id !== deletingCustomer.id));
+    setJobs(jobsRef.current.filter((j) => j.customerId !== deletingCustomer.id));
     setDeletingCustomer(null);
     showToast('Customer deleted' + (reviewsToArchive.length > 0 ? ' (review surakshit rakha gaya)' : ''));
   };
@@ -7505,6 +7597,13 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
   const [visitConfirmDate, setVisitConfirmDate] = useState('');
   const [visitConfirmTime, setVisitConfirmTime] = useState('');
   const additionalVisits = job.additionalVisits || [];
+  // Same stale-prop protection as AdminJobDetail (see its matching
+  // comment) - keeps rapid successive actions here (confirm, then
+  // immediately mark completed, etc.) from each reading an outdated
+  // job snapshot and silently overwriting one another's changes.
+  const jobRef = useRef(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
+  const saveJob = (next) => { jobRef.current = next; return onSave(next); };
 
   // Admin booking directly (e.g. customer called in instead of using
   // the app) - no separate "requested" step needed since admin IS the
@@ -7520,9 +7619,9 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
       status: 'confirmed', confirmedDate: bookDate, confirmedTime: bookTime,
       requestedAt: new Date().toISOString(), bookedByAdmin: true,
     };
-    let next = { ...job, appointment: nextAppt, address: bookAddress.trim() };
+    let next = { ...jobRef.current, appointment: nextAppt, address: bookAddress.trim() };
     next = logActivity(next, 'Admin ne appointment book ki: ' + formatDate(bookDate) + (bookTime ? (', ' + formatTime12h(bookTime)) : ''));
-    onSave(next);
+    saveJob(next);
     if (pushNotification) {
       pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(bookDate) + (bookTime ? (' - ' + formatTime12h(bookTime)) : '') + ' ke liye book ho gayi hai', job.id);
     }
@@ -7531,8 +7630,9 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
 
   const confirmAdditionalVisit = (visit) => {
     if (!visitConfirmDate) { showToast('Date select karein', true); return; }
-    const next = { ...job, additionalVisits: additionalVisits.map((v) => (v.id === visit.id ? { ...v, status: 'confirmed', confirmedDate: visitConfirmDate, confirmedTime: visitConfirmTime } : v)) };
-    onSave(logActivity(next, 'Additional visit confirm ki: ' + visit.reason));
+    const base = jobRef.current;
+    const next = { ...base, additionalVisits: (base.additionalVisits || []).map((v) => (v.id === visit.id ? { ...v, status: 'confirmed', confirmedDate: visitConfirmDate, confirmedTime: visitConfirmTime } : v)) };
+    saveJob(logActivity(next, 'Additional visit confirm ki: ' + visit.reason));
     if (pushNotification) {
       pushNotification('appointment_confirmed', 'Aapki extra visit ' + formatDate(visitConfirmDate) + (visitConfirmTime ? (' - ' + visitConfirmTime) : '') + ' ke liye confirm ho gayi hai', job.id);
     }
@@ -7561,9 +7661,9 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
   const confirm = (asReschedule) => {
     if (!confirmDate) { showToast('Date select karein', true); return; }
     const nextAppt = { ...appt, status: asReschedule ? 'rescheduled' : 'confirmed', confirmedDate: confirmDate, confirmedTime: confirmTime };
-    let next = { ...job, appointment: nextAppt };
+    let next = { ...jobRef.current, appointment: nextAppt };
     next = logActivity(next, 'Appointment ' + (asReschedule ? 'rescheduled' : 'confirmed') + ': ' + formatDate(confirmDate) + (confirmTime ? ', ' + confirmTime : ''));
-    onSave(next);
+    saveJob(next);
     if (pushNotification) {
       pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(confirmDate) + (confirmTime ? (' - ' + confirmTime) : '') + ' ke liye confirm ho gayi hai', job.id);
     }
@@ -7571,9 +7671,9 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
   };
 
   const markCompleted = () => {
-    let next = { ...job, appointment: { ...appt, status: 'completed' } };
+    let next = { ...jobRef.current, appointment: { ...jobRef.current.appointment, status: 'completed' } };
     next = logActivity(next, 'Appointment completed');
-    onSave(next);
+    saveJob(next);
     showToast('Marked as completed');
   };
 
@@ -7851,6 +7951,11 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast }) {
   const [editingDraftId, setEditingDraftId] = useState(null);
   const [draftForm, setDraftForm] = useState(null);
   const [newDraftItem, setNewDraftItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
+  // Same stale-prop fix as AdminJobDetail (see its matching comment) -
+  // protects rapid successive draft saves (e.g. saving "Laminate" then
+  // immediately "Without Laminate") from overwriting each other.
+  const jobRef = useRef(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
 
   const draftTotal = (d) => (d.items || []).reduce((s, it) => s + estimateItemAmount(it), 0);
 
@@ -7901,13 +8006,21 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast }) {
     if (!draftForm.label.trim()) { showToast('Option ka naam bharein (jaise Laminate)', true); return; }
     if (draftForm.items.length === 0) { showToast('Kam se kam ek item add karein', true); return; }
     const savedDraft = { ...draftForm, label: draftForm.label.trim(), id: editingDraftId === 'new' ? uid() : editingDraftId };
-    const nextDrafts = editingDraftId === 'new' ? [...drafts, savedDraft] : drafts.map((d) => (d.id === editingDraftId ? savedDraft : d));
-    onSave({ ...job, estimateDrafts: nextDrafts });
+    const base = jobRef.current;
+    const baseDrafts = base.estimateDrafts || [];
+    const nextDrafts = editingDraftId === 'new' ? [...baseDrafts, savedDraft] : baseDrafts.map((d) => (d.id === editingDraftId ? savedDraft : d));
+    const nextJob = { ...base, estimateDrafts: nextDrafts };
+    jobRef.current = nextJob;
+    onSave(nextJob);
     setEditingDraftId(null);
     setDraftForm(null);
     showToast('Estimate option save ho gaya');
   };
-  const deleteDraft = (id) => onSave({ ...job, estimateDrafts: drafts.filter((d) => d.id !== id) });
+  const deleteDraft = (id) => {
+    const nextJob = { ...jobRef.current, estimateDrafts: (jobRef.current.estimateDrafts || []).filter((d) => d.id !== id) };
+    jobRef.current = nextJob;
+    onSave(nextJob);
+  };
 
   if (editingDraftId) {
     // Copy-from picker only makes sense while building a NEW, empty
@@ -8212,6 +8325,27 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
   const [tab, setTab] = useState('status');
   const [resolvingComplaintId, setResolvingComplaintId] = useState(null);
   const [reqLightbox, setReqLightbox] = useState(null);
+  // Fixes items (and payments, complaints, etc.) going missing when two
+  // edits happen back-to-back quickly - e.g. adding one estimate item,
+  // then immediately adding a second before the first save has finished
+  // round-tripping to the server and the parent has re-rendered with
+  // the updated job. Without this, the SECOND edit would still read the
+  // OLD job prop (missing the first item), and its own save would
+  // silently overwrite - and lose - the first item entirely.
+  //
+  // jobRef always holds the most recently INTENDED state (updated the
+  // instant any local edit happens, not just when the parent eventually
+  // re-renders), so every handler below builds its next state from
+  // jobRef.current rather than the (possibly stale) job prop directly.
+  // The effect keeps the ref caught up whenever the parent's own state
+  // does change - e.g. after a real server-merge came back with fields
+  // this device didn't touch.
+  const jobRef = useRef(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
+  const saveJob = (next) => {
+    jobRef.current = next;
+    return onSave(next);
+  };
   const resolveGalleryPhotoForAdmin = (photoId) => {
     for (const cat of Object.keys(gallery || {})) {
       const found = (gallery[cat] || []).find((p) => p.id === photoId);
@@ -8241,43 +8375,48 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
   const addMaterial = () => {
     if (!newMaterial.desc.trim()) return;
     const entry = { id: uid(), desc: newMaterial.desc.trim(), category: newMaterial.category, status: 'pending', createdAt: new Date().toISOString() };
-    onSave(logActivity({ ...job, materials: [entry, ...materials] }, (newMaterial.category === 'hardware' ? 'Hardware' : 'Material') + ' added: ' + entry.desc));
+    const base = jobRef.current;
+    saveJob(logActivity({ ...base, materials: [entry, ...(base.materials || [])] }, (newMaterial.category === 'hardware' ? 'Hardware' : 'Material') + ' added: ' + entry.desc));
     setNewMaterial({ desc: '', category: newMaterial.category });
     showToast('Add ho gaya');
   };
   const setMaterialStatus = (id, status) => {
-    const next = materials.map((m) => (m.id === id ? { ...m, status, [status + 'At']: new Date().toISOString() } : m));
-    onSave({ ...job, materials: next });
+    const base = jobRef.current;
+    const next = (base.materials || []).map((m) => (m.id === id ? { ...m, status, [status + 'At']: new Date().toISOString() } : m));
+    saveJob({ ...base, materials: next });
   };
-  const removeMaterial = (id) => onSave({ ...job, materials: materials.filter((m) => m.id !== id) });
+  const removeMaterial = (id) => saveJob({ ...jobRef.current, materials: (jobRef.current.materials || []).filter((m) => m.id !== id) });
 
   const sendAdminReply = () => {
     if (!replyText.trim()) return;
     const entry = { id: uid(), text: replyText.trim(), from: 'admin', authorName: staffName || 'Admin', createdAt: new Date().toISOString() };
-    onSave({ ...job, karigarMessages: [...karigarMessages, entry] });
+    const base = jobRef.current;
+    saveJob({ ...base, karigarMessages: [...(base.karigarMessages || []), entry] });
     setReplyText('');
     showToast('Reply bhej diya');
   };
 
   const updateStatus = (status) => {
-    let next = { ...job, status };
+    let next = { ...jobRef.current, status };
     next = logActivity(next, 'Status updated: ' + STATUS[status].label);
-    onSave(next);
+    saveJob(next);
     showToast('Status set to ' + STATUS[status].label);
   };
   const startComplaintRepair = (id) => {
-    const complaints = (job.complaints || []).map((c) => (c.id === id ? { ...c, status: 'in_progress' } : c));
-    let next = { ...job, complaints };
+    const base = jobRef.current;
+    const complaints = (base.complaints || []).map((c) => (c.id === id ? { ...c, status: 'in_progress' } : c));
+    let next = { ...base, complaints };
     next = logActivity(next, 'Complaint repair shuru hua');
-    onSave(next);
+    saveJob(next);
     showToast('Repair shuru mark ho gaya');
     if (pushNotification) pushNotification('complaint_in_progress', 'Aapki complaint par repair shuru ho gaya hai', job.id);
   };
   const resolveComplaint = (id, resolutionNote) => {
-    const complaints = (job.complaints || []).map((c) => (c.id === id ? { ...c, status: 'resolved', resolvedAt: new Date().toISOString(), resolutionNote: resolutionNote || '' } : c));
-    let next = { ...job, complaints };
+    const base = jobRef.current;
+    const complaints = (base.complaints || []).map((c) => (c.id === id ? { ...c, status: 'resolved', resolvedAt: new Date().toISOString(), resolutionNote: resolutionNote || '' } : c));
+    let next = { ...base, complaints };
     next = logActivity(next, 'Complaint resolved');
-    onSave(next);
+    saveJob(next);
     showToast('Complaint resolved mark ho gayi');
     if (pushNotification) pushNotification('complaint_resolved', 'Aapki complaint solve ho gayi hai', job.id);
   };
@@ -8296,9 +8435,10 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
   const addAdminRepair = () => {
     if (!adminRepairText.trim()) { showToast('Repair ka detail likhein', true); return; }
     const entry = { id: uid(), text: adminRepairText.trim(), status: 'open', source: 'admin', createdAt: new Date().toISOString() };
-    let next = { ...job, complaints: [entry, ...(job.complaints || [])] };
+    const base = jobRef.current;
+    let next = { ...base, complaints: [entry, ...(base.complaints || [])] };
     next = logActivity(next, 'Repair admin ne add kiya: ' + entry.text);
-    onSave(next);
+    saveJob(next);
     setAdminRepairText(''); setShowAdminRepairForm(false);
     showToast('Repair add ho gaya');
   };
@@ -8310,10 +8450,11 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
   const [answerText, setAnswerText] = useState('');
   const answerQuestion = (id) => {
     if (!answerText.trim()) { showToast('Jawab likhein', true); return; }
-    const questions = (job.questions || []).map((q) => (q.id === id ? { ...q, status: 'answered', answer: answerText.trim(), answeredAt: new Date().toISOString() } : q));
-    let next = { ...job, questions };
+    const base = jobRef.current;
+    const questions = (base.questions || []).map((q) => (q.id === id ? { ...q, status: 'answered', answer: answerText.trim(), answeredAt: new Date().toISOString() } : q));
+    let next = { ...base, questions };
     next = logActivity(next, 'Customer ke sawaal ka jawab diya');
-    onSave(next);
+    saveJob(next);
     setAnsweringQuestionId(null); setAnswerText('');
     showToast('Jawab bhej diya');
     if (pushNotification) pushNotification('question_answered', 'Aapke sawaal ka jawab mil gaya hai', job.id);
@@ -8329,7 +8470,8 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
       qty: newItem.qty || '1',
       rate: newItem.rate || '0',
     };
-    let next = { ...job, items: [...(job.items || []), item] };
+    const base = jobRef.current;
+    let next = { ...base, items: [...(base.items || []), item] };
     // Marks exactly when the customer FIRST actually had an estimate to
     // respond to - the follow-up reminder below needs this, not
     // job.createdAt (customer registration date), since those two can
@@ -8337,34 +8479,37 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     // once, on the transition from 0 items to 1+ - never touched again,
     // so adding more items later or an admin correction doesn't reset
     // the "customer's clock" the follow-up reminder is running against.
-    if (!(job.items || []).length) next.estimateGivenAt = new Date().toISOString();
+    if (!(base.items || []).length) next.estimateGivenAt = new Date().toISOString();
     next = logActivity(next, 'Estimate item added: ' + newItem.desc.trim());
-    onSave(next);
+    saveJob(next);
     setNewItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
   };
   const updateItem = (id, patch) => {
-    onSave({ ...job, items: job.items.map((it) => (it.id === id ? { ...it, ...patch } : it)) });
+    const base = jobRef.current;
+    saveJob({ ...base, items: base.items.map((it) => (it.id === id ? { ...it, ...patch } : it)) });
   };
-  const removeItem = (id) => onSave({ ...job, items: job.items.filter((it) => it.id !== id) });
+  const removeItem = (id) => saveJob({ ...jobRef.current, items: jobRef.current.items.filter((it) => it.id !== id) });
   // Moves a Regional Partner's suggested local rate into the REAL
   // estimate (job.items) - the only way a suggestion ever actually
   // affects what the customer is billed, since suggestedItems itself
   // is never read by jobTotal/jobPaid anywhere in the app.
   const approveSuggestedItem = (suggestion) => {
     const item = { id: uid(), desc: suggestion.desc, length: suggestion.length || '', height: suggestion.height || '', qty: suggestion.qty || '1', rate: suggestion.rate };
-    let next = { ...job, items: [...(job.items || []), item], suggestedItems: (job.suggestedItems || []).filter((s) => s.id !== suggestion.id) };
-    if (!(job.items || []).length) next.estimateGivenAt = new Date().toISOString();
+    const base = jobRef.current;
+    let next = { ...base, items: [...(base.items || []), item], suggestedItems: (base.suggestedItems || []).filter((s) => s.id !== suggestion.id) };
+    if (!(base.items || []).length) next.estimateGivenAt = new Date().toISOString();
     next = logActivity(next, 'Partner suggestion approved: ' + suggestion.desc);
-    onSave(next);
+    saveJob(next);
     showToast('Estimate mein add ho gaya');
   };
   const rejectSuggestedItem = (suggestionId) => {
-    onSave({ ...job, suggestedItems: (job.suggestedItems || []).filter((s) => s.id !== suggestionId) });
+    saveJob({ ...jobRef.current, suggestedItems: (jobRef.current.suggestedItems || []).filter((s) => s.id !== suggestionId) });
   };
 
   const addPayment = () => {
     if (!newPayment.amount) return;
-    let nextJob = { ...job, payments: [...(job.payments || []), { id: uid(), amount: newPayment.amount, note: newPayment.note.trim(), method: newPayment.method, date: new Date().toISOString() }] };
+    const base = jobRef.current;
+    let nextJob = { ...base, payments: [...(base.payments || []), { id: uid(), amount: newPayment.amount, note: newPayment.note.trim(), method: newPayment.method, date: new Date().toISOString() }] };
     nextJob = logActivity(nextJob, 'Payment received: ' + currency(newPayment.amount));
     // jobTotal(nextJob) > 0 guards against a job with NO estimate yet
     // (jobTotal is 0, so jobDue is trivially 0 too) auto-flipping to
@@ -8374,14 +8519,14 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     // job straight past appointment/estimate/in_progress to paid.
     const justCompletedPayment = jobTotal(nextJob) > 0 && jobDue(nextJob) <= 0 && nextJob.status !== 'paid';
     if (justCompletedPayment) nextJob.status = 'paid';
-    onSave(nextJob);
+    saveJob(nextJob);
     if (justCompletedPayment && pushNotification) {
       pushNotification('payment_completed', 'Aapka poora payment ho gaya hai - ' + BUSINESS.name + ' ki taraf se dhanyavaad! Hume aapke saath kaam karke khushi hui.', job.id);
     }
     setNewPayment({ amount: '', note: '', method: 'Cash' });
     showToast('Payment recorded');
   };
-  const removePayment = (id) => onSave({ ...job, payments: job.payments.filter((p) => p.id !== id) });
+  const removePayment = (id) => saveJob({ ...jobRef.current, payments: jobRef.current.payments.filter((p) => p.id !== id) });
 
   // Admin adding extra work directly (with items already known) skips
   // straight to pending_customer_approval, since there's no price gap to
@@ -8407,9 +8552,10 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     const amount = newExtraWork.items.reduce((s, it) => s + estimateItemAmount(it), 0);
     const desc = newExtraWork.title.trim() || newExtraWork.items.map((it) => it.desc).join(', ');
     const entry = { id: uid(), desc, items: newExtraWork.items, amount, addedBy: 'admin', status: selfApprove ? 'approved' : 'pending_customer_approval', createdAt: new Date().toISOString(), respondedAt: selfApprove ? new Date().toISOString() : null };
-    let next = { ...job, extraWork: [entry, ...extraWork] };
+    const base = jobRef.current;
+    let next = { ...base, extraWork: [entry, ...(base.extraWork || [])] };
     next = logActivity(next, (selfApprove ? 'Extra work add ho gaya: ' : 'Extra work added: ') + entry.desc + ' (' + currency(entry.amount) + ')');
-    onSave(next);
+    saveJob(next);
     setNewExtraWork({ title: '', items: [] });
     showToast(selfApprove ? 'Extra work add ho gaya aur estimate mein shaamil ho gaya' : 'Extra work added, customer approval ke liye bheja gaya');
   };
@@ -8433,8 +8579,9 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
   const setExtraWorkPrice = (item) => {
     if (pricingItems.length === 0) { showToast('Kam se kam ek item add karein', true); return; }
     const amount = pricingItems.reduce((s, it) => s + estimateItemAmount(it), 0);
-    const next = { ...job, extraWork: extraWork.map((e) => (e.id === item.id ? { ...e, items: pricingItems, amount, status: 'pending_customer_approval' } : e)) };
-    onSave(logActivity(next, 'Extra work priced: ' + item.desc + ' (' + currency(amount) + ')'));
+    const base = jobRef.current;
+    const next = { ...base, extraWork: (base.extraWork || []).map((e) => (e.id === item.id ? { ...e, items: pricingItems, amount, status: 'pending_customer_approval' } : e)) };
+    saveJob(logActivity(next, 'Extra work priced: ' + item.desc + ' (' + currency(amount) + ')'));
     if (pushNotification) {
       pushNotification('extra_work_needs_price', 'Aapke extra kaam "' + item.desc + '" ka price ' + currency(amount) + ' set ho gaya hai - approve karein', job.id);
     }
@@ -8442,7 +8589,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     setPricingItems([]);
     showToast('Price set, customer approval ke liye bheja gaya');
   };
-  const removeExtraWork = (id) => onSave({ ...job, extraWork: extraWork.filter((e) => e.id !== id) });
+  const removeExtraWork = (id) => saveJob({ ...jobRef.current, extraWork: (jobRef.current.extraWork || []).filter((e) => e.id !== id) });
   // Folds an approved extra-work entry's line items into the main
   // estimate (job.items), so once work is done, the final estimate
   // reads as ONE consolidated list instead of the base items plus a
@@ -8458,14 +8605,15 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     const itemsToAdd = (entry.items && entry.items.length > 0)
       ? entry.items.map((it) => ({ ...it, id: uid() }))
       : [{ id: uid(), desc: entry.desc, length: '', height: '', qty: '1', rate: String(entry.amount) }];
+    const base = jobRef.current;
     let next = {
-      ...job,
-      items: [...(job.items || []), ...itemsToAdd],
-      extraWork: extraWork.map((e) => (e.id === entry.id ? { ...e, mergedIntoEstimate: true } : e)),
+      ...base,
+      items: [...(base.items || []), ...itemsToAdd],
+      extraWork: (base.extraWork || []).map((e) => (e.id === entry.id ? { ...e, mergedIntoEstimate: true } : e)),
     };
-    if (!(job.items || []).length) next.estimateGivenAt = new Date().toISOString();
+    if (!(base.items || []).length) next.estimateGivenAt = new Date().toISOString();
     next = logActivity(next, 'Extra work estimate mein merge kiya: ' + entry.desc + ' (' + currency(entry.amount) + ')');
-    onSave(next);
+    saveJob(next);
     showToast('Estimate mein merge ho gaya');
   };
 
@@ -8486,13 +8634,14 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
       }
     }
     if (newPhotos.length === 0) return false;
-    let next = { ...job, progressPhotos: [...(job.progressPhotos || []), ...newPhotos] };
+    const base = jobRef.current;
+    let next = { ...base, progressPhotos: [...(base.progressPhotos || []), ...newPhotos] };
     next = logActivity(next, newPhotos.length + ' new progress photo' + (newPhotos.length !== 1 ? 's' : '') + ' added');
-    const ok = await onSave(next);
+    const ok = await saveJob(next);
     if (ok) showToast(newPhotos.length + ' progress photo' + (newPhotos.length !== 1 ? 's' : '') + ' added');
     return ok;
   };
-  const removePhoto = (id) => onSave({ ...job, progressPhotos: job.progressPhotos.filter((p) => p.id !== id) });
+  const removePhoto = (id) => saveJob({ ...jobRef.current, progressPhotos: jobRef.current.progressPhotos.filter((p) => p.id !== id) });
 
   return (
     <div>
@@ -8539,7 +8688,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                   value={job.assignedStaffId || ''}
                   onChange={(e) => {
                     const newStaffId = e.target.value || null;
-                    onSave({ ...job, assignedStaffId: newStaffId });
+                    saveJob({ ...jobRef.current, assignedStaffId: newStaffId });
                     // A staff-targeted push (not admin-bound or
                     // customer-bound, so it goes straight through
                     // window.pushMessaging here rather than the shared
@@ -8651,15 +8800,15 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
             <div style={{ marginTop: 16 }}>
               <div style={styles.fieldLabel}>Expected Completion Date</div>
               <div style={styles.plainTextMuted}>Customer ko Home screen par dikhega.</div>
-              <input type='date' style={styles.input} value={job.expectedCompletionDate || ''} onChange={(e) => onSave({ ...job, expectedCompletionDate: e.target.value || null })} />
+              <input type='date' style={styles.input} value={job.expectedCompletionDate || ''} onChange={(e) => saveJob({ ...jobRef.current, expectedCompletionDate: e.target.value || null })} />
             </div>
 
             <div style={{ marginTop: 16 }}>
               <div style={styles.fieldLabel}>Material (poore estimate ke liye)</div>
               <div style={styles.plainTextMuted}>Kaunsi company ki sheet, kitni kg - poore estimate mein ek hi material use hota hai.</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                <input style={styles.input} placeholder='Company (jaise Kaka)' value={job.materialCompany || ''} onChange={(e) => onSave({ ...job, materialCompany: e.target.value })} />
-                <input style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={job.sheetWeightKg || ''} onChange={(e) => onSave({ ...job, sheetWeightKg: e.target.value })} />
+                <input style={styles.input} placeholder='Company (jaise Kaka)' value={job.materialCompany || ''} onChange={(e) => saveJob({ ...jobRef.current, materialCompany: e.target.value })} />
+                <input style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={job.sheetWeightKg || ''} onChange={(e) => saveJob({ ...jobRef.current, sheetWeightKg: e.target.value })} />
               </div>
             </div>
 
@@ -8668,7 +8817,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
               <div style={styles.plainTextMuted}>Kaam kitna hua hai - payment lena ho to yaad dilata hai.</div>
               <div style={styles.chipRow}>
                 {[0, 25, 50, 75, 100].map((pct) => (
-                  <button key={pct} onClick={() => onSave({ ...job, workPercent: pct })} style={{ ...styles.chip, ...((job.workPercent || 0) === pct ? styles.chipActive : {}) }}>{pct}%</button>
+                  <button key={pct} onClick={() => saveJob({ ...jobRef.current, workPercent: pct })} style={{ ...styles.chip, ...((job.workPercent || 0) === pct ? styles.chipActive : {}) }}>{pct}%</button>
                 ))}
               </div>
               {(job.workPercent || 0) > 0 && jobDue(job) > 0 && (
@@ -8690,7 +8839,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
         )}
 
         {tab === 'estimate' && (
-          <AdminEstimateTab job={job} onSave={onSave} newItem={newItem} setNewItem={setNewItem} addItem={addItem} updateItem={updateItem} removeItem={removeItem} total={total} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} showToast={showToast} />
+          <AdminEstimateTab job={jobRef.current} onSave={saveJob} newItem={newItem} setNewItem={setNewItem} addItem={addItem} updateItem={updateItem} removeItem={removeItem} total={total} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} showToast={showToast} />
         )}
 
         {tab === 'extrawork' && (
@@ -9604,6 +9753,12 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
   const [filterType, setFilterType] = useState('all');
   const [activePayee, setActivePayee] = useState(null);
   const [showProfitReport, setShowProfitReport] = useState(false);
+  // Same stale-prop fix as AdminJobDetail (see its matching comment) -
+  // protects two rapid expense entries from the second silently
+  // overwriting the first if the parent hasn't re-rendered with the
+  // first one yet.
+  const expensesRef = useRef(expenses);
+  useEffect(() => { expensesRef.current = expenses; }, [expenses]);
   const [showMonthlyReport, setShowMonthlyReport] = useState(false);
   const [showDueList, setShowDueList] = useState(false);
   // Every expense/job predating businessUnit has no such field, so
@@ -9683,11 +9838,17 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
   const addExpense = () => {
     if (!payee.trim() || !amount) { showToast('Naam aur amount daalein', true); return; }
     const entry = { id: uid(), type, payee: payee.trim(), amount, note: note.trim(), jobId: linkedJobId || null, date: new Date().toISOString(), businessUnit: isDhPartner ? 'dh_home_decor' : undefined };
-    setExpenses([entry, ...expenses]);
+    const next = [entry, ...expensesRef.current];
+    expensesRef.current = next;
+    setExpenses(next);
     setPayee(''); setAmount(''); setNote(''); setLinkedJobId('');
     showToast('Expense add ho gaya');
   };
-  const removeExpense = (id) => setExpenses(expenses.filter((e) => e.id !== id));
+  const removeExpense = (id) => {
+    const next = expensesRef.current.filter((e) => e.id !== id);
+    expensesRef.current = next;
+    setExpenses(next);
+  };
 
   const filtered = visibleExpenses.filter((e) => filterType === 'all' || e.type === filterType).sort((a, b) => new Date(b.date) - new Date(a.date));
   const activePayeeEntries = activePayee
