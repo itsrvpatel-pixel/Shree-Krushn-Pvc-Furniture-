@@ -4,8 +4,10 @@ import App from './App.jsx';
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import { installWindowStorage } from './firebaseStorage.js';
+import { installWindowPhoneAuth } from './phoneAuth.js';
 
 installWindowStorage();
+installWindowPhoneAuth();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

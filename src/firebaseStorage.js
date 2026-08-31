@@ -7,15 +7,9 @@
 // or other environment issues. Instead, dynamically import when running
 // in the browser.
 
-// Your actual Firebase project config (Shree Krushn PVC Furniture)
-const firebaseConfig = {
-  apiKey: "AIzaSyBOlInlieBdYitFR9VYpkqyO7OkzPCLtGY",
-  authDomain: "shree-krushn-pvc-furniture.firebaseapp.com",
-  projectId: "shree-krushn-pvc-furniture",
-  storageBucket: "shree-krushn-pvc-furniture.firebasestorage.app",
-  messagingSenderId: "129070549337",
-  appId: "1:129070549337:web:2fe7ab7ebcfba2aefc2448",
-};
+// Firebase config + the shared app instance live in firebaseApp.js so
+// storage and phone auth never initialize the project twice.
+import { getFirebaseApp } from './firebaseApp.js';
 
 const COLLECTION = "app_data";
 
@@ -24,9 +18,8 @@ let initPromise = null;
 async function initFirebase() {
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    const { initializeApp } = await import('firebase/app');
     const { getFirestore, doc, getDoc, setDoc, deleteDoc } = await import('firebase/firestore');
-    const app = initializeApp(firebaseConfig);
+    const app = await getFirebaseApp();
     const db = getFirestore(app);
     return { db, doc, getDoc, setDoc, deleteDoc };
   })();

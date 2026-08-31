@@ -228,7 +228,7 @@ lines.push('Estimate for ' + job.customerName);
 lines.push('');
 (job.items || []).forEach((it, i) => {
 const sqft = estimateItemSqft(it);
-const dims = sqft !== null ? (' (' + it.length + "'x" + it.height + "' = " + sqft.toFixed(2) + ' sqft)') : '';
+const dims = sqft !== null ? (' (' + it.length + '"x' + it.height + '" = ' + sqft.toFixed(2) + ' sqft)') : '';
 lines.push((i + 1) + '. ' + it.desc + dims + ' - ' + currency(estimateItemAmount(it)));
 });
 lines.push('');
@@ -552,7 +552,7 @@ if (pp) setPartnerPin(pp);
 if (aio) setAppointmentItemOptions(JSON.parse(aio));
 if (br) setBrochures(JSON.parse(br));
 if (cats) setCategoriesRaw(JSON.parse(cats));
-if (notifs) setNotificationsRaw(JSON.parse(notifs));
+if (notifs) setNotificationsRaw(normalizeNotifications(JSON.parse(notifs)));
 } finally {
 setLoaded(true);
 }
@@ -595,7 +595,7 @@ if (!loaded) return;
 const poll = setInterval(async () => {
 try {
 const notifs = await safeGet('notifications');
-if (notifs) setNotificationsRaw(JSON.parse(notifs));
+if (notifs) setNotificationsRaw(normalizeNotifications(JSON.parse(notifs)));
 } catch (e) {
 // best effort
 }
@@ -695,6 +695,16 @@ try {
 const res = await window.storage.get(key, true);
 return res ? res.value : null;
 } catch (e) { return null; }
+}
+
+// Notifications carry per-viewer read state in a readBy array. A record
+// that predates that field (or one hand-edited in Firestore) would make
+// every `n.readBy.includes(...)` call throw, and because the list is
+// shared and re-polled, a single bad record would blank the app for
+// everyone. Normalising on the way in keeps that guarantee in one place
+// instead of at each call site.
+function normalizeNotifications(list) {
+return (Array.isArray(list) ? list : []).map((n) => ({ ...n, readBy: Array.isArray(n.readBy) ? n.readBy : [] }));
 }
 
 // Gallery photos are stored split across two tiers to stay under
@@ -2679,17 +2689,6 @@ const [editingCustomer, setEditingCustomer] = useState(null);
 const [deletingCustomer, setDeletingCustomer] = useState(null);
 const [showReferralReport, setShowReferralReport] = useState(false);
 
-if (showReferralReport) {
-return (
-<div>
-<div style={{ padding: '12px 16px 0' }}>
-<button style={styles.backLink} onClick={() => setShowReferralReport(false)}><ArrowLeft size={13} /> Customers</button>
-</div>
-<AdminReferralReport customers={customers} />
-</div>
-);
-}
-
 const rows = useMemo(() => {
 let r = customers
 .map((c) => ({ customer: c, job: jobs.find((j) => j.customerId === c.id) }))
@@ -2707,6 +2706,17 @@ if (sort === 'name') r.sort((a, b) => a.customer.name.localeCompare(b.customer.n
 if (sort === 'due') r.sort((a, b) => (b.job ? jobDue(b.job) : 0) - (a.job ? jobDue(a.job) : 0));
 return r;
 }, [customers, jobs, query, filter, branchFilter, sort]);
+
+if (showReferralReport) {
+return (
+<div>
+<div style={{ padding: '12px 16px 0' }}>
+<button style={styles.backLink} onClick={() => setShowReferralReport(false)}><ArrowLeft size={13} /> Customers</button>
+</div>
+<AdminReferralReport customers={customers} />
+</div>
+);
+}
 
 const dueTotal = jobs.reduce((s, j) => s + jobDue(j), 0);
 
@@ -3877,6 +3887,23 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast }) {
   const [showProfitReport, setShowProfitReport] = useState(false);
   const [showMonthlyReport, setShowMonthlyReport] = useState(false);
 
+  // Per-person breakdown: groups every expense by payee name (case/space
+  // insensitive match so "Ramu Kaka" and "ramu kaka " land in the same
+  // group), so admin can see at a glance who's been paid how much in
+  // total, without having to scroll the full mixed history.
+  const payeeSummary = useMemo(() => {
+    const groups = {};
+    for (const e of expenses) {
+      const key = (e.payee || '').trim().toLowerCase();
+      if (!key) continue;
+      if (!groups[key]) groups[key] = { displayName: e.payee.trim(), total: 0, count: 0, entries: [] };
+      groups[key].total += Number(e.amount) || 0;
+      groups[key].count += 1;
+      groups[key].entries.push(e);
+    }
+    return Object.values(groups).sort((a, b) => b.total - a.total);
+  }, [expenses]);
+
   if (showProfitReport) {
     return (
       <div>
@@ -3905,22 +3932,6 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast }) {
   const karigarTotal = expenses.filter((e) => e.type === 'Karigar Payment').reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const netProfit = totalCollected - totalExpense;
 
-  // Per-person breakdown: groups every expense by payee name (case/space
-  // insensitive match so "Ramu Kaka" and "ramu kaka " land in the same
-  // group), so admin can see at a glance who's been paid how much in
-  // total, without having to scroll the full mixed history.
-  const payeeSummary = useMemo(() => {
-    const groups = {};
-    for (const e of expenses) {
-      const key = (e.payee || '').trim().toLowerCase();
-      if (!key) continue;
-      if (!groups[key]) groups[key] = { displayName: e.payee.trim(), total: 0, count: 0, entries: [] };
-      groups[key].total += Number(e.amount) || 0;
-      groups[key].count += 1;
-      groups[key].entries.push(e);
-    }
-    return Object.values(groups).sort((a, b) => b.total - a.total);
-  }, [expenses]);
 
   const addExpense = () => {
     if (!payee.trim() || !amount) { showToast('Naam aur amount daalein', true); return; }
