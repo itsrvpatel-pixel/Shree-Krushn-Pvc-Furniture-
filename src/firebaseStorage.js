@@ -23,7 +23,7 @@
 //    of the app (see sendPhoneOtp below).
 
 import { initializeApp } from "firebase/app";
-import { createJobsStore } from "./jobsStore.js";
+import { createJobsStore, createCustomersStore } from "./jobsStore.js";
 import {
   initializeFirestore,
   getFirestore,
@@ -413,6 +413,7 @@ function subscribeKey(key, onValue) {
 }
 
 const jobsStore = createJobsStore(db);
+const customersStore = createCustomersStore(db);
 
 export function installWindowStorage() {
   window.storage = {
@@ -431,6 +432,7 @@ export function installWindowStorage() {
   };
   window.storage.subscribe = (key, onValue) => subscribeKey(key, onValue);
   window.jobsStore = jobsStore;
+  window.customersStore = customersStore;
   window.appAuth = { ensureSignedIn: () => ensureSignedIn() };
   window.staffAuth = {
     login: (pin) => staffLogin(pin),

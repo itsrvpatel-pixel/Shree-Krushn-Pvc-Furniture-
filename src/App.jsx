@@ -121,7 +121,11 @@ async function mapWithConcurrencyLimit(items, limit, fn) {
 // prevLocal) get applied on top of the current server data, so a
 // concurrent change from elsewhere is never overwritten no matter how
 // far behind this device's local copy had drifted.
-async function mergeIdArrayWithFreshServer(storageKey, next, prevLocal) {
+// freshLoader lets a caller say where the current server state actually
+// lives. Customers moved to one document per record, so reading the old
+// app_data/customers document here would merge against data that is no
+// longer the source of truth and quietly resurrect deleted records.
+async function mergeIdArrayWithFreshServer(storageKey, next, prevLocal, freshLoader) {
   const prevById = {};
   prevLocal.forEach((item) => { prevById[item.id] = item; });
   const nextById = {};
@@ -131,8 +135,12 @@ async function mergeIdArrayWithFreshServer(storageKey, next, prevLocal) {
 
   let freshItems = prevLocal;
   try {
-    const raw = await window.storage.get(storageKey, true);
-    if (raw && raw.value) freshItems = JSON.parse(raw.value);
+    if (freshLoader) {
+      freshItems = await freshLoader();
+    } else {
+      const raw = await window.storage.get(storageKey, true);
+      if (raw && raw.value) freshItems = JSON.parse(raw.value);
+    }
   } catch (e) { /* fall back to this device's own local copy */ }
 
   const mergedById = {};
@@ -1611,6 +1619,12 @@ export default function App() {
   const galleryLoadedRef = useRef(false);
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [customers, setCustomers] = useState([]);
+  // Starts true: at startup a lookup is always pending, and the guard
+  // further down treats "no matching customer" as a dead session and
+  // clears it. Starting false meant that on every refresh the guard ran
+  // before the lookup had even begun, wiping a perfectly good session
+  // from localStorage and dumping the customer back at the login screen.
+  const [customersLoading, setCustomersLoading] = useState(true);
   const [jobs, setJobs] = useState([]);
   const [adminPin, setAdminPin] = useState(DEFAULT_PIN);
   // Default rates used by the customer-facing quick estimate calculator
@@ -1896,14 +1910,15 @@ export default function App() {
         // the first time this version runs. Does nothing once the split has
         // happened, and never deletes the original.
         await window.jobsStore.migrateLegacyIfNeeded();
-        const [c, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw, featuredRaw] = await Promise.all([
-          safeGet('customers'), safeGet('admin_pin'), safeGet('staff'),
+        await window.customersStore.migrateLegacyIfNeeded();
+        const [p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw, featuredRaw] = await Promise.all([
+          safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
           safeGet('archived_reviews'), safeGet('admin_push_tokens'), safeGet('faqs'), safeGet('dh_partner_pin'), safeGet('pending_gallery_photos'),
           safeGet('material_specs'), safeGet('company_benefits'), safeGet('featured_reviews'),
         ]);
-        if (c) setCustomers(JSON.parse(c));
+
         if (p) setAdminPin(p);
         if (st) setStaff(JSON.parse(st));
         if (exp) setExpenses(JSON.parse(exp));
@@ -1935,6 +1950,40 @@ export default function App() {
       }
     })();
   }, []);
+
+  // Customers are one document each, keyed by phone (see jobsStore.js).
+  // What gets loaded depends on who is signed in, so this runs on the
+  // session rather than only at startup - at startup nobody is logged in
+  // yet, and loading on mount alone would leave an admin with an empty
+  // customer list until they refreshed.
+  //
+  // A customer fetches only their own document. That is not just tidiness:
+  // under the phase 3 rules a customer listing the collection would have
+  // the entire query denied rather than filtered down, so the app has to
+  // ask for exactly the one record it is allowed to see.
+  useEffect(() => {
+    if (!loaded) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!session) { if (!cancelled) setCustomers([]); return; }
+        setCustomersLoading(true);
+        if (session.role === 'customer') {
+          if (!session.phone) return; // nothing safe to fetch without it
+          const mine = await window.customersStore.getOne(session.phone);
+          if (!cancelled && mine) setCustomers([mine]);
+          return;
+        }
+        const all = await window.customersStore.loadAll();
+        if (!cancelled) setCustomers(all);
+      } catch (e) {
+        console.error('loading customers failed', e);
+      } finally {
+        if (!cancelled) setCustomersLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [loaded, session]);
 
   // Live subscriptions replace what used to be two polling timers (a 20s
   // one for jobs/brochures/categories/appointment options/gallery, and an
@@ -2286,8 +2335,8 @@ export default function App() {
     const prevLocalCustomers = customers;
     setCustomers(next);
     try {
-      const merged = await mergeIdArrayWithFreshServer('customers', next, prevLocalCustomers);
-      await window.storage.set('customers', JSON.stringify(merged), true);
+      const merged = await mergeIdArrayWithFreshServer('customers', next, prevLocalCustomers, () => window.customersStore.loadAll());
+      await window.customersStore.saveDiff(merged, prevLocalCustomers);
       setCustomers(merged);
     }
     catch (e) { showToast('Save failed', true); }
@@ -2583,18 +2632,25 @@ export default function App() {
       <div style={styles.app}>
         <style>{fontImport}</style>
         <LoginScreen
-          customers={customers}
           adminPin={adminPin}
           partnerPin={partnerPin}
           dhPartnerPin={dhPartnerPin}
           staff={staff}
-          onCustomerLogin={(customerId) => setSession({ role: 'customer', customerId })}
+          onCustomerLogin={(cust) => {
+            // Seed the record we already fetched. The customer list is
+            // loaded per session now, and that load is async - without
+            // this, the very first render after login finds no matching
+            // customer and the guard further down logs them straight back
+            // out again.
+            setCustomers([cust]);
+            setSession({ role: 'customer', customerId: cust.id, phone: cust.phone });
+          }}
           onRegister={(cust) => {
             const next = [cust, ...customers];
             persistCustomers(next);
             const job = emptyJob(cust.id, cust.name, cust.phone);
             persistJobs([job, ...jobs]);
-            setSession({ role: 'customer', customerId: cust.id });
+            setSession({ role: 'customer', customerId: cust.id, phone: cust.phone });
             showToast('Registered! Welcome ' + cust.name);
             // The registration moment itself is the very first signal a
             // brand-new lead exists - previously admin only found out
@@ -2788,7 +2844,10 @@ export default function App() {
   // documented "adjusting state during rendering" pattern: it's guarded by
   // the !customer check, so it can't loop (once session is null, this
   // branch's parent condition is no longer even reached on the next render).
-  if (!customer) {
+  // Only once the record has actually been looked up. While the load is
+  // still in flight there is nothing to conclude from an empty list, and
+  // logging out on it would kick a customer out the instant they log in.
+  if (!customer && loaded && !customersLoading) {
     setSession(null);
     return (
       <div style={styles.app}>
@@ -2999,7 +3058,9 @@ function formatPhoneDisplay(digits10) {
 // Turning this on is what unblocks the per-customer rules.
 const REAL_PHONE_AUTH = import.meta.env.VITE_PHONE_AUTH === 'on';
 
-function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
+// No customers prop: the login screen looks up exactly the one phone
+// number being entered, so it never needs the full list.
+function LoginScreen({ adminPin, partnerPin, dhPartnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
   const [mode, setMode] = useState('choose');
   const [name, setName] = useState('');
   const [referredBy, setReferredBy] = useState('');
@@ -3027,14 +3088,15 @@ function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onC
     const normalized = normalizeIndianPhone(phone);
     if (forMode === 'register' && !name.trim()) { setError('Naam daalein'); return; }
     if (!normalized) { setError('Sahi 10-digit mobile number daalein (jaise 98765 43210)'); return; }
-    if (forMode === 'login') {
-      const found = customers.find((c) => c.phone === normalized);
-      if (!found) { setError('Ye number register nahi hai. Pehle register karein.'); return; }
+    // Fetches just this one customer's document instead of scanning a
+    // list of everyone. Customer documents are keyed by phone precisely so
+    // this lookup is possible without reading anybody else's record - which
+    // is what lets the phase 3 rules allow it.
+    const existing = await window.customersStore.getOne(normalized);
+    if (forMode === 'login' && !existing) {
+      setError('Ye number register nahi hai. Pehle register karein.'); return;
     }
-    if (forMode === 'register') {
-      const existing = customers.find((c) => c.phone === normalized);
-      if (existing) { onCustomerLogin(existing.id); return; }
-    }
+    if (forMode === 'register' && existing) { onCustomerLogin(existing); return; }
     if (REAL_PHONE_AUTH) {
       setSendingOtp(true);
       const result = await window.phoneAuth.sendOtp('+91' + normalized, 'recaptcha-container');
@@ -3071,8 +3133,9 @@ function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onC
     if (otpStage === 'register') {
       onRegister({ id: uid(), name: name.trim(), phone: pendingPhone, phoneVerified: true, referredBy: referredBy.trim() || null, createdAt: new Date().toISOString() });
     } else {
-      const found = customers.find((c) => c.phone === pendingPhone);
-      if (found) onCustomerLogin(found.id);
+      const found = await window.customersStore.getOne(pendingPhone);
+      if (found) onCustomerLogin(found);
+      else setError('Ye number register nahi hai. Pehle register karein.');
     }
   };
 

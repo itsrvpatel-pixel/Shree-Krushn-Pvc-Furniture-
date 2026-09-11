@@ -43,8 +43,6 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 
-const JOBS_COLLECTION = 'jobs';
-const LEGACY_DOC = { collection: 'app_data', id: 'jobs' };
 
 // Firestore rejects a batch over 500 operations.
 const MAX_BATCH = 450;
@@ -52,28 +50,33 @@ const MAX_BATCH = 450;
 // Works out the minimum set of documents to touch. Exported separately
 // from the Firestore calls so it can be tested on its own - getting this
 // wrong is how a save silently loses a job.
-export function computeJobDiff(next, prev) {
-  const prevById = new Map((prev || []).filter((j) => j && j.id).map((j) => [j.id, j]));
-  const nextById = new Map((next || []).filter((j) => j && j.id).map((j) => [j.id, j]));
-  const changed = (next || []).filter(
-    (j) => j && j.id && JSON.stringify(j) !== JSON.stringify(prevById.get(j.id)),
+export function computeJobDiff(next, prev, idOf = (r) => r && r.id) {
+  const keyed = (list) => (list || []).filter((r) => r && idOf(r));
+  const prevById = new Map(keyed(prev).map((r) => [idOf(r), r]));
+  const nextById = new Map(keyed(next).map((r) => [idOf(r), r]));
+  const changed = keyed(next).filter(
+    (r) => JSON.stringify(r) !== JSON.stringify(prevById.get(idOf(r))),
   );
-  const removedIds = (prev || [])
-    .filter((j) => j && j.id && !nextById.has(j.id))
-    .map((j) => j.id);
+  const removedIds = keyed(prev)
+    .filter((r) => !nextById.has(idOf(r)))
+    .map((r) => idOf(r));
   return { changed, removedIds };
 }
 
-export function createJobsStore(db) {
-  const jobsCol = collection(db, JOBS_COLLECTION);
+// One document per record, in its own collection, with the pre-split
+// app_data document kept as a fallback. Jobs and customers both need this
+// shape - the only differences are which collection, which legacy key,
+// and what a record's document id is - so it is written once here.
+export function createRecordStore(db, { collectionName, legacyKey, field, idOf }) {
+  const jobsCol = collection(db, collectionName);
 
   // Every job is stored as { job: <the job object> } rather than spreading
   // the job's own fields into the document, so a job field named like a
   // Firestore reserved key can never collide with one.
-  const toDoc = (job) => ({ job, updatedAt: Date.now() });
+  const toDoc = (rec) => ({ [field]: rec, updatedAt: Date.now() });
   const fromDoc = (snap) => {
     const data = snap.data();
-    return data && data.job ? data.job : null;
+    return data && data[field] ? data[field] : null;
   };
 
   // Reads every job once. Used by the migration check and as a fallback;
@@ -95,7 +98,7 @@ export function createJobsStore(db) {
       const existing = await getDocs(jobsCol);
       if (!existing.empty) return { migrated: 0, reason: 'already-split' };
 
-      const legacySnap = await getDoc(doc(db, LEGACY_DOC.collection, LEGACY_DOC.id));
+      const legacySnap = await getDoc(doc(db, 'app_data', legacyKey));
       if (!legacySnap.exists()) return { migrated: 0, reason: 'nothing-to-migrate' };
 
       const raw = legacySnap.data().value;
@@ -106,8 +109,8 @@ export function createJobsStore(db) {
 
       for (let i = 0; i < legacyJobs.length; i += MAX_BATCH) {
         const batch = writeBatch(db);
-        for (const job of legacyJobs.slice(i, i + MAX_BATCH)) {
-          if (job && job.id) batch.set(doc(jobsCol, String(job.id)), toDoc(job));
+        for (const rec of legacyJobs.slice(i, i + MAX_BATCH)) {
+          if (rec && idOf(rec)) batch.set(doc(jobsCol, String(idOf(rec))), toDoc(rec));
         }
         await batch.commit();
       }
@@ -138,11 +141,11 @@ export function createJobsStore(db) {
   // Callers still pass whole arrays, matching the shape the rest of the app
   // already uses - the diffing happens here rather than at seven call sites.
   async function saveDiff(next, prev) {
-    const { changed, removedIds } = computeJobDiff(next, prev);
+    const { changed, removedIds } = computeJobDiff(next, prev, idOf);
     if (changed.length === 0 && removedIds.length === 0) return { writes: 0, deletes: 0 };
 
     const ops = [
-      ...changed.map((j) => ({ kind: 'set', id: String(j.id), job: j })),
+      ...changed.map((r) => ({ kind: 'set', id: String(idOf(r)), rec: r })),
       ...removedIds.map((id) => ({ kind: 'delete', id: String(id) })),
     ];
 
@@ -150,13 +153,13 @@ export function createJobsStore(db) {
     // is pointless overhead, so that path writes directly.
     if (ops.length === 1) {
       const op = ops[0];
-      if (op.kind === 'set') await setDoc(doc(jobsCol, op.id), toDoc(op.job));
+      if (op.kind === 'set') await setDoc(doc(jobsCol, op.id), toDoc(op.rec));
       else await deleteDoc(doc(jobsCol, op.id));
     } else {
       for (let i = 0; i < ops.length; i += MAX_BATCH) {
         const batch = writeBatch(db);
         for (const op of ops.slice(i, i + MAX_BATCH)) {
-          if (op.kind === 'set') batch.set(doc(jobsCol, op.id), toDoc(op.job));
+          if (op.kind === 'set') batch.set(doc(jobsCol, op.id), toDoc(op.rec));
           else batch.delete(doc(jobsCol, op.id));
         }
         await batch.commit();
@@ -165,5 +168,32 @@ export function createJobsStore(db) {
     return { writes: changed.length, deletes: removedIds.length };
   }
 
-  return { loadAll, migrateLegacyIfNeeded, subscribe, saveDiff };
+  // Reads a single record by document id. This is what a signed-in
+  // customer uses: fetching their own document directly, rather than
+  // listing the collection, is the difference between a rule that can
+  // allow it and one that cannot - a collection query fails outright if
+  // any document in it would be denied.
+  async function getOne(id) {
+    try {
+      const snap = await getDoc(doc(jobsCol, String(id)));
+      return snap.exists() ? fromDoc(snap) : null;
+    } catch (e) {
+      console.error('recordStore.getOne failed:', collectionName, id, e);
+      return null;
+    }
+  }
+
+  return { loadAll, getOne, migrateLegacyIfNeeded, subscribe, saveDiff };
 }
+
+export const createJobsStore = (db) => createRecordStore(db, {
+  collectionName: 'jobs', legacyKey: 'jobs', field: 'job', idOf: (j) => j && j.id,
+});
+
+// Customer documents are keyed by phone number, not by the app's internal
+// customer id, because phone is what the app knows before it knows who the
+// customer is - at the login screen, and in a security rule, where the
+// signed-in phone number is the only thing that identifies them.
+export const createCustomersStore = (db) => createRecordStore(db, {
+  collectionName: 'customers', legacyKey: 'customers', field: 'customer', idOf: (c) => c && c.phone,
+});
