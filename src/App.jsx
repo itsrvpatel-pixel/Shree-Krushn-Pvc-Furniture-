@@ -1411,6 +1411,23 @@ const APPT_STATUS = {
 // is shared and re-polled, one bad record blanks the app for everyone.
 // Normalising on the way in keeps that guarantee in one place rather
 // than at each of the four call sites.
+// The reviews customers are shown on their own home screen come from
+// other customers' jobs. That is fine while everyone can read every job,
+// but it is exactly what a per-customer rule has to stop - so the
+// featured ones are published into their own small shared document
+// instead, and the customer app reads that rather than every job in the
+// business. Same shape the archived_reviews document already uses.
+function deriveFeaturedReviews(jobsList) {
+  return (jobsList || [])
+    .filter((j) => j.review && j.review.featured)
+    .map((j) => ({
+      customerName: j.customerName,
+      rating: j.review.rating,
+      text: j.review.text,
+      date: j.review.date,
+    }));
+}
+
 function normalizeNotifications(list) {
   return (Array.isArray(list) ? list : []).map((n) => ({ ...n, readBy: Array.isArray(n.readBy) ? n.readBy : [] }));
 }
@@ -1647,6 +1664,13 @@ export default function App() {
   const [itemTemplates, setItemTemplatesRaw] = useState([]);
   const [attendance, setAttendanceRaw] = useState([]);
   const [brochures, setBrochures] = useState([]);
+  const [featuredReviews, setFeaturedReviews] = useState([]);
+  // Set when the featured_reviews document does not exist yet, so the
+  // list can be published once from the jobs that already carry a
+  // featured review. Without this, existing testimonials would silently
+  // disappear from the customer home screen until an admin happened to
+  // toggle one.
+  const featuredNeedsBackfillRef = useRef(false);
   const [session, setSessionRaw] = useState(() => loadStoredSession());
   // Wraps setSession so every update (login, logout, role switch) is
   // automatically persisted to localStorage, keeping the session alive
@@ -1856,12 +1880,12 @@ export default function App() {
         // the first time this version runs. Does nothing once the split has
         // happened, and never deletes the original.
         await window.jobsStore.migrateLegacyIfNeeded();
-        const [c, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw] = await Promise.all([
+        const [c, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw, featuredRaw] = await Promise.all([
           safeGet('customers'), safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
           safeGet('archived_reviews'), safeGet('admin_push_tokens'), safeGet('faqs'), safeGet('dh_partner_pin'), safeGet('pending_gallery_photos'),
-          safeGet('material_specs'), safeGet('company_benefits'),
+          safeGet('material_specs'), safeGet('company_benefits'), safeGet('featured_reviews'),
         ]);
         if (c) setCustomers(JSON.parse(c));
         if (p) setAdminPin(p);
@@ -1882,6 +1906,8 @@ export default function App() {
         if (pendingGalleryRaw) setPendingGalleryPhotos(JSON.parse(pendingGalleryRaw));
         if (materialSpecsRaw) setMaterialSpecsRaw(JSON.parse(materialSpecsRaw));
         if (companyBenefitsRaw) setCompanyBenefitsRaw(JSON.parse(companyBenefitsRaw));
+        if (featuredRaw) setFeaturedReviews(JSON.parse(featuredRaw));
+        else featuredNeedsBackfillRef.current = true;
         // Gallery loads here too (not just lazily on tab-open) so the
         // app's overall startup behavior stays exactly as it always
         // was - loadGalleryData's own galleryLoadedRef guard means
@@ -1955,6 +1981,14 @@ export default function App() {
       // guard the old poll needed, for the same reason.
       if (jobsWriteInFlightRef.current) return;
       setJobs(serverJobs);
+      if (featuredNeedsBackfillRef.current) {
+        featuredNeedsBackfillRef.current = false;
+        const derived = deriveFeaturedReviews(serverJobs);
+        if (derived.length > 0) {
+          setFeaturedReviews(derived);
+          window.storage.set('featured_reviews', JSON.stringify(derived), true).catch(() => {});
+        }
+      }
     });
     return () => { try { unsub(); } catch (e) { /* already gone */ } };
   }, [loaded]);
@@ -2300,6 +2334,14 @@ export default function App() {
       const merged = await mergeJobsWithFreshServer(next, prevLocalJobs);
       await window.jobsStore.saveDiff(merged, prevLocalJobs);
       setJobs(merged);
+      // Republish the public featured-review list only when it actually
+      // changed, so a normal job edit doesn't rewrite it every time.
+      const nextFeatured = deriveFeaturedReviews(merged);
+      if (JSON.stringify(nextFeatured) !== JSON.stringify(deriveFeaturedReviews(prevLocalJobs))) {
+        setFeaturedReviews(nextFeatured);
+        try { await window.storage.set('featured_reviews', JSON.stringify(nextFeatured), true); }
+        catch (e) { /* the reviews are cosmetic - never fail a job save over them */ }
+      }
       return true;
     } catch (e) {
       showToast('Save failed', true);
@@ -2762,9 +2804,9 @@ export default function App() {
   // a testimonial never visibly repeats regardless of how that
   // happened, without needing to first track down which exact path
   // produced the overlap.
-  const featuredTestimonials = jobs
-    .filter((j) => j.review && j.review.featured)
-    .map((j) => ({ customerName: j.customerName, rating: j.review.rating, text: j.review.text, date: j.review.date }))
+  // Reads the published list rather than deriving from every job, so a
+  // customer never needs access to anyone else's job to see testimonials.
+  const featuredTestimonials = featuredReviews
     .concat((archivedReviews || []).map((r) => ({ customerName: r.customerName, rating: r.rating, text: r.text, date: r.date })))
     .filter((t, idx, arr) => arr.findIndex((o) => o.customerName === t.customerName && o.text === t.text && o.date === t.date) === idx)
     .sort((a, b) => new Date(b.date) - new Date(a.date));
