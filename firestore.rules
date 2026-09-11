@@ -55,6 +55,12 @@ rules_version = '2';
 //     (request.auth.token.phone_number), which needs the Blaze plan.
 //     Until then "this customer may read only their own job" cannot be
 //     expressed at all, no matter how the data is shaped.
+//
+//     Switching that on is a config change, not a code change: enable
+//     Blaze, then set VITE_PHONE_AUTH=on in Vercel and redeploy. The app
+//     then sends a real SMS and the customer gets a real Firebase session
+//     carrying their phone number. That is the point at which the rest of
+//     phase 3 becomes possible.
 //   * The customers list is still one document, so a reader of it reads
 //     every name and phone number.
 //   * Role narrowing has real trip-wires in this app. The karigar screen
