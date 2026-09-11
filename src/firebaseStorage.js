@@ -23,6 +23,7 @@
 //    of the app (see sendPhoneOtp below).
 
 import { initializeApp } from "firebase/app";
+import { createJobsStore } from "./jobsStore.js";
 import {
   initializeFirestore,
   getFirestore,
@@ -34,6 +35,7 @@ import {
   deleteDoc,
   collection,
   getDocs,
+  onSnapshot,
 } from "firebase/firestore";
 import {
   getStorage,
@@ -311,6 +313,27 @@ async function signOutStaff() {
   try { await auth.signOut(); } catch (e) { console.error('signOutStaff failed', e); }
 }
 
+// Live subscription to a single app_data document.
+//
+// The app used to re-read a fixed list of documents on a 20-second timer,
+// which cost ~2,970 reads per hour for every device with the app open -
+// enough that two staff working a full day exhausted the 50,000/day free
+// tier before a single customer logged in. A listener is billed for the
+// first read and then only when the document actually changes, so an idle
+// app costs nothing and updates arrive at once instead of up to 20
+// seconds later.
+//
+// Returns an unsubscribe function.
+function subscribeKey(key, onValue) {
+  return onSnapshot(
+    doc(db, COLLECTION, key),
+    (snap) => onValue(snap.exists() ? snap.data().value : null),
+    (err) => console.error("storage.subscribe failed:", key, err),
+  );
+}
+
+const jobsStore = createJobsStore(db);
+
 export function installWindowStorage() {
   window.storage = {
     get: (key) => get(key),
@@ -326,6 +349,8 @@ export function installWindowStorage() {
     sendOtp: (phoneE164, recaptchaContainerId) => sendPhoneOtp(phoneE164, recaptchaContainerId),
     verifyOtp: (confirmationResult, code) => verifyPhoneOtp(confirmationResult, code),
   };
+  window.storage.subscribe = (key, onValue) => subscribeKey(key, onValue);
+  window.jobsStore = jobsStore;
   window.staffAuth = {
     login: (pin) => staffLogin(pin),
     signOut: () => signOutStaff(),
