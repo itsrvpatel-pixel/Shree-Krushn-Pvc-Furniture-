@@ -422,7 +422,7 @@ function buildEstimateWhatsAppText(job) {
   lines.push('');
   (job.items || []).forEach((it, i) => {
     const sqft = estimateItemSqft(it);
-    const dims = sqft !== null ? (' (' + it.length + "'x" + it.height + "' = " + sqft.toFixed(2) + ' sqft)') : '';
+    const dims = sqft !== null ? (' (' + it.length + '"x' + it.height + '" = ' + sqft.toFixed(2) + ' sqft)') : '';
     lines.push((i + 1) + '. ' + it.desc + dims + ' - ' + currency(estimateItemAmount(it)));
   });
   (job.extraWork || []).filter((e) => e.status === 'approved' && !e.mergedIntoEstimate).forEach((e, i) => {
@@ -1403,6 +1403,16 @@ const APPT_STATUS = {
   completed: { label: 'Completed', color: '#1D2E5C', bg: '#E1E5F0' },
 };
 
+// Notifications track per-viewer read state in a readBy array. A record
+// written before that field existed (or one hand-edited in Firestore)
+// makes every n.readBy.includes(...) call throw - and because the list
+// is shared and re-polled, one bad record blanks the app for everyone.
+// Normalising on the way in keeps that guarantee in one place rather
+// than at each of the four call sites.
+function normalizeNotifications(list) {
+  return (Array.isArray(list) ? list : []).map((n) => ({ ...n, readBy: Array.isArray(n.readBy) ? n.readBy : [] }));
+}
+
 function logActivity(job, text) {
   return { ...job, activity: [{ id: uid(), text, date: new Date().toISOString() }, ...(job.activity || [])].slice(0, 40) };
 }
@@ -1848,7 +1858,7 @@ export default function App() {
         if (aio) setAppointmentItemOptions(JSON.parse(aio));
         if (br) setBrochures(JSON.parse(br));
         if (cats) setCategoriesRaw(JSON.parse(cats));
-        if (notifs) setNotificationsRaw(JSON.parse(notifs));
+        if (notifs) setNotificationsRaw(normalizeNotifications(JSON.parse(notifs)));
         if (tmpl) setItemTemplatesRaw(JSON.parse(tmpl));
         if (att) setAttendanceRaw(JSON.parse(att));
         if (estRates) setEstimateRatesRaw(JSON.parse(estRates));
@@ -1935,7 +1945,7 @@ export default function App() {
     const poll = setInterval(async () => {
       try {
         const notifs = await safeGet('notifications');
-        if (notifs) setNotificationsRaw(JSON.parse(notifs));
+        if (notifs) setNotificationsRaw(normalizeNotifications(JSON.parse(notifs)));
       } catch (e) {
         // best effort
       }
@@ -7784,7 +7794,7 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
 /* ---- Admin: Estimate builder - matches the real quotation sheet:
    item, length, height (inches), auto sq-ft, rate/sqft, amount. Editable
    inline. 'Preview Quotation' opens the formal customer-facing document. ---- */
-function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateItem, removeItem, total, itemTemplates, setItemTemplates, showToast }) {
+function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateItem, removeItem, total, itemTemplates, setItemTemplates, showToast, approveSuggestedItem, rejectSuggestedItem }) {
   const [showPreview, setShowPreview] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
@@ -8853,7 +8863,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
         )}
 
         {tab === 'estimate' && (
-          <AdminEstimateTab job={jobRef.current} onSave={saveJob} newItem={newItem} setNewItem={setNewItem} addItem={addItem} updateItem={updateItem} removeItem={removeItem} total={total} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} showToast={showToast} />
+          <AdminEstimateTab job={jobRef.current} onSave={saveJob} newItem={newItem} setNewItem={setNewItem} addItem={addItem} updateItem={updateItem} removeItem={removeItem} total={total} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} showToast={showToast} approveSuggestedItem={approveSuggestedItem} rejectSuggestedItem={rejectSuggestedItem} />
         )}
 
         {tab === 'extrawork' && (
