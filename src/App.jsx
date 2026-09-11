@@ -1925,8 +1925,25 @@ export default function App() {
             ? Promise.resolve(null)
             : safeGet('notifications')
         );
-        await window.jobsStore.migrateLegacyIfNeeded();
-        await window.customersStore.migrateLegacyIfNeeded();
+        // Surfaced, not swallowed. A migration that fails leaves the app
+        // looking empty, which is indistinguishable from "the data is
+        // gone" - so anything other than a clean result says so on
+        // screen instead of only in the console. The pre-split documents
+        // are never deleted, so nothing is actually lost either way.
+        const migrations = await Promise.all([
+          window.jobsStore.migrateLegacyIfNeeded(),
+          window.customersStore.migrateLegacyIfNeeded(),
+        ]);
+        migrations.forEach((m, i) => {
+          const what = i === 0 ? 'Jobs' : 'Customers';
+          if (m.reason === 'error' || m.reason === 'legacy-unreadable') {
+            showToast(what + ' purane data se load nahi ho paye - admin ko batayein', true);
+          } else if (m.skipped > 0) {
+            showToast(what + ': ' + m.skipped + ' record bina phone number ke hain, wo migrate nahi hue', true);
+          } else if (m.migrated > 0) {
+            showToast(what + ': ' + m.migrated + ' record naye format mein aa gaye');
+          }
+        });
         const [p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw, featuredRaw] = await Promise.all([
           safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
