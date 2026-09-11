@@ -2570,7 +2570,20 @@ export default function App() {
           archivedReviews={archivedReviews} setArchivedReviews={persistArchivedReviews}
           pendingGalleryPhotos={pendingGalleryPhotos} setPendingGalleryPhotos={persistPendingGalleryPhotos}
           pushNotification={pushNotification}
-          allData={{ customers, jobs, gallery, staff, expenses }}
+          // Everything the business would need to rebuild from, if the
+          // Firestore data were ever lost. Previously only five of these
+          // were included, so the downloaded file silently omitted most
+          // of the app's data - worse than no backup, because it looks
+          // complete. The PINs and push tokens are deliberately left out:
+          // they are secrets that would then travel around in a plain
+          // file, and an admin can simply set new PINs.
+          allData={{
+            customers, jobs, gallery, staff, expenses,
+            brochures, categories, appointmentItemOptions, itemTemplates,
+            attendance, estimateRates, faqs, materialSpecs, companyBenefits,
+            archivedReviews, pendingGalleryPhotos, notifications,
+            exportedAt: new Date().toISOString(),
+          }}
           staffName={session.staffName}
           isPartner={isPartner}
           isDhPartner={isDhPartner}
