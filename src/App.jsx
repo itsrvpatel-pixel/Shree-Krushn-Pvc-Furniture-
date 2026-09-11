@@ -1653,6 +1653,14 @@ export default function App() {
     setSessionRaw(next);
     saveStoredSession(next);
   }, []);
+  // Logging out has to end the Firebase session too, not just the app's
+  // own. Staff sign in with a custom token carrying their role, so
+  // leaving that session alive would hand the next person on a shared
+  // phone an admin identity even though the app shows the login screen.
+  const handleLogout = useCallback(() => {
+    setSession(null);
+    try { window.staffAuth?.signOut(); } catch (e) { /* best effort */ }
+  }, [setSession]);
   const [toast, setToast] = useState(null);
 
   // Gallery loading, extracted into its own callable function rather
@@ -2587,7 +2595,7 @@ export default function App() {
           staffName={session.staffName}
           isPartner={isPartner}
           isDhPartner={isDhPartner}
-          onLogout={() => setSession(null)}
+          onLogout={handleLogout}
           showToast={showToast}
         />
         <ToastEl toast={toast} />
@@ -2620,7 +2628,7 @@ export default function App() {
             if (!myJobs.some((jj) => jj.id === j.id)) return false; // guard: only ever write a job assigned to this karigar
             return await persistJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)));
           }}
-          onLogout={() => setSession(null)}
+          onLogout={handleLogout}
           showToast={showToast}
           pushNotification={pushNotification}
           attendance={attendance}
@@ -2692,7 +2700,7 @@ export default function App() {
             if (!myJobs.some((jj) => jj.id === j.id)) return false; // guard: only ever write a job assigned to this partner
             return await persistJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)));
           }}
-          onLogout={() => setSession(null)}
+          onLogout={handleLogout}
           showToast={showToast}
           pushNotification={pushNotification}
         />
@@ -2842,7 +2850,7 @@ export default function App() {
           }
           return ok;
         }}
-        onLogout={() => setSession(null)}
+        onLogout={handleLogout}
         showToast={showToast}
       />
       <ToastEl toast={toast} />
@@ -2920,6 +2928,7 @@ function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onC
   const [referredBy, setReferredBy] = useState('');
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
+  const [checkingPin, setCheckingPin] = useState(false);
   const [error, setError] = useState('');
 
   // Demo-mode OTP: shows the generated code directly on screen instead of
@@ -2981,17 +2990,45 @@ function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onC
     setError('');
   };
 
-  const doAdmin = () => {
-    if (pin === adminPin) { onAdminLogin('Admin', 'admin', null); return; }
-    if (partnerPin && pin === partnerPin) { onAdminLogin('Partner', 'partner', null); return; }
-    if (dhPartnerPin && pin === dhPartnerPin) { onAdminLogin('DH Home Decor', 'dh_partner', null); return; }
+  // The PIN is checked by the server (api/staff-login.js), which hands
+  // back a Firebase custom token carrying the role. Doing it there means
+  // the PINs no longer have to be readable by the browser, and staff get
+  // a real Firebase identity for Firestore rules to key off.
+  //
+  // If ADMIN_PIN hasn't been set in Vercel yet the endpoint reports
+  // itself unconfigured, and this falls back to the original in-browser
+  // comparison - so shipping this changes nothing until that is set.
+  const localPinCheck = () => {
+    if (pin === adminPin) { onAdminLogin('Admin', 'admin', null); return true; }
+    if (partnerPin && pin === partnerPin) { onAdminLogin('Partner', 'partner', null); return true; }
+    if (dhPartnerPin && pin === dhPartnerPin) { onAdminLogin('DH Home Decor', 'dh_partner', null); return true; }
     const staffMatch = (staff || []).find((s) => s.pin === pin);
     if (staffMatch) {
       const routedRole = staffMatch.role === 'karigar' ? 'karigar' : (staffMatch.role === 'regional_partner' ? 'regional_partner' : 'admin');
       onAdminLogin(staffMatch.name, routedRole, staffMatch.id);
-      return;
+      return true;
     }
-    setError('Galat PIN');
+    return false;
+  };
+
+  const doAdmin = async () => {
+    if (checkingPin) return;
+    setError('');
+    setCheckingPin(true);
+    try {
+      const result = await window.staffAuth.login(pin);
+      if (result.unconfigured) {
+        if (!localPinCheck()) setError('Galat PIN');
+        return;
+      }
+      if (result.ok) {
+        onAdminLogin(result.staffName, result.role, result.staffId);
+        return;
+      }
+      setError(result.error || 'Galat PIN');
+    } finally {
+      setCheckingPin(false);
+    }
   };
 
   return (
@@ -3071,7 +3108,7 @@ function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onC
           <div style={styles.fieldLabel}>Admin PIN</div>
           <input style={styles.input} value={pin} onChange={(e) => { setPin(e.target.value); setError(''); }} placeholder='****' inputMode='numeric' type='password' autoFocus />
           {error && <div style={styles.errorText}>{error}</div>}
-          <button style={{ ...styles.primaryBtn, marginTop: 16 }} onClick={doAdmin}>Enter Admin Panel</button>
+          <button style={{ ...styles.primaryBtn, marginTop: 16, opacity: checkingPin ? 0.65 : 1 }} onClick={doAdmin} disabled={checkingPin}>{checkingPin ? 'Check kar rahe hain...' : 'Enter Admin Panel'}</button>
           <button style={styles.backLink} onClick={() => setMode('choose')}><ArrowLeft size={13} /> Back</button>
         </div>
       )}
