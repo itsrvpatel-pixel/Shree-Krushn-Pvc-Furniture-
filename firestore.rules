@@ -89,7 +89,23 @@ service cloud.firestore {
                          && !isLoginAttemptDoc();
     }
 
-    // Anything outside app_data is denied. The app writes nothing there.
+    // Jobs are one document each (see src/jobsStore.js). Splitting them out
+    // of the single app_data/jobs document is what finally makes a
+    // per-customer rule expressible - that is phase 3. For now the same
+    // signed-in-or-not line applies as everywhere else.
+    match /jobs/{jobId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Reviews the business chooses to show publicly. Published as its own
+    // small document (see deriveFeaturedReviews in App.jsx) precisely so a
+    // customer can see testimonials without being able to read the jobs
+    // they came from - which is what phase 3 has to lock down.
+    match /app_data/featured_reviews {
+      allow read: if request.auth != null;
+    }
+
+    // Anything else is denied. The app writes nothing there.
     match /{document=**} {
       allow read, write: if false;
     }

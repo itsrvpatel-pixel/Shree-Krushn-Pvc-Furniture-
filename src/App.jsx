@@ -191,8 +191,10 @@ async function mergeJobsWithFreshServer(next, prevLocal) {
 
   let freshJobs = prevLocal;
   try {
-    const raw = await window.storage.get('jobs', true);
-    if (raw && raw.value) freshJobs = JSON.parse(raw.value);
+    // Reads the per-job documents, not the pre-split app_data/jobs one -
+    // that document is left in place as a fallback copy but is no longer
+    // the source of truth, so merging against it would resurrect old data.
+    freshJobs = await window.jobsStore.loadAll();
   } catch (e) { /* fall back to this device's own local copy */ }
 
   const freshById = {};
@@ -1409,6 +1411,23 @@ const APPT_STATUS = {
 // is shared and re-polled, one bad record blanks the app for everyone.
 // Normalising on the way in keeps that guarantee in one place rather
 // than at each of the four call sites.
+// The reviews customers are shown on their own home screen come from
+// other customers' jobs. That is fine while everyone can read every job,
+// but it is exactly what a per-customer rule has to stop - so the
+// featured ones are published into their own small shared document
+// instead, and the customer app reads that rather than every job in the
+// business. Same shape the archived_reviews document already uses.
+function deriveFeaturedReviews(jobsList) {
+  return (jobsList || [])
+    .filter((j) => j.review && j.review.featured)
+    .map((j) => ({
+      customerName: j.customerName,
+      rating: j.review.rating,
+      text: j.review.text,
+      date: j.review.date,
+    }));
+}
+
 function normalizeNotifications(list) {
   return (Array.isArray(list) ? list : []).map((n) => ({ ...n, readBy: Array.isArray(n.readBy) ? n.readBy : [] }));
 }
@@ -1645,6 +1664,13 @@ export default function App() {
   const [itemTemplates, setItemTemplatesRaw] = useState([]);
   const [attendance, setAttendanceRaw] = useState([]);
   const [brochures, setBrochures] = useState([]);
+  const [featuredReviews, setFeaturedReviews] = useState([]);
+  // Set when the featured_reviews document does not exist yet, so the
+  // list can be published once from the jobs that already carry a
+  // featured review. Without this, existing testimonials would silently
+  // disappear from the customer home screen until an admin happened to
+  // toggle one.
+  const featuredNeedsBackfillRef = useRef(false);
   const [session, setSessionRaw] = useState(() => loadStoredSession());
   // Wraps setSession so every update (login, logout, role switch) is
   // automatically persisted to localStorage, keeping the session alive
@@ -1850,15 +1876,18 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [c, j, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw] = await Promise.all([
-          safeGet('customers'), safeGet('jobs'), safeGet('admin_pin'), safeGet('staff'),
+        // Copies a pre-split app_data/jobs document into per-job documents
+        // the first time this version runs. Does nothing once the split has
+        // happened, and never deletes the original.
+        await window.jobsStore.migrateLegacyIfNeeded();
+        const [c, p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw, featuredRaw] = await Promise.all([
+          safeGet('customers'), safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
           safeGet('archived_reviews'), safeGet('admin_push_tokens'), safeGet('faqs'), safeGet('dh_partner_pin'), safeGet('pending_gallery_photos'),
-          safeGet('material_specs'), safeGet('company_benefits'),
+          safeGet('material_specs'), safeGet('company_benefits'), safeGet('featured_reviews'),
         ]);
         if (c) setCustomers(JSON.parse(c));
-        if (j) setJobs(JSON.parse(j));
         if (p) setAdminPin(p);
         if (st) setStaff(JSON.parse(st));
         if (exp) setExpenses(JSON.parse(exp));
@@ -1877,6 +1906,8 @@ export default function App() {
         if (pendingGalleryRaw) setPendingGalleryPhotos(JSON.parse(pendingGalleryRaw));
         if (materialSpecsRaw) setMaterialSpecsRaw(JSON.parse(materialSpecsRaw));
         if (companyBenefitsRaw) setCompanyBenefitsRaw(JSON.parse(companyBenefitsRaw));
+        if (featuredRaw) setFeaturedReviews(JSON.parse(featuredRaw));
+        else featuredNeedsBackfillRef.current = true;
         // Gallery loads here too (not just lazily on tab-open) so the
         // app's overall startup behavior stays exactly as it always
         // was - loadGalleryData's own galleryLoadedRef guard means
@@ -1889,76 +1920,77 @@ export default function App() {
     })();
   }, []);
 
-  // Firebase-backed storage here is fetch-once, not a live subscription, so
-  // an admin adding gallery photos (or a customer's own job/requirements
-  // updating from the admin side) won't appear for someone who already has
-  // the app open. This background poll re-fetches the fast-changing,
-  // shared-viewing data every 20s so updates show up without a manual
-  // refresh. Kept deliberately narrow (not customers/staff/pins) since
-  // those change far less often and a stale customer list briefly isn't
-  // user-visible the way a missing new photo or job status update is.
+  // Live subscriptions replace what used to be two polling timers (a 20s
+  // one for jobs/brochures/categories/appointment options/gallery, and an
+  // 8s one for notifications).
+  //
+  // The polls re-read every one of those documents on every tick whether
+  // anything had changed or not: 14 documents every 20 seconds plus one
+  // every 8, which works out at ~2,970 Firestore reads per hour for each
+  // device with the app open. Two staff working a full day exhausted the
+  // 50,000/day free tier before a single customer logged in.
+  //
+  // A listener is billed for its first read and then only when a document
+  // actually changes, so an idle app costs nothing, and changes show up
+  // immediately instead of up to 20 seconds later.
   useEffect(() => {
     if (!loaded) return;
-    const poll = setInterval(async () => {
-      try {
-        const [j, br, cats, aio] = await Promise.all([
-          safeGet('jobs'), safeGet('brochures'), safeGet('categories'), safeGet('appointment_item_options'),
-        ]);
-        // Only polls gallery data if it's actually been loaded this
-        // session (someone visited the Gallery tab) - see
-        // galleryLoadedRef's comment for why fetching it unconditionally
-        // on every poll tick, for users who never open Gallery at all,
-        // was pure wasted network/parse work.
-        if (galleryLoadedRef.current) {
-          const galleryCatList = await safeGet('gallery_categories');
-          if (galleryCatList && !galleryWriteInFlightRef.current) {
-            const galleryCategories = JSON.parse(galleryCatList);
-            const galleryEntries = await Promise.all(
-              galleryCategories.map(async (cat) => [cat, await safeGet('gallery_cat_' + cat)])
-            );
-            const galleryObj = {};
-            for (const [cat, val] of galleryEntries) {
-              if (val) { try { galleryObj[cat] = JSON.parse(val); } catch (e) { /* skip corrupt entry */ } }
-            }
-            setGallery(galleryObj);
-          }
-        }
-        // Skip applying this poll's jobs result while a local write
-        // (delete, edit, approval, photo add, etc.) is still in flight -
-        // see jobsWriteInFlightRef above. That write's own Firestore call
-        // may not have landed yet, so this poll's fetch could still be
-        // reading the pre-write data; applying it now would silently
-        // revert the local change. Once the in-flight write finishes,
-        // the very next poll will correctly reflect it (or any other
-        // changes made elsewhere in the meantime).
-        if (j && !jobsWriteInFlightRef.current) {
-          setJobs(JSON.parse(j));
-        }
-        if (br) setBrochures(JSON.parse(br));
-        if (cats) setCategoriesRaw(JSON.parse(cats));
-        if (aio) setAppointmentItemOptions(JSON.parse(aio));
-      } catch (e) {
-        // best effort - a missed poll just tries again next interval
-      }
-    }, 20000);
-    return () => clearInterval(poll);
+    const unsubs = [];
+    const sub = (key, apply) => {
+      unsubs.push(window.storage.subscribe(key, (value) => {
+        if (value == null) return;
+        try { apply(JSON.parse(value)); } catch (e) { /* skip a corrupt document */ }
+      }));
+    };
+    sub('brochures', setBrochures);
+    sub('categories', setCategoriesRaw);
+    sub('appointment_item_options', setAppointmentItemOptions);
+    sub('notifications', (v) => setNotificationsRaw(normalizeNotifications(v)));
+
+    // Gallery is a document per category plus an index listing them, so
+    // the per-category listeners are rebuilt whenever the index changes.
+    let categoryUnsubs = [];
+    unsubs.push(window.storage.subscribe('gallery_categories', (value) => {
+      if (!galleryLoadedRef.current || value == null) return;
+      let cats = [];
+      try { cats = JSON.parse(value); } catch (e) { return; }
+      categoryUnsubs.forEach((u) => { try { u(); } catch (e) { /* already gone */ } });
+      categoryUnsubs = cats.map((cat) => window.storage.subscribe('gallery_cat_' + cat, (catValue) => {
+        if (galleryWriteInFlightRef.current || catValue == null) return;
+        try {
+          const photos = JSON.parse(catValue);
+          setGallery((prev) => ({ ...prev, [cat]: photos }));
+        } catch (e) { /* skip a corrupt category */ }
+      }));
+    }));
+
+    return () => {
+      unsubs.forEach((u) => { try { u(); } catch (e) { /* already gone */ } });
+      categoryUnsubs.forEach((u) => { try { u(); } catch (e) { /* already gone */ } });
+    };
   }, [loaded]);
 
-  // Notifications get their own, faster poll (8s vs the general 20s) since
-  // a bell/alert system feels broken if a new notification takes 20
-  // seconds to show up - people expect near-immediate feedback here in a
-  // way they don't for a gallery photo appearing.
+  // Jobs are one document each (see jobsStore.js) and arrive through their
+  // own collection listener, so a change to one job costs one read rather
+  // than re-reading every job in the business.
   useEffect(() => {
     if (!loaded) return;
-    const poll = setInterval(async () => {
-      try {
-        const notifs = await safeGet('notifications');
-        if (notifs) setNotificationsRaw(normalizeNotifications(JSON.parse(notifs)));
-      } catch (e) {
-        // best effort
+    const unsub = window.jobsStore.subscribe((serverJobs) => {
+      // A local write that hasn't landed yet would otherwise be reverted by
+      // the snapshot that still reflects the pre-write state - the same
+      // guard the old poll needed, for the same reason.
+      if (jobsWriteInFlightRef.current) return;
+      setJobs(serverJobs);
+      if (featuredNeedsBackfillRef.current) {
+        featuredNeedsBackfillRef.current = false;
+        const derived = deriveFeaturedReviews(serverJobs);
+        if (derived.length > 0) {
+          setFeaturedReviews(derived);
+          window.storage.set('featured_reviews', JSON.stringify(derived), true).catch(() => {});
+        }
       }
-    }, 8000);
-    return () => clearInterval(poll);
+    });
+    return () => { try { unsub(); } catch (e) { /* already gone */ } };
   }, [loaded]);
 
   // Payment-due alerts: unlike the other notification triggers (which fire
@@ -2285,14 +2317,31 @@ export default function App() {
   // applies only that on top of the current server data - so a
   // concurrent change from elsewhere is never overwritten, no matter
   // how far behind this device's local copy had drifted.
+  // Callers still hand over the whole jobs array; jobsStore works out which
+  // documents actually changed and writes only those. Editing one job now
+  // costs one write instead of rewriting every job in the business, and two
+  // people working on different jobs no longer touch the same document at
+  // all - so they can no longer overwrite each other.
+  //
+  // mergeJobsWithFreshServer is still used for the case it was written for:
+  // two people editing the SAME job at the same time, where the two versions
+  // have to be merged field by field rather than one simply winning.
   const persistJobs = useCallback(async (next) => {
     jobsWriteInFlightRef.current = true;
     const prevLocalJobs = jobs;
     setJobs(next);
     try {
       const merged = await mergeJobsWithFreshServer(next, prevLocalJobs);
-      await window.storage.set('jobs', JSON.stringify(merged), true);
+      await window.jobsStore.saveDiff(merged, prevLocalJobs);
       setJobs(merged);
+      // Republish the public featured-review list only when it actually
+      // changed, so a normal job edit doesn't rewrite it every time.
+      const nextFeatured = deriveFeaturedReviews(merged);
+      if (JSON.stringify(nextFeatured) !== JSON.stringify(deriveFeaturedReviews(prevLocalJobs))) {
+        setFeaturedReviews(nextFeatured);
+        try { await window.storage.set('featured_reviews', JSON.stringify(nextFeatured), true); }
+        catch (e) { /* the reviews are cosmetic - never fail a job save over them */ }
+      }
       return true;
     } catch (e) {
       showToast('Save failed', true);
@@ -2755,9 +2804,9 @@ export default function App() {
   // a testimonial never visibly repeats regardless of how that
   // happened, without needing to first track down which exact path
   // produced the overlap.
-  const featuredTestimonials = jobs
-    .filter((j) => j.review && j.review.featured)
-    .map((j) => ({ customerName: j.customerName, rating: j.review.rating, text: j.review.text, date: j.review.date }))
+  // Reads the published list rather than deriving from every job, so a
+  // customer never needs access to anyone else's job to see testimonials.
+  const featuredTestimonials = featuredReviews
     .concat((archivedReviews || []).map((r) => ({ customerName: r.customerName, rating: r.rating, text: r.text, date: r.date })))
     .filter((t, idx, arr) => arr.findIndex((o) => o.customerName === t.customerName && o.text === t.text && o.date === t.date) === idx)
     .sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -4303,7 +4352,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
         </div>
 
         {(job.status === 'in_progress' || job.status === 'delivered') && (
-          <AdditionalVisitsPanel job={jobRef.current} onSave={saveJob} showToast={showToast} />
+          <AdditionalVisitsPanel job={job} onSave={saveJob} showToast={showToast} />
         )}
       </div>
     );
@@ -8913,7 +8962,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
         )}
 
         {tab === 'estimate' && (
-          <AdminEstimateTab job={jobRef.current} onSave={saveJob} newItem={newItem} setNewItem={setNewItem} addItem={addItem} updateItem={updateItem} removeItem={removeItem} total={total} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} showToast={showToast} approveSuggestedItem={approveSuggestedItem} rejectSuggestedItem={rejectSuggestedItem} />
+          <AdminEstimateTab job={job} onSave={saveJob} newItem={newItem} setNewItem={setNewItem} addItem={addItem} updateItem={updateItem} removeItem={removeItem} total={total} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} showToast={showToast} approveSuggestedItem={approveSuggestedItem} rejectSuggestedItem={rejectSuggestedItem} />
         )}
 
         {tab === 'extrawork' && (
