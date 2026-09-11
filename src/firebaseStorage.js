@@ -46,6 +46,7 @@ import {
   getAuth,
   RecaptchaVerifier,
   signInWithPhoneNumber,
+  signInWithCustomToken,
 } from "firebase/auth";
 import {
   getMessaging,
@@ -251,6 +252,65 @@ async function verifyPhoneOtp(confirmationResult, code) {
   }
 }
 
+// Staff / admin sign-in.
+//
+// The PIN is checked by api/staff-login.js on the server, which returns
+// a Firebase custom token carrying the caller's role. Signing in with
+// that token gives staff a real Firebase identity, which is what lets
+// Firestore rules distinguish an admin from a karigar from a stranger.
+//
+// Returns:
+//   { ok: true, role, staffName, staffId }  signed in
+//   { unconfigured: true }                  ADMIN_PIN not set in Vercel yet,
+//                                           so the caller should fall back to
+//                                           the old in-browser PIN check
+//   { ok: false, error }                    wrong PIN, locked out, or offline
+// Both halves of this can hang rather than fail: a request on a dead
+// mobile connection, and signInWithCustomToken when Firebase Auth is
+// unreachable (the SDK retries internally instead of rejecting). Either
+// one would leave the PIN button stuck on "Check kar rahe hain..."
+// forever with no error, so both get a deadline.
+const LOGIN_TIMEOUT_MS = 15000;
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label + ' timed out after ' + ms + 'ms')), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function staffLogin(pin) {
+  let res;
+  try {
+    res = await withTimeout(fetch('/api/staff-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    }), LOGIN_TIMEOUT_MS, 'staff login request');
+  } catch (e) {
+    // No network, or the endpoint isn't deployed. Falling back keeps a
+    // site that is otherwise working from becoming unusable.
+    console.error('staffLogin: request failed', e);
+    return { unconfigured: true };
+  }
+  if (res.status === 503 || res.status === 404) return { unconfigured: true };
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* handled below */ }
+  if (!res.ok) return { ok: false, error: data.error || 'Login fail ho gaya' };
+  try {
+    await withTimeout(signInWithCustomToken(auth, data.token), LOGIN_TIMEOUT_MS, 'custom-token sign-in');
+  } catch (e) {
+    console.error('staffLogin: signInWithCustomToken failed', e);
+    return { ok: false, error: 'Login pura nahi ho paya - internet check karein' };
+  }
+  return { ok: true, role: data.role, staffName: data.staffName, staffId: data.staffId };
+}
+
+async function signOutStaff() {
+  try { await auth.signOut(); } catch (e) { console.error('signOutStaff failed', e); }
+}
+
 export function installWindowStorage() {
   window.storage = {
     get: (key) => get(key),
@@ -265,6 +325,10 @@ export function installWindowStorage() {
   window.phoneAuth = {
     sendOtp: (phoneE164, recaptchaContainerId) => sendPhoneOtp(phoneE164, recaptchaContainerId),
     verifyOtp: (confirmationResult, code) => verifyPhoneOtp(confirmationResult, code),
+  };
+  window.staffAuth = {
+    login: (pin) => staffLogin(pin),
+    signOut: () => signOutStaff(),
   };
   window.pushMessaging = {
     requestPermissionAndGetToken: () => requestPermissionAndGetToken(),

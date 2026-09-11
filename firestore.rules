@@ -1,0 +1,97 @@
+rules_version = '2';
+
+// Firestore security rules for Shree Krushn PVC Furniture.
+//
+// ============================================================
+//  DO NOT DEPLOY THESE YET. Read the order below first.
+// ============================================================
+//
+// Today the app reads Firestore with no authentication at all, so the
+// rules currently live in the Firebase Console must be allowing
+// anonymous reads. That is why the admin PIN, the staff PINs and every
+// customer's name, phone number and payment history can be read by
+// anyone who opens the site.
+//
+// Deploying these BEFORE the app is signing in would take the live app
+// down for everyone, instantly. The safe order is:
+//
+//   1. Deploy the app change already in this repo
+//      (api/staff-login.js + the custom-token sign-in).
+//   2. In Vercel -> Settings -> Environment Variables set ADMIN_PIN
+//      (and PARTNER_PIN / DH_PARTNER_PIN if you use them), then redeploy.
+//   3. On real devices, log in as admin, partner, karigar AND a customer
+//      and confirm all four still work. Until ADMIN_PIN is set the app
+//      silently uses the old in-browser check, so this is the step where
+//      you confirm the server path is actually the one running.
+//   4. Delete the admin_pin / partner_pin / dh_partner_pin documents in
+//      Firestore. Nothing reads them any more.
+//   5. Only then paste these rules into the Firebase Console
+//      (Firestore Database -> Rules) and publish.
+//
+// If step 5 goes wrong, republishing the previous rules puts everything
+// back immediately - a rules deploy changes no data.
+//
+// SCOPE: WHAT THIS DOES AND DOES NOT DO
+//
+// This is phase 1, and it does one thing: the database stops being
+// readable by the open internet. You must be signed in - as staff via
+// the PIN, or as a customer via OTP - to read anything at all.
+//
+// It deliberately does NOT narrow access per role yet. Two reasons:
+//
+//   * Every job still lives inside a single shared 'jobs' document, and
+//     rules are evaluated per document, so "a customer may read only
+//     their own job" is not expressible until the per-job split in
+//     phase 2. That is phase 3.
+//   * Role narrowing has real trip-wires in this app. The karigar
+//     screen reads the staff list to find its own record, so an
+//     admin-only rule on 'staff' would lock karigars out. Rules that
+//     look obviously right can break a role silently, and those need
+//     testing against your live setup rather than guesswork.
+//
+// So phase 1 draws the line at "signed in or not", which is the line
+// that actually matters right now, and leaves per-role rules to be done
+// once each role can be verified.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // All app data lives in one collection keyed by name: 'jobs',
+    // 'customers', 'gallery_cat_Kitchen', and so on.
+    match /app_data/{docId} {
+
+      function signedIn() {
+        return request.auth != null;
+      }
+
+      // PIN documents are dead once step 4 above is done. Denying them
+      // outright means that if one is ever recreated by accident, it is
+      // still never readable from a browser.
+      function isSecretDoc() {
+        return docId in ['admin_pin', 'partner_pin', 'dh_partner_pin'];
+      }
+
+      // Login-attempt counters written by api/staff-login.js. Only the
+      // server touches these, and the Admin SDK bypasses rules entirely,
+      // so no client needs access: a client that could read them could
+      // watch for lockouts, and one that could write them could reset
+      // its own failed-attempt count and guess PINs forever.
+      function isLoginAttemptDoc() {
+        return docId.matches('login_attempts_.*');
+      }
+
+      // Note on how these combine: multiple allow statements are OR-ed
+      // together, so a second, narrower statement can never take access
+      // away that a broader one already granted. Every restriction has
+      // to live inside this single condition.
+      allow read, write: if signedIn()
+                         && !isSecretDoc()
+                         && !isLoginAttemptDoc();
+    }
+
+    // Anything outside app_data is denied. The app writes nothing there.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
