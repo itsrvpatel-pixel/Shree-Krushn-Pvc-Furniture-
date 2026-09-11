@@ -110,13 +110,83 @@ service cloud.firestore {
                          && !isLoginAttemptDoc();
     }
 
-    // Jobs are one document each (see src/jobsStore.js). Splitting them out
-    // of the single app_data/jobs document is what finally makes a
-    // per-customer rule expressible - that is phase 3. For now the same
-    // signed-in-or-not line applies as everywhere else.
+    // ------------------------------------------------------------------
+    // Jobs and customers: one document each (see src/jobsStore.js).
+    //
+    // These are the two collections a per-customer rule needs, and the
+    // data is now shaped for it: a job carries the customer's phone, and
+    // a customer document IS keyed by phone. So the rule you actually
+    // want is written out below - it just cannot be switched on yet.
+    //
+    // WHY NOT YET, AND WHAT TO DO
+    //
+    // A rule can only recognise a customer by request.auth.token.phone_number,
+    // which exists only with real Firebase phone auth. Today the OTP screen
+    // runs in demo mode and customers sign in ANONYMOUSLY, so that claim is
+    // absent - a phone-matching rule would deny every customer outright.
+    //
+    // Worse, anonymous sign-in is open to anyone: while it is the customer
+    // sign-in method, "signed in" cannot mean "trusted". So per-customer
+    // enforcement needs BOTH halves of the same switch:
+    //
+    //   1. Enable Blaze, set VITE_PHONE_AUTH=on in Vercel, redeploy.
+    //   2. Confirm customers now sign in by SMS (the on-screen demo code
+    //      is gone) and can still see their own job.
+    //   3. Turn OFF anonymous sign-in in the Firebase console, so an
+    //      anonymous session can no longer be used to read anything.
+    //   4. Replace the two rules below with the commented block beneath
+    //      them, and publish.
+    //
+    // Until step 3, these stay at signed-in-or-not - which still keeps the
+    // open internet out, and is the protection that matters most today.
+    // ------------------------------------------------------------------
+
     match /jobs/{jobId} {
       allow read, write: if request.auth != null;
     }
+
+    match /customers/{phone} {
+      allow read, write: if request.auth != null;
+    }
+
+    // The per-customer versions. Swap these in at step 4 above.
+    //
+    // match /jobs/{jobId} {
+    //   function isStaff() {
+    //     return request.auth != null && request.auth.token.role != null;
+    //   }
+    //   function isMine() {
+    //     return request.auth != null
+    //            && request.auth.token.phone_number == '+91' + resource.data.job.phone;
+    //   }
+    //   // A customer creating their own job has no resource.data to match
+    //   // against yet, so creation is checked against what is being written.
+    //   function creatingMine() {
+    //     return request.auth != null
+    //            && request.auth.token.phone_number == '+91' + request.resource.data.job.phone;
+    //   }
+    //   allow read:   if isStaff() || isMine();
+    //   allow write:  if isStaff() || isMine() || creatingMine();
+    // }
+    //
+    // match /customers/{phone} {
+    //   function isStaff() {
+    //     return request.auth != null && request.auth.token.role != null;
+    //   }
+    //   // The document id IS the phone number, so this needs no read of
+    //   // the document itself - which also means it works for a customer
+    //   // fetching a record that does not exist yet.
+    //   function isMe() {
+    //     return request.auth != null
+    //            && request.auth.token.phone_number == '+91' + phone;
+    //   }
+    //   allow read, write: if isStaff() || isMe();
+    // }
+    //
+    // Note on what is still shared at that point: notifications are one
+    // list for everyone, filtered in the browser, so a customer could read
+    // events naming other customers. Narrowing that needs the same phone
+    // claim and is the last piece of this work.
 
     // Reviews the business chooses to show publicly. Published as its own
     // small document (see deriveFeaturedReviews in App.jsx) precisely so a
