@@ -79,11 +79,41 @@ export function createRecordStore(db, { collectionName, legacyKey, field, idOf }
     return data && data[field] ? data[field] : null;
   };
 
-  // Reads every job once. Used by the migration check and as a fallback;
-  // normal operation goes through subscribe() instead.
+  // Reads the pre-split app_data document directly. Only used as a
+  // fallback when the per-record collection has nothing in it.
+  async function loadLegacy() {
+    try {
+      const snap = await getDoc(doc(db, 'app_data', legacyKey));
+      if (!snap.exists()) return [];
+      const raw = snap.data().value;
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error('recordStore.loadLegacy failed:', collectionName, e);
+      return [];
+    }
+  }
+
+  // Reads every record once.
+  //
+  // Falls back to the pre-split document when the collection is empty.
+  // The migration is supposed to make that unnecessary, but if it has not
+  // run - or could not finish - the alternative is an app that shows
+  // nothing while the data sits safely in a document it is no longer
+  // reading. Showing the old data is always better than showing none, and
+  // this costs one extra read only while the collection really is empty.
   async function loadAll() {
     const snap = await getDocs(jobsCol);
-    return snap.docs.map(fromDoc).filter(Boolean);
+    const records = snap.docs.map(fromDoc).filter(Boolean);
+    if (records.length > 0) return records;
+    const legacy = await loadLegacy();
+    if (legacy.length > 0) {
+      console.warn(
+        'recordStore: ' + collectionName + ' collection is empty; falling back to app_data/' +
+        legacyKey + ' (' + legacy.length + ' records). The migration has not completed.',
+      );
+    }
+    return legacy;
   }
 
   // Copies the pre-split app_data document into per-record documents.
@@ -160,7 +190,15 @@ export function createRecordStore(db, { collectionName, legacyKey, field, idOf }
   function subscribe(onNext, onError) {
     return onSnapshot(
       jobsCol,
-      (snap) => onNext(snap.docs.map(fromDoc).filter(Boolean)),
+      (snap) => {
+        const records = snap.docs.map(fromDoc).filter(Boolean);
+        if (records.length > 0) { onNext(records); return; }
+        // Same fallback as loadAll: an empty collection may simply mean
+        // the migration has not landed, and the pre-split document still
+        // holds everything. Never hand back an empty list while that is
+        // true - that is what makes the app look wiped.
+        loadLegacy().then((legacy) => onNext(legacy)).catch(() => onNext([]));
+      },
       (err) => {
         console.error('jobsStore.subscribe failed:', err);
         if (onError) onError(err);
@@ -209,14 +247,19 @@ export function createRecordStore(db, { collectionName, legacyKey, field, idOf }
   async function getOne(id) {
     try {
       const snap = await getDoc(doc(jobsCol, String(id)));
-      return snap.exists() ? fromDoc(snap) : null;
+      if (snap.exists()) return fromDoc(snap);
+      // Not split out yet. Without this fallback a customer whose record
+      // has not been migrated is told their number is not registered -
+      // which is the same data-loss symptom, wearing a worse mask.
+      const legacy = await loadLegacy();
+      return legacy.find((rec) => rec && String(idOf(rec)) === String(id)) || null;
     } catch (e) {
       console.error('recordStore.getOne failed:', collectionName, id, e);
       return null;
     }
   }
 
-  return { loadAll, getOne, migrateLegacyIfNeeded, subscribe, saveDiff };
+  return { loadAll, loadLegacy, getOne, migrateLegacyIfNeeded, subscribe, saveDiff };
 }
 
 export const createJobsStore = (db) => createRecordStore(db, {
