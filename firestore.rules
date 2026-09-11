@@ -15,20 +15,29 @@ rules_version = '2';
 // Deploying these BEFORE the app is signing in would take the live app
 // down for everyone, instantly. The safe order is:
 //
-//   1. Deploy the app change already in this repo
-//      (api/staff-login.js + the custom-token sign-in).
-//   2. In Vercel -> Settings -> Environment Variables set ADMIN_PIN
+//   1. Deploy the app change already in this repo (api/staff-login.js,
+//      the custom-token sign-in, and the anonymous sign-in that runs
+//      before any data is read).
+//   2. Turn ON anonymous sign-in: Firebase console -> Authentication ->
+//      Sign-in method -> Anonymous -> Enable. THIS IS NOT OPTIONAL.
+//      Staff get an identity from the PIN sign-in, but customers do not:
+//      the OTP screen runs in demo mode (the code is generated and checked
+//      in the browser) because real phone auth needs the Blaze plan. With
+//      anonymous sign-in off, publishing these rules locks every customer
+//      out of the app completely.
+//   3. In Vercel -> Settings -> Environment Variables set ADMIN_PIN
 //      (and PARTNER_PIN / DH_PARTNER_PIN if you use them), then redeploy.
-//   3. On real devices, log in as admin, partner, karigar AND a customer
+//   4. On real devices, log in as admin, partner, karigar AND a customer
 //      and confirm all four still work. Until ADMIN_PIN is set the app
 //      silently uses the old in-browser check, so this is the step where
 //      you confirm the server path is actually the one running.
-//   4. Delete the admin_pin / partner_pin / dh_partner_pin documents in
+//   5. Delete the admin_pin / partner_pin / dh_partner_pin documents in
 //      Firestore. Nothing reads them any more.
-//   5. Only then paste these rules into the Firebase Console
-//      (Firestore Database -> Rules) and publish.
+//   6. Only then paste these rules into the Firebase Console
+//      (Firestore Database -> Rules) and publish. Immediately afterwards,
+//      open the app as a customer once more and confirm it still loads.
 //
-// If step 5 goes wrong, republishing the previous rules puts everything
+// If step 6 goes wrong, republishing the previous rules puts everything
 // back immediately - a rules deploy changes no data.
 //
 // SCOPE: WHAT THIS DOES AND DOES NOT DO
@@ -37,21 +46,27 @@ rules_version = '2';
 // readable by the open internet. You must be signed in - as staff via
 // the PIN, or as a customer via OTP - to read anything at all.
 //
-// It deliberately does NOT narrow access per role yet. Two reasons:
+// It deliberately does NOT narrow access per role, and it CANNOT yet
+// narrow per customer. Three reasons:
 //
-//   * Every job still lives inside a single shared 'jobs' document, and
-//     rules are evaluated per document, so "a customer may read only
-//     their own job" is not expressible until the per-job split in
-//     phase 2. That is phase 3.
-//   * Role narrowing has real trip-wires in this app. The karigar
-//     screen reads the staff list to find its own record, so an
-//     admin-only rule on 'staff' would lock karigars out. Rules that
-//     look obviously right can break a role silently, and those need
-//     testing against your live setup rather than guesswork.
+//   * A customer has no identity to key a rule on. In demo mode they sign
+//     in anonymously, and an anonymous uid says nothing about which
+//     customer they are. Per-customer rules need real Firebase phone auth
+//     (request.auth.token.phone_number), which needs the Blaze plan.
+//     Until then "this customer may read only their own job" cannot be
+//     expressed at all, no matter how the data is shaped.
+//   * The customers list is still one document, so a reader of it reads
+//     every name and phone number.
+//   * Role narrowing has real trip-wires in this app. The karigar screen
+//     reads the staff list to find its own record, so an admin-only rule
+//     on 'staff' would lock karigars out. Rules that look obviously right
+//     can break a role silently, and those need testing against your live
+//     setup rather than guesswork.
 //
-// So phase 1 draws the line at "signed in or not", which is the line
-// that actually matters right now, and leaves per-role rules to be done
-// once each role can be verified.
+// So this draws the line at "signed in or not", which is the line that
+// actually matters right now: it stops the open internet reading your
+// customers' phone numbers and payment history. Everything finer waits
+// for Blaze.
 
 service cloud.firestore {
   match /databases/{database}/documents {

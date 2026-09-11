@@ -49,6 +49,8 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   signInWithCustomToken,
+  signInAnonymously,
+  onAuthStateChanged,
 } from "firebase/auth";
 import {
   getMessaging,
@@ -254,6 +256,76 @@ async function verifyPhoneOtp(confirmationResult, code) {
   }
 }
 
+// Makes sure this browser has SOME Firebase identity before any data is
+// read.
+//
+// This exists because of a gap that would otherwise bite the moment
+// firestore.rules is deployed. Those rules require request.auth != null,
+// and staff get an identity from the custom-token sign-in below - but
+// customers do not. The customer OTP screen currently runs in demo mode
+// (the code is generated and checked in the browser, see LoginScreen)
+// because real Firebase phone auth needs the Blaze plan, so a customer
+// never signs in to Firebase at all. Deploying the rules in that state
+// would lock every customer out of the app completely.
+//
+// An anonymous sign-in closes that gap and is free on the Spark plan. It
+// gives no per-person identity - an anonymous uid says nothing about who
+// the customer is - so it is enough for "signed in or not" rules and NOT
+// enough for per-customer rules. Those still need real phone auth.
+//
+// Anonymous sign-in has to be switched on in the Firebase console
+// (Authentication -> Sign-in method -> Anonymous). If it is off this
+// fails, and the app carries on exactly as it does today.
+const AUTH_INIT_TIMEOUT_MS = 10000;
+
+function currentUserOnce() {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { try { unsub(); } catch (e) { /* already gone */ } resolve(null); }, AUTH_INIT_TIMEOUT_MS);
+    // Firebase restores a stored session asynchronously, so auth.currentUser
+    // is not reliable until the first state callback has fired.
+    const unsub = onAuthStateChanged(auth, (user) => {
+      clearTimeout(timer);
+      try { unsub(); } catch (e) { /* already gone */ }
+      resolve(user);
+    });
+  });
+}
+
+let ensureSignedInPromise = null;
+async function ensureSignedIn() {
+  if (ensureSignedInPromise) return ensureSignedInPromise;
+  ensureSignedInPromise = (async () => {
+    // The whole thing is bounded, not just the state callback. The app
+    // awaits this before its first read, so anything that can hang here
+    // is something that can leave the app stuck on "Loading..." forever -
+    // and signInAnonymously retries internally rather than rejecting when
+    // it cannot reach Firebase. Giving up and carrying on unauthenticated
+    // is always better than never rendering: without the rules deployed
+    // the app works anyway, and with them deployed the user gets the
+    // app's own error rather than a blank screen.
+    const attempt = (async () => {
+      const existing = await currentUserOnce();
+      if (existing) return { ok: true, uid: existing.uid, anonymous: existing.isAnonymous };
+      const cred = await signInAnonymously(auth);
+      return { ok: true, uid: cred.user.uid, anonymous: true };
+    })();
+    let timer;
+    const bail = new Promise((resolve) => {
+      timer = setTimeout(() => resolve({ ok: false, error: 'auth/timeout' }), AUTH_INIT_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([attempt, bail]);
+    } catch (e) {
+      // Most likely anonymous sign-in is not enabled in the console.
+      console.error("ensureSignedIn failed:", e);
+      return { ok: false, error: String(e && e.code ? e.code : e) };
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+  return ensureSignedInPromise;
+}
+
 // Staff / admin sign-in.
 //
 // The PIN is checked by api/staff-login.js on the server, which returns
@@ -310,7 +382,15 @@ async function staffLogin(pin) {
 }
 
 async function signOutStaff() {
-  try { await auth.signOut(); } catch (e) { console.error('signOutStaff failed', e); }
+  try {
+    await auth.signOut();
+    // Drop straight back to an anonymous identity. Without this the app
+    // would be left with no Firebase session at all after a logout, and
+    // once the rules are deployed the login screen itself could not read
+    // anything.
+    ensureSignedInPromise = null;
+    await ensureSignedIn();
+  } catch (e) { console.error('signOutStaff failed', e); }
 }
 
 // Live subscription to a single app_data document.
@@ -351,6 +431,7 @@ export function installWindowStorage() {
   };
   window.storage.subscribe = (key, onValue) => subscribeKey(key, onValue);
   window.jobsStore = jobsStore;
+  window.appAuth = { ensureSignedIn: () => ensureSignedIn() };
   window.staffAuth = {
     login: (pin) => staffLogin(pin),
     signOut: () => signOutStaff(),

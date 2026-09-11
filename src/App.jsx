@@ -1876,6 +1876,22 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
+        // Every read below needs a Firebase identity once firestore.rules
+        // is deployed. Staff get one from the PIN sign-in, but customers
+        // do not while the OTP screen is in demo mode, so this establishes
+        // an anonymous one first. Never blocks startup if it fails.
+        // Bounded here as well as inside ensureSignedIn. A try/catch is
+        // not enough: a promise that never settles is not an error, and
+        // awaiting one would leave the app on "Loading..." forever. Giving
+        // up and rendering unauthenticated is always the better failure -
+        // the user then sees the app, or its own error, rather than a
+        // blank screen.
+        try {
+          await Promise.race([
+            window.appAuth.ensureSignedIn(),
+            new Promise((resolve) => setTimeout(resolve, 12000)),
+          ]);
+        } catch (e) { /* carry on unauthenticated */ }
         // Copies a pre-split app_data/jobs document into per-job documents
         // the first time this version runs. Does nothing once the split has
         // happened, and never deletes the original.
