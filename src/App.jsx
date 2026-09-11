@@ -1679,6 +1679,11 @@ export default function App() {
   const [attendance, setAttendanceRaw] = useState([]);
   const [brochures, setBrochures] = useState([]);
   const [featuredReviews, setFeaturedReviews] = useState([]);
+  // A customer's own notifications, in their own document. The shared
+  // 'notifications' list is written for staff and names other customers
+  // in its messages, so a customer downloading it and filtering in the
+  // browser was reading everyone's activity to display their own.
+  const [customerNotifications, setCustomerNotifications] = useState([]);
   // Set when the featured_reviews document does not exist yet, so the
   // list can be published once from the jobs that already carry a
   // featured review. Without this, existing testimonials would silently
@@ -1909,12 +1914,23 @@ export default function App() {
         // Copies a pre-split app_data/jobs document into per-job documents
         // the first time this version runs. Does nothing once the split has
         // happened, and never deletes the original.
+        // The shared notifications list is staff-only: it names other
+        // customers in its messages, and a customer reads their own
+        // document instead. Skipping the read entirely (rather than
+        // reading and discarding) is the point - under the per-customer
+        // rules this read would be denied anyway.
+        const storedSession = loadStoredSession();
+        const sharedNotificationsGet = () => (
+          storedSession && storedSession.role === 'customer'
+            ? Promise.resolve(null)
+            : safeGet('notifications')
+        );
         await window.jobsStore.migrateLegacyIfNeeded();
         await window.customersStore.migrateLegacyIfNeeded();
         const [p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw, featuredRaw] = await Promise.all([
           safeGet('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
-          safeGet('categories'), safeGet('notifications'), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
+          safeGet('categories'), sharedNotificationsGet(), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
           safeGet('archived_reviews'), safeGet('admin_push_tokens'), safeGet('faqs'), safeGet('dh_partner_pin'), safeGet('pending_gallery_photos'),
           safeGet('material_specs'), safeGet('company_benefits'), safeGet('featured_reviews'),
         ]);
@@ -1985,6 +2001,23 @@ export default function App() {
     return () => { cancelled = true; };
   }, [loaded, session]);
 
+  // A customer's own notification document, live. Only subscribed for a
+  // customer session - staff read the shared list instead, and nobody
+  // needs both.
+  useEffect(() => {
+    if (!loaded || !session || session.role !== 'customer' || !session.phone) {
+      setCustomerNotifications([]);
+      return undefined;
+    }
+    const unsub = window.storage.subscribe(customerNotifKey(session.phone), (value) => {
+      if (value == null) { setCustomerNotifications([]); return; }
+      try { setCustomerNotifications(normalizeNotifications(JSON.parse(value))); }
+      catch (e) { /* skip a corrupt document */ }
+    });
+    return () => { try { unsub(); } catch (e) { /* already gone */ } };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, session]);
+
   // Live subscriptions replace what used to be two polling timers (a 20s
   // one for jobs/brochures/categories/appointment options/gallery, and an
   // 8s one for notifications).
@@ -2010,7 +2043,15 @@ export default function App() {
     sub('brochures', setBrochures);
     sub('categories', setCategoriesRaw);
     sub('appointment_item_options', setAppointmentItemOptions);
-    sub('notifications', (v) => setNotificationsRaw(normalizeNotifications(v)));
+    // Staff only. The shared list is written for staff and names other
+    // customers in its messages; a customer reads their own document
+    // instead (see the effect above), so they are never subscribed to
+    // this one - otherwise every customer would still be downloading
+    // everyone's activity, which is the leak this closes. Nobody needs it
+    // on the login screen either, so it waits for a session.
+    if (session && session.role !== 'customer') {
+      sub('notifications', (v) => setNotificationsRaw(normalizeNotifications(v)));
+    }
 
     // Gallery is a document per category plus an index listing them, so
     // the per-category listeners are rebuilt whenever the index changes.
@@ -2033,7 +2074,10 @@ export default function App() {
       unsubs.forEach((u) => { try { u(); } catch (e) { /* already gone */ } });
       categoryUnsubs.forEach((u) => { try { u(); } catch (e) { /* already gone */ } });
     };
-  }, [loaded]);
+    // session is a dependency because whether the shared notifications
+    // document is subscribed at all depends on the role.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, session]);
 
   // Jobs are one document each (see jobsStore.js) and arrive through their
   // own collection listener, so a change to one job costs one read rather
@@ -2507,6 +2551,10 @@ export default function App() {
     catch (e) { /* best effort - a failed notification save shouldn't block the action that triggered it */ }
   }, []);
   const NOTIFICATION_CAP = 200;
+  // A customer only ever sees their own handful, so this is capped far
+  // lower than the shared staff list.
+  const CUSTOMER_NOTIFICATION_CAP = 50;
+  const customerNotifKey = (phone) => 'customer_notifications_' + phone;
   // Which notification types are meant for admin's own awareness
   // (a customer/karigar did something admin needs to see) versus for
   // a specific customer (admin did something that customer needs to
@@ -2515,12 +2563,29 @@ export default function App() {
   const ADMIN_BOUND_NOTIFICATION_TYPES = ['new_appointment', 'estimate_approved', 'estimate_change_request', 'estimate_cancelled', 'extra_work_requested', 'extra_work_needs_price', 'follow_up_needed', 'customer_birthday', 'karigar_message', 'payment_received', 'complaint_reported', 'work_completed_by_karigar', 'new_customer_registered'];
   const CUSTOMER_BOUND_NOTIFICATION_TYPES = ['appointment_confirmed', 'payment_due', 'extra_work_approved', 'extra_work_rejected', 'complaint_in_progress', 'complaint_resolved', 'payment_completed', 'question_answered'];
   const pushNotification = useCallback((type, message, jobId) => {
+    const entry = { id: uid(), type, message, jobId: jobId || null, createdAt: new Date().toISOString(), readBy: [] };
     setNotificationsRaw((current) => {
-      const entry = { id: uid(), type, message, jobId: jobId || null, createdAt: new Date().toISOString(), readBy: [] };
       const next = [entry, ...current].slice(0, NOTIFICATION_CAP);
       window.storage.set('notifications', JSON.stringify(next), true).catch(() => {});
       return next;
     });
+    // Anything addressed to a customer is also written to that customer's
+    // own document, so their app can read just their own notifications
+    // instead of the shared list. Staff keep reading the shared list.
+    if (CUSTOMER_BOUND_NOTIFICATION_TYPES.includes(type) && jobId) {
+      const targetJob = jobs.find((j) => j.id === jobId);
+      if (targetJob && targetJob.phone) {
+        const key = customerNotifKey(targetJob.phone);
+        (async () => {
+          try {
+            const raw = await safeGet(key);
+            const existing = raw ? JSON.parse(raw) : [];
+            const nextOwn = [entry, ...(Array.isArray(existing) ? existing : [])].slice(0, CUSTOMER_NOTIFICATION_CAP);
+            await window.storage.set(key, JSON.stringify(nextOwn), true);
+          } catch (e) { /* best effort - the shared entry above still exists */ }
+        })();
+      }
+    }
     // Real push, on top of the always-created in-app bell entry above -
     // best effort: if a device never enabled push, or the API call
     // fails for any reason, the in-app notification (which just fired
@@ -2565,6 +2630,28 @@ export default function App() {
       return next;
     });
   }, []);
+  // Read state for a customer lives in their own document too, so marking
+  // something read never writes to the shared staff list.
+  const markCustomerNotificationRead = useCallback((notificationId, viewerKey) => {
+    if (!session || !session.phone) return;
+    setCustomerNotifications((current) => {
+      const next = current.map((n) => (n.id === notificationId && !n.readBy.includes(viewerKey)
+        ? { ...n, readBy: [...n.readBy, viewerKey] } : n));
+      window.storage.set(customerNotifKey(session.phone), JSON.stringify(next), true).catch(() => {});
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+  const markAllCustomerNotificationsRead = useCallback((viewerKey) => {
+    if (!session || !session.phone) return;
+    setCustomerNotifications((current) => {
+      const next = current.map((n) => (n.readBy.includes(viewerKey) ? n : { ...n, readBy: [...n.readBy, viewerKey] }));
+      window.storage.set(customerNotifKey(session.phone), JSON.stringify(next), true).catch(() => {});
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
   // Brochure PDFs: metadata list (name/category/url) is small and lives in
   // Firestore under 'brochures'; the actual PDF file lives in Firebase
   // Storage (see addBrochure/removeBrochure below), since a PDF can be tens
@@ -2887,10 +2974,11 @@ export default function App() {
     .sort((a, b) => new Date(b.date) - new Date(a.date));
 
   // Customer notifications: filtered down to only this customer's own job
-  // (matched by jobId), same privacy principle as testimonials above -
-  // the full shared notifications list includes events about every
-  // customer, so it's narrowed here rather than inside CustomerApp.
-  const myNotifications = notifications.filter((n) => n.jobId === myJob.id);
+  // Comes from this customer's own document now. It used to be the shared
+  // staff list filtered by jobId in the browser, which meant every
+  // customer downloaded every other customer's activity in order to
+  // display their own.
+  const myNotifications = customerNotifications;
 
   return (
     <div style={styles.app}>
@@ -2910,8 +2998,8 @@ export default function App() {
         companyBenefits={companyBenefits}
         pushNotification={pushNotification}
         notifications={myNotifications}
-        markNotificationRead={markNotificationRead}
-        markAllNotificationsRead={markAllNotificationsRead}
+        markNotificationRead={markCustomerNotificationRead}
+        markAllNotificationsRead={markAllCustomerNotificationsRead}
         onSaveJob={async (j) => {
           if (j.customerId !== myCustomerId) return false; // guard: never allow writing another customer's job
           const prevJob = jobs.find((jj) => jj.id === j.id) || null;
