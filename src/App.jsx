@@ -2987,6 +2987,18 @@ function formatPhoneDisplay(digits10) {
   return '+91 ' + digits10.slice(0, 5) + ' ' + digits10.slice(5);
 }
 
+// Real Firebase phone auth (a genuine SMS, and a genuine Firebase session
+// for the customer) needs the Blaze plan, so the OTP screen ships in demo
+// mode: the code is generated and checked in the browser and shown on
+// screen. Switching over is deliberately a config change, not a code
+// change - set VITE_PHONE_AUTH=on in Vercel and redeploy.
+//
+// This matters for more than SMS. In demo mode a customer never signs in
+// to Firebase, so there is no identity for a security rule to key on, and
+// "this customer may read only their own job" cannot be expressed at all.
+// Turning this on is what unblocks the per-customer rules.
+const REAL_PHONE_AUTH = import.meta.env.VITE_PHONE_AUTH === 'on';
+
 function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
   const [mode, setMode] = useState('choose');
   const [name, setName] = useState('');
@@ -3006,6 +3018,7 @@ function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onC
   // same either way.
   const [otpStage, setOtpStage] = useState(false); // false | 'register' | 'login'
   const [sentOtp, setSentOtp] = useState('');
+  const [confirmation, setConfirmation] = useState(null);
   const [otpInput, setOtpInput] = useState('');
   const [pendingPhone, setPendingPhone] = useState('');
   const [sendingOtp, setSendingOtp] = useState(false);
@@ -3022,8 +3035,20 @@ function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onC
       const existing = customers.find((c) => c.phone === normalized);
       if (existing) { onCustomerLogin(existing.id); return; }
     }
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    setSentOtp(code);
+    if (REAL_PHONE_AUTH) {
+      setSendingOtp(true);
+      const result = await window.phoneAuth.sendOtp('+91' + normalized, 'recaptcha-container');
+      setSendingOtp(false);
+      if (!result) {
+        setError('OTP bhej nahi paye - thodi der baad try karein ya admin se contact karein.');
+        return;
+      }
+      setConfirmation(result);
+      setSentOtp('');
+    } else {
+      setConfirmation(null);
+      setSentOtp(String(Math.floor(100000 + Math.random() * 900000)));
+    }
     setPendingPhone(normalized);
     setOtpInput('');
     setError('');
@@ -3032,7 +3057,17 @@ function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onC
 
   const verifyOtp = async () => {
     if (!otpInput.trim()) { setError('OTP daalein'); return; }
-    if (otpInput.trim() !== sentOtp) { setError('Galat OTP - dobara check karein'); return; }
+    if (REAL_PHONE_AUTH) {
+      // A successful confirm also signs the customer in to Firebase,
+      // replacing the anonymous session with one whose token carries their
+      // phone number - the identity per-customer rules need.
+      setSendingOtp(true);
+      const user = await window.phoneAuth.verifyOtp(confirmation, otpInput.trim());
+      setSendingOtp(false);
+      if (!user) { setError('Galat OTP - dobara check karein'); return; }
+    } else if (otpInput.trim() !== sentOtp) {
+      setError('Galat OTP - dobara check karein'); return;
+    }
     if (otpStage === 'register') {
       onRegister({ id: uid(), name: name.trim(), phone: pendingPhone, phoneVerified: true, referredBy: referredBy.trim() || null, createdAt: new Date().toISOString() });
     } else {
@@ -3042,10 +3077,17 @@ function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onC
   };
 
   const resendOtp = async () => {
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    setSentOtp(code);
-    setOtpInput('');
     setError('');
+    setOtpInput('');
+    if (REAL_PHONE_AUTH) {
+      setSendingOtp(true);
+      const result = await window.phoneAuth.sendOtp('+91' + pendingPhone, 'recaptcha-container');
+      setSendingOtp(false);
+      if (!result) { setError('OTP dobara bhej nahi paye - thodi der baad try karein.'); return; }
+      setConfirmation(result);
+      return;
+    }
+    setSentOtp(String(Math.floor(100000 + Math.random() * 900000)));
   };
 
   const backFromOtp = () => {
@@ -3106,14 +3148,22 @@ function LoginScreen({ customers, adminPin, partnerPin, dhPartnerPin, staff, onC
         <div style={styles.brandSub}>Design gallery - Requirements - Live work tracking</div>
       </div>
 
+      {/* Invisible reCAPTCHA mount point. Firebase Phone Auth requires this
+          element to exist in the DOM before sendOtp is called; it stays
+          empty and invisible. Rendered unconditionally so it is present
+          the moment VITE_PHONE_AUTH is switched on. */}
+      <div id='recaptcha-container' />
+
       {otpStage && (
         <div style={styles.loginCard}>
           <div style={styles.fieldLabel}>Verify OTP</div>
           <div style={styles.plainTextMuted}>{formatPhoneDisplay(pendingPhone)} par bheja gaya code daalein</div>
-          <div style={styles.otpDemoBox}>
-            <AlertTriangle size={13} color='#B5562E' />
-            <span>Demo mode - real SMS nahi jaata. Aapka OTP: <b>{sentOtp}</b></span>
-          </div>
+          {!REAL_PHONE_AUTH && (
+            <div style={styles.otpDemoBox}>
+              <AlertTriangle size={13} color='#B5562E' />
+              <span>Demo mode - real SMS nahi jaata. Aapka OTP: <b>{sentOtp}</b></span>
+            </div>
+          )}
           <input
             style={{ ...styles.input, marginTop: 10, textAlign: 'center', fontSize: 20, letterSpacing: 6, fontWeight: 800 }}
             value={otpInput}
