@@ -183,10 +183,27 @@ service cloud.firestore {
     //   allow read, write: if isStaff() || isMe();
     // }
     //
-    // Note on what is still shared at that point: notifications are one
-    // list for everyone, filtered in the browser, so a customer could read
-    // events naming other customers. Narrowing that needs the same phone
-    // claim and is the last piece of this work.
+    // match /app_data/{docId} - notifications
+    //
+    // The shared 'notifications' document is staff-only: it names other
+    // customers in its messages. Customers no longer read it at all; each
+    // has their own 'customer_notifications_<phone>' document, and the
+    // document id carries the phone, so the same match as customers works:
+    //
+    //   match /app_data/{docId} {
+    //     function isStaff() {
+    //       return request.auth != null && request.auth.token.role != null;
+    //     }
+    //     function myNotifDoc() {
+    //       return request.auth != null
+    //              && docId == 'customer_notifications_'
+    //                 + request.auth.token.phone_number.replace('\\+91', '');
+    //     }
+    //     allow read, write: if isStaff() || myNotifDoc() || <the shared rules above>;
+    //   }
+    //
+    // Fold that into the app_data block rather than adding a second match:
+    // allow statements are OR-ed, so a separate one could only widen access.
 
     // Reviews the business chooses to show publicly. Published as its own
     // small document (see deriveFeaturedReviews in App.jsx) precisely so a
