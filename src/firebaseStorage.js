@@ -412,6 +412,75 @@ function subscribeKey(key, onValue) {
   );
 }
 
+// Raw diagnostic reads, used by the Data Check panel in Admin -> Settings.
+//
+// WHY THIS DOES NOT REUSE get()/listAllKeys()
+//
+// Every normal helper above catches its own errors and returns null or []
+// so that one bad read can never take the app down. That is right for the
+// app and wrong for a diagnostic: it makes "you are denied" and "there is
+// nothing there" produce the identical answer, which is exactly the
+// question a data check has to settle. The first version of the panel used
+// those helpers and so could not tell the two apart at all.
+//
+// So these deliberately let the error through, and report its code.
+// Nothing here writes.
+async function rawProbe() {
+  const out = { projectId: firebaseConfig.projectId, online: navigator.onLine };
+
+  // Who, if anyone, are we to Firestore? If anonymous sign-in is not
+  // enabled in the console this fails, and with rules published that one
+  // fact denies every read in the app.
+  try {
+    const auth9 = await ensureSignedIn();
+    out.auth = auth9 && auth9.ok
+      ? { ok: true, uid: auth9.uid, anonymous: !!auth9.anonymous }
+      : { ok: false, error: (auth9 && auth9.error) || 'unknown' };
+  } catch (e) {
+    out.auth = { ok: false, error: String((e && e.code) || e) };
+  }
+
+  const errCode = (e) => String((e && e.code) || (e && e.message) || e);
+
+  // A single document read. fromCache matters: with offline persistence a
+  // read can be answered by an empty local cache, which looks like missing
+  // data but is really "could not reach the server".
+  const readDoc = async (path, id) => {
+    try {
+      const snap = await getDoc(doc(db, path, id));
+      return {
+        ok: true,
+        exists: snap.exists(),
+        fromCache: snap.metadata.fromCache,
+        bytes: snap.exists() ? JSON.stringify(snap.data()).length : 0,
+      };
+    } catch (e) {
+      return { ok: false, error: errCode(e) };
+    }
+  };
+
+  // A collection listing. Rules treat this differently from a document
+  // read - a list is denied outright unless every document it could return
+  // is readable - so a listing that fails while a document read succeeds is
+  // itself a finding, not a contradiction.
+  const readList = async (name) => {
+    try {
+      const snap = await getDocs(collection(db, name));
+      return { ok: true, count: snap.size, fromCache: snap.metadata.fromCache };
+    } catch (e) {
+      return { ok: false, error: errCode(e) };
+    }
+  };
+
+  out.appDataCategories = await readDoc(COLLECTION, 'categories');
+  out.appDataJobs = await readDoc(COLLECTION, 'jobs');
+  out.appDataCustomers = await readDoc(COLLECTION, 'customers');
+  out.appDataList = await readList(COLLECTION);
+  out.jobsList = await readList('jobs');
+  out.customersList = await readList('customers');
+  return out;
+}
+
 const jobsStore = createJobsStore(db);
 const customersStore = createCustomersStore(db);
 
@@ -434,6 +503,7 @@ export function installWindowStorage() {
   window.jobsStore = jobsStore;
   window.customersStore = customersStore;
   window.appAuth = { ensureSignedIn: () => ensureSignedIn() };
+  window.dataCheck = { probe: () => rawProbe() };
   window.staffAuth = {
     login: (pin) => staffLogin(pin),
     signOut: () => signOutStaff(),

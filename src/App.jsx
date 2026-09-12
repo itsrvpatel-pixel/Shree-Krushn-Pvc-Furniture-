@@ -10630,45 +10630,78 @@ function DataCheckPanel({ gallery, showToast }) {
   const [report, setReport] = useState(null);
   const [running, setRunning] = useState(false);
 
+  // Turns one raw probe result into a line a person can read.
+  //
+  // The distinction this panel exists to draw is between "denied" and
+  // "empty", so an error is never rendered as a zero: a failed read says
+  // so, and says the code, because 'permission-denied' and 'unavailable'
+  // mean completely different things and lead to different fixes.
+  const describeDoc = (r) => {
+    if (!r) return '-';
+    if (!r.ok) return 'ERROR: ' + r.error;
+    if (!r.exists) return 'document maujood nahi';
+    return 'maujood (' + Math.round(r.bytes / 1024) + ' KB)' + (r.fromCache ? ' [cache se]' : '');
+  };
+  const describeList = (r) => {
+    if (!r) return '-';
+    if (!r.ok) return 'ERROR: ' + r.error;
+    return r.count + ' document' + (r.fromCache ? ' [cache se]' : '');
+  };
+
   const run = async () => {
     setRunning(true);
     const lines = [];
     const add = (label, value) => lines.push({ label, value });
     try {
-      // Can we reach Firestore at all? Everything else is meaningless if not.
-      let reachable = 'nahi';
-      let permissionError = null;
-      try {
-        await window.storage.get('categories');
-        reachable = 'haan';
-      } catch (e) {
-        permissionError = String(e && e.code ? e.code : e);
+      if (!window.dataCheck || !window.dataCheck.probe) {
+        add('Data Check', 'is build mein available nahi - app update kijiye');
+        setReport(lines);
+        setRunning(false);
+        return;
       }
-      add('Firestore se connection', reachable);
-      if (permissionError) add('Error', permissionError);
+      const p = await window.dataCheck.probe();
 
-      const [legacyJobs, newJobs, legacyCusts, newCusts] = await Promise.all([
-        window.jobsStore.loadLegacy().catch(() => null),
-        window.jobsStore.loadAll().catch(() => null),
-        window.customersStore.loadLegacy().catch(() => null),
-        window.customersStore.loadAll().catch(() => null),
-      ]);
-      const count = (v) => (v === null ? 'padha nahi ja saka' : v.length + ' record');
-      add('Purana jobs document (app_data/jobs)', count(legacyJobs));
-      add('Naya jobs collection', count(newJobs));
-      add('Purana customers document (app_data/customers)', count(legacyCusts));
-      add('Naya customers collection', count(newCusts));
+      add('Firebase project', p.projectId);
+      add('Internet', p.online ? 'haan' : 'nahi');
+      add(
+        'Login (anonymous)',
+        p.auth && p.auth.ok
+          ? 'ho gaya' + (p.auth.anonymous ? ' (anonymous)' : ' (staff)')
+          : 'FAIL: ' + ((p.auth && p.auth.error) || 'unknown'),
+      );
+      add('app_data/categories', describeDoc(p.appDataCategories));
+      add('app_data/jobs', describeDoc(p.appDataJobs));
+      add('app_data/customers', describeDoc(p.appDataCustomers));
+      add('app_data list', describeList(p.appDataList));
+      add('jobs collection', describeList(p.jobsList));
+      add('customers collection', describeList(p.customersList));
 
       const cats = Object.keys(gallery || {});
       const photos = cats.reduce((n, c) => n + ((gallery[c] || []).length), 0);
-      add('Gallery', cats.length + ' category, ' + photos + ' photo');
+      add('Gallery (screen par)', cats.length + ' category, ' + photos + ' photo');
 
-      try {
-        const keys = await window.storage.listAllKeys();
-        add('app_data mein kul documents', keys.length);
-      } catch (e) { add('app_data mein kul documents', 'padha nahi ja saka'); }
+      // The one-line verdict, so the answer does not depend on reading
+      // seven rows correctly. Ordered by which cause makes the others
+      // meaningless: no auth explains every denial after it.
+      const denied = [p.appDataCategories, p.appDataJobs, p.appDataCustomers, p.appDataList, p.jobsList, p.customersList]
+        .some((r) => r && !r.ok && String(r.error).indexOf('permission-denied') >= 0);
+      const anyData = [p.appDataJobs, p.appDataCustomers, p.appDataCategories].some((r) => r && r.ok && r.exists)
+        || [p.appDataList, p.jobsList, p.customersList].some((r) => r && r.ok && r.count > 0);
+      let verdict;
+      if (p.auth && !p.auth.ok && denied) {
+        verdict = 'Login fail + reads blocked. Firebase Console -> Authentication -> Sign-in method -> Anonymous ko Enable kijiye. Data safe hai.';
+      } else if (denied) {
+        verdict = 'Firestore Rules reads block kar rahe hain. Data safe hai, rules theek karne par wapas aa jayega.';
+      } else if (!p.online) {
+        verdict = 'Device offline hai - dobara online hokar check kijiye.';
+      } else if (!anyData) {
+        verdict = 'Reads chal rahe hain lekin is project mein data nahi mila. Firebase Console -> Firestore Database dekhiye.';
+      } else {
+        verdict = 'Data padha ja raha hai.';
+      }
+      add('NATIJA', verdict);
     } catch (e) {
-      add('Check fail ho gaya', String(e && e.message ? e.message : e));
+      add('Check fail ho gaya', String((e && e.message) || e));
     }
     setReport(lines);
     setRunning(false);
