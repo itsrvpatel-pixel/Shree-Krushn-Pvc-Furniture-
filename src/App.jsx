@@ -10621,6 +10621,97 @@ function TitleDescEditForm({ item, onSave, onCancel }) {
   );
 }
 
+/* ---- Data check: answers "where did my data go" without anyone having
+   to open the Firebase console. Reports what is actually in storage
+   versus what the app can see, in plain terms, and gives one button to
+   copy the whole thing so it can be sent on. Read-only - it changes
+   nothing. ---- */
+function DataCheckPanel({ gallery, showToast }) {
+  const [report, setReport] = useState(null);
+  const [running, setRunning] = useState(false);
+
+  const run = async () => {
+    setRunning(true);
+    const lines = [];
+    const add = (label, value) => lines.push({ label, value });
+    try {
+      // Can we reach Firestore at all? Everything else is meaningless if not.
+      let reachable = 'nahi';
+      let permissionError = null;
+      try {
+        await window.storage.get('categories');
+        reachable = 'haan';
+      } catch (e) {
+        permissionError = String(e && e.code ? e.code : e);
+      }
+      add('Firestore se connection', reachable);
+      if (permissionError) add('Error', permissionError);
+
+      const [legacyJobs, newJobs, legacyCusts, newCusts] = await Promise.all([
+        window.jobsStore.loadLegacy().catch(() => null),
+        window.jobsStore.loadAll().catch(() => null),
+        window.customersStore.loadLegacy().catch(() => null),
+        window.customersStore.loadAll().catch(() => null),
+      ]);
+      const count = (v) => (v === null ? 'padha nahi ja saka' : v.length + ' record');
+      add('Purana jobs document (app_data/jobs)', count(legacyJobs));
+      add('Naya jobs collection', count(newJobs));
+      add('Purana customers document (app_data/customers)', count(legacyCusts));
+      add('Naya customers collection', count(newCusts));
+
+      const cats = Object.keys(gallery || {});
+      const photos = cats.reduce((n, c) => n + ((gallery[c] || []).length), 0);
+      add('Gallery', cats.length + ' category, ' + photos + ' photo');
+
+      try {
+        const keys = await window.storage.listAllKeys();
+        add('app_data mein kul documents', keys.length);
+      } catch (e) { add('app_data mein kul documents', 'padha nahi ja saka'); }
+    } catch (e) {
+      add('Check fail ho gaya', String(e && e.message ? e.message : e));
+    }
+    setReport(lines);
+    setRunning(false);
+  };
+
+  const copy = async () => {
+    const text = (report || []).map((l) => l.label + ': ' + l.value).join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Copy ho gaya - ab paste karke bhej sakte hain');
+    } catch (e) {
+      showToast('Copy nahi ho paya - screenshot bhej dijiye', true);
+    }
+  };
+
+  return (
+    <div style={{ ...styles.card, marginTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <AlertCircle size={16} color={BRAND.gold} />
+        <div style={{ fontWeight: 800, fontSize: 14 }}>Data Check</div>
+      </div>
+      <div style={styles.plainText}>
+        App ka data kahan hai ye batata hai. Kuch badalta nahi - sirf padh kar
+        dikhata hai. Agar data gayab lage to ye chala kar result bhej dijiye.
+      </div>
+      <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={run} disabled={running}>
+        {running ? 'Check kar rahe hain...' : 'Data check karein'}
+      </button>
+      {report && (
+        <div style={{ marginTop: 12 }}>
+          {report.map((l) => (
+            <div key={l.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '6px 0', borderBottom: '1px solid ' + BRAND.line }}>
+              <span style={{ fontSize: 13, color: BRAND.textMuted }}>{l.label}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, textAlign: 'right' }}>{String(l.value)}</span>
+            </div>
+          ))}
+          <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={copy}>Result copy karein</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, pendingGalleryPhotos, setPendingGalleryPhotos, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, adminPushTokens, enableAdminPushNotifications, onLogout, showToast }) {
   // Same union fix as GalleryBrowser/AdminGallery's matching comment -
   // used here so a category with real gallery photos never becomes
@@ -11549,6 +11640,8 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Sab customers, jobs, gallery, aur staff ka data ek JSON file mein download karein.</div>
         <button style={styles.addBtn} onClick={downloadBackup}><Download size={14} /> Download backup</button>
       </div>
+
+      <DataCheckPanel gallery={gallery} showToast={showToast} />
 
       <div style={{ ...styles.card, marginTop: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
