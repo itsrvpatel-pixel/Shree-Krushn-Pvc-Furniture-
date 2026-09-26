@@ -64,7 +64,44 @@ const PINS = {
   dh_partner: { secretDoc: 'dh_partner_pin', legacyDoc: 'dh_partner_pin', envKey: 'DH_PARTNER_PIN' },
 };
 
+// Staff PINs live together in one document rather than one each: the
+// login endpoint has to check a typed PIN against all of them, and that
+// should cost a single read however many karigars there are.
+export const STAFF_PINS_DOC = 'staff_pins';
+
+export function staffIdFromWhich(which) {
+  return typeof which === 'string' && which.startsWith('staff:') ? which.slice(6) : null;
+}
+
+export async function readStaffPins(db) {
+  try {
+    const snap = await db.collection('secrets').doc(STAFF_PINS_DOC).get();
+    const data = snap.exists ? snap.data() : null;
+    return (data && data.pins && typeof data.pins === 'object') ? data.pins : {};
+  } catch (e) {
+    console.error('change-pin: staff pin lookup failed', e);
+    return {};
+  }
+}
+
 export async function readCurrentPin(db, which) {
+  const staffId = staffIdFromWhich(which);
+  if (staffId) {
+    const pins = await readStaffPins(db);
+    if (pins[staffId]) return String(pins[staffId]);
+    // Not moved across yet - the pin is still sitting inside the staff
+    // list. Read it so an existing karigar keeps working until the
+    // migration in staff-login.js lifts it out.
+    try {
+      const snap = await db.collection('app_data').doc('staff').get();
+      const list = snap.exists ? JSON.parse(snap.data().value || '[]') : [];
+      const hit = (Array.isArray(list) ? list : []).find((m) => String(m.id) === String(staffId));
+      return hit && hit.pin ? String(hit.pin) : '';
+    } catch (e) {
+      console.error('change-pin: legacy staff lookup failed', e);
+      return '';
+    }
+  }
   const spec = PINS[which];
   if (!spec) return '';
   try {
@@ -81,6 +118,52 @@ export async function readCurrentPin(db, which) {
     console.error('change-pin: legacy lookup failed', which, e);
   }
   return '';
+}
+
+// Every PIN currently in use, so a new one can be refused before it
+// creates two ways in under different names. The app used to do this in
+// the browser by comparing against the PINs it held; now that it holds
+// none, the check has to live here.
+async function pinAlreadyUsed(db, candidate, exceptWhich) {
+  for (const which of Object.keys(PINS)) {
+    if (which === exceptWhich) continue;
+    const existing = await readCurrentPin(db, which);
+    if (existing && existing === candidate) return true;
+  }
+  const pins = await readStaffPins(db);
+  const exceptStaff = staffIdFromWhich(exceptWhich);
+  for (const [id, pin] of Object.entries(pins)) {
+    if (String(id) === String(exceptStaff)) continue;
+    if (String(pin) === candidate) return true;
+  }
+  try {
+    const snap = await db.collection('app_data').doc('staff').get();
+    const list = snap.exists ? JSON.parse(snap.data().value || '[]') : [];
+    for (const m of (Array.isArray(list) ? list : [])) {
+      if (String(m.id) === String(exceptStaff)) continue;
+      if (m.pin && String(m.pin) === candidate) return true;
+    }
+  } catch (e) { /* best effort */ }
+  return false;
+}
+
+// Removes one member's pin field from app_data/staff, leaving the rest
+// of the record - name, role, commission - where the app can read it.
+export async function stripStaffPin(db, staffId) {
+  const ref = db.collection('app_data').doc('staff');
+  const snap = await ref.get();
+  if (!snap.exists) return;
+  let list;
+  try { list = JSON.parse(snap.data().value || '[]'); } catch (e) { return; }
+  if (!Array.isArray(list)) return;
+  let touched = false;
+  const next = list.map((m) => {
+    if (String(m.id) !== String(staffId) || m.pin === undefined) return m;
+    touched = true;
+    const { pin, ...rest } = m;
+    return { ...rest, hasPin: true };
+  });
+  if (touched) await ref.set({ value: JSON.stringify(next) });
 }
 
 export default async function handler(req, res) {
@@ -102,7 +185,8 @@ export default async function handler(req, res) {
   const currentPin = typeof req.body?.currentPin === 'string' ? req.body.currentPin.trim() : '';
   const newPin = typeof req.body?.newPin === 'string' ? req.body.newPin.trim() : '';
 
-  if (!PINS[which]) { res.status(400).json({ error: 'Kaunsa PIN badalna hai, ye saaf nahi hai' }); return; }
+  const staffId = staffIdFromWhich(which);
+  if (!PINS[which] && !staffId) { res.status(400).json({ error: 'Kaunsa PIN badalna hai, ye saaf nahi hai' }); return; }
 
   // An empty new PIN means "remove this access", which is what the
   // Settings screen's "Partner access hata dein" does. The admin PIN is
@@ -158,8 +242,25 @@ export default async function handler(req, res) {
     }
   }
 
+  // 3. And the PIN must not already belong to someone else, or there
+  //    would be two ways in under different names - with the app no
+  //    longer holding any PIN, this check has nowhere else to live.
+  if (!removing && await pinAlreadyUsed(db, newPin, which)) {
+    res.status(409).json({ error: 'Ye PIN pehle se use ho raha hai - alag PIN chunein' });
+    return;
+  }
+
   try {
-    if (removing) {
+    if (staffId) {
+      const pins = await readStaffPins(db);
+      if (removing) delete pins[staffId]; else pins[staffId] = newPin;
+      await db.collection('secrets').doc(STAFF_PINS_DOC).set({
+        pins, updatedAt: Date.now(), updatedBy: claims.uid || null,
+      });
+      // And take the readable copy out of the staff list, which every
+      // signed-in client can read.
+      await stripStaffPin(db, staffId);
+    } else if (removing) {
       await db.collection('secrets').doc(PINS[which].secretDoc).delete();
     } else {
       await db.collection('secrets').doc(PINS[which].secretDoc).set({
@@ -178,8 +279,10 @@ export default async function handler(req, res) {
   // that the real value lives somewhere unreadable, leaving it behind
   // would mean the PIN is still exposed - and worse, still accepted,
   // since staff-login falls back to it.
-  try { await db.collection('app_data').doc(PINS[which].legacyDoc).delete(); }
-  catch (e) { console.error('change-pin: could not remove legacy doc', which, e); }
+  if (!staffId) {
+    try { await db.collection('app_data').doc(PINS[which].legacyDoc).delete(); }
+    catch (e) { console.error('change-pin: could not remove legacy doc', which, e); }
+  }
 
   res.status(200).json({ ok: true });
 }
