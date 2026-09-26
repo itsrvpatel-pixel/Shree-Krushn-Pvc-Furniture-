@@ -47,6 +47,21 @@ const res2 = fakeRes();
 await handler({ method: 'GET', headers: {}, body: {} }, res2);
 check('GET is rejected', res2.code === 405, 'got ' + res2.code);
 
+// --- which PINs the server is able to match at all ---
+//
+// Every PIN the app accepts has to be reachable from the server, because
+// the server is now the only thing that compares one. The partner PINs
+// are managed inside the app and live in Firestore, so a source check
+// stands in for a live Firestore run here: this is a static assertion
+// that the lookup exists, which is what was missing when partner login
+// broke.
+const src = await (await import('node:fs/promises')).readFile(new URL('../api/staff-login.js', import.meta.url), 'utf8');
+check('admin PIN comes from ADMIN_PIN', src.includes('process.env.ADMIN_PIN'), 'missing');
+check('partner PIN is looked up in Firestore', src.includes("'partner_pin'"), 'no partner_pin lookup');
+check('dh partner PIN is looked up in Firestore', src.includes("'dh_partner_pin'"), 'no dh_partner_pin lookup');
+check('staff PINs are looked up in Firestore', src.includes("doc('staff')"), 'no staff lookup');
+check('attempt counters are NOT in app_data', !src.includes("collection('app_data').doc(callerKey"), 'still in app_data');
+
 console.log('\n===== api/staff-login =====');
 T.forEach(([n, ok, d]) => console.log((ok ? 'PASS  ' : 'FAIL  ') + n + (ok ? '' : '   [' + d + ']')));
 const bad = T.filter((t) => !t[1]).length;

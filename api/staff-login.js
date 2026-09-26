@@ -134,6 +134,36 @@ export default async function handler(req, res) {
     matched = { role: 'dh_partner', staffName: 'DH Home Decor', staffId: null };
   }
 
+  // The partner PINs are managed by the admin inside the app (Settings ->
+  // change partner PIN), which writes them to Firestore. They are read
+  // here for the same reason the staff list is: the server is now the
+  // only thing that compares a PIN, so every PIN the app accepts has to
+  // be reachable from here.
+  //
+  // Environment variables above still win, so a partner PIN can be
+  // pinned in Vercel instead if you would rather it not live in the
+  // database at all - but leaving them unset is the normal case, and
+  // without this lookup changing a partner PIN in the app would have no
+  // effect and partner login would fail outright.
+  if (!matched) {
+    const partnerDocs = [
+      { key: 'partner_pin', role: 'partner', staffName: 'Partner' },
+      { key: 'dh_partner_pin', role: 'dh_partner', staffName: 'DH Home Decor' },
+    ];
+    for (const p of partnerDocs) {
+      try {
+        const snap = await db.collection('app_data').doc(p.key).get();
+        const stored = snap.exists ? String(snap.data().value || '') : '';
+        if (stored && pinMatches(pin, stored)) {
+          matched = { role: p.role, staffName: p.staffName, staffId: null };
+          break;
+        }
+      } catch (e) {
+        console.error('staff-login: ' + p.key + ' lookup failed', e);
+      }
+    }
+  }
+
   // Staff PINs are managed by the admin inside the app, so they stay in
   // Firestore - but they are read here, on the server, instead of being
   // shipped to every browser.
