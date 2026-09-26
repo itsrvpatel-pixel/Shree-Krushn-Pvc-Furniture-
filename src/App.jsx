@@ -1627,6 +1627,13 @@ export default function App() {
   const [customersLoading, setCustomersLoading] = useState(true);
   const [jobs, setJobs] = useState([]);
   const [adminPin, setAdminPin] = useState(DEFAULT_PIN);
+  // True when app_data/admin_pin exists but Firestore refused to let us
+  // read it - which is what happens the moment security rules deny the
+  // PIN documents while the app is still doing its own PIN check. The
+  // login screen must not fall back to DEFAULT_PIN in that state: the
+  // real PIN is unknown, so accepting the default would hand admin
+  // access to anyone who knows it.
+  const [adminPinReadDenied, setAdminPinReadDenied] = useState(false);
   // Default rates used by the customer-facing quick estimate calculator
   // (Requirements tab) - admin manages this list in Settings. Each
   // entry has a `unit`: 'sqft' (calculated from Length x Height, for
@@ -1945,7 +1952,7 @@ export default function App() {
           }
         });
         const [p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw, featuredRaw] = await Promise.all([
-          safeGet('admin_pin'), safeGet('staff'),
+          safeGetStatus('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), sharedNotificationsGet(), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
           safeGet('archived_reviews'), safeGet('admin_push_tokens'), safeGet('faqs'), safeGet('dh_partner_pin'), safeGet('pending_gallery_photos'),
@@ -1968,7 +1975,8 @@ export default function App() {
             return false;
           }
         };
-        if (p) setAdminPin(p);
+        if (p && p.ok && p.value) setAdminPin(p.value);
+        setAdminPinReadDenied(!!(p && p.ok === false));
         if (pp) setPartnerPin(pp);
         if (dhPp) setDhPartnerPin(dhPp);
         applyDoc('staff', st, setStaff);
@@ -2263,6 +2271,23 @@ export default function App() {
       ]);
       return res ? res.value : null;
     } catch (e) { return null; }
+  }
+
+  // As safeGet, but it distinguishes "not there" from "not allowed".
+  // Only the admin PIN needs this - see adminPinReadDenied below for why
+  // treating a denied read as an absent one is a hole rather than a
+  // nuisance. Falls back to safeGet where getStatus isn't available.
+  async function safeGetStatus(key) {
+    try {
+      if (!window.storage.getStatus) {
+        const value = await safeGet(key);
+        return { ok: true, missing: value === null, value };
+      }
+      return await Promise.race([
+        window.storage.getStatus(key),
+        new Promise((resolve) => setTimeout(() => resolve({ ok: true, missing: true, value: null }), 10000)),
+      ]);
+    } catch (e) { return { ok: true, missing: true, value: null }; }
   }
 
 
@@ -2761,6 +2786,7 @@ export default function App() {
         <style>{fontImport}</style>
         <LoginScreen
           adminPin={adminPin}
+          adminPinReadDenied={adminPinReadDenied}
           partnerPin={partnerPin}
           dhPartnerPin={dhPartnerPin}
           staff={staff}
@@ -3189,7 +3215,7 @@ const REAL_PHONE_AUTH = import.meta.env.VITE_PHONE_AUTH === 'on';
 
 // No customers prop: the login screen looks up exactly the one phone
 // number being entered, so it never needs the full list.
-function LoginScreen({ adminPin, partnerPin, dhPartnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
+function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
   const [mode, setMode] = useState('choose');
   const [name, setName] = useState('');
   const [referredBy, setReferredBy] = useState('');
@@ -3298,7 +3324,12 @@ function LoginScreen({ adminPin, partnerPin, dhPartnerPin, staff, onCustomerLogi
   // itself unconfigured, and this falls back to the original in-browser
   // comparison - so shipping this changes nothing until that is set.
   const localPinCheck = () => {
-    if (pin === adminPin) { onAdminLogin('Admin', 'admin', null); return true; }
+    // The stored PIN could not be read, so `adminPin` is still the
+    // built-in default rather than the real one. Comparing against it
+    // would let anyone in with the default PIN, so this path is closed
+    // instead - staff PINs below still work, because those come from a
+    // document that was actually read.
+    if (!adminPinReadDenied && pin === adminPin) { onAdminLogin('Admin', 'admin', null); return true; }
     if (partnerPin && pin === partnerPin) { onAdminLogin('Partner', 'partner', null); return true; }
     if (dhPartnerPin && pin === dhPartnerPin) { onAdminLogin('DH Home Decor', 'dh_partner', null); return true; }
     const staffMatch = (staff || []).find((s) => s.pin === pin);
@@ -3317,7 +3348,11 @@ function LoginScreen({ adminPin, partnerPin, dhPartnerPin, staff, onCustomerLogi
     try {
       const result = await window.staffAuth.login(pin);
       if (result.unconfigured) {
-        if (!localPinCheck()) setError('Galat PIN');
+        if (!localPinCheck()) {
+          setError(adminPinReadDenied
+            ? 'Admin PIN check band hai: Firestore rules PIN document padhne nahi de rahe. Rules theek karein ya Vercel mein ADMIN_PIN set karein.'
+            : 'Galat PIN');
+        }
         return;
       }
       if (result.ok) {

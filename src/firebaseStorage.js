@@ -120,6 +120,26 @@ async function get(key) {
   }
 }
 
+// Same read as get(), but it says WHY it came back empty.
+//
+// get() returns null both for "no such document" and for "you are not
+// allowed to read it", which is fine everywhere the app just wants a
+// value or a default. It is not fine for the admin PIN: falling back to
+// the built-in default because the real PIN could not be READ would let
+// anyone in with the default, which is the opposite of what a denied
+// read should cause. So that one caller needs the reason, not just the
+// value.
+async function getStatus(key) {
+  try {
+    const snap = await getDoc(doc(db, COLLECTION, key));
+    if (!snap.exists()) return { ok: true, missing: true, value: null };
+    return { ok: true, missing: false, value: snap.data().value };
+  } catch (e) {
+    console.error("storage.getStatus failed:", key, e);
+    return { ok: false, error: String((e && e.code) || e), value: null };
+  }
+}
+
 async function set(key, value) {
   try {
     await setDoc(doc(db, COLLECTION, key), { value });
@@ -487,6 +507,7 @@ const customersStore = createCustomersStore(db);
 export function installWindowStorage() {
   window.storage = {
     get: (key) => get(key),
+    getStatus: (key) => getStatus(key),
     set: (key, value) => set(key, value),
     delete: (key) => del(key),
     listAllKeys: () => listAllKeys(),
