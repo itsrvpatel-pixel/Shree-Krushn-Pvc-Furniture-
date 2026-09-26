@@ -10675,7 +10675,9 @@ function DataCheckPanel({ gallery, showToast }) {
     if (!r) return '-';
     if (!r.ok) return 'ERROR: ' + r.error;
     if (!r.exists) return 'document maujood nahi';
-    return 'maujood (' + Math.round(r.bytes / 1024) + ' KB)' + (r.fromCache ? ' [cache se]' : '');
+    const size = Math.round(r.bytes / 1024) + ' KB';
+    const count = typeof r.records === 'number' ? ', ' + r.records + ' record' : '';
+    return 'maujood (' + size + count + ')' + (r.fromCache ? ' [cache se]' : '');
   };
   const describeList = (r) => {
     if (!r) return '-';
@@ -10722,8 +10724,30 @@ function DataCheckPanel({ gallery, showToast }) {
         .some((r) => r && !r.ok && String(r.error).indexOf('permission-denied') >= 0);
       const anyData = [p.appDataJobs, p.appDataCustomers, p.appDataCategories].some((r) => r && r.ok && r.exists)
         || [p.appDataList, p.jobsList, p.customersList].some((r) => r && r.ok && r.count > 0);
+      // The app reads the per-record collection whenever it has anything
+      // in it, and falls back to the pre-split document only while it is
+      // completely empty. So a collection holding FEWER records than the
+      // old document is the one state that hides data without any error
+      // anywhere: the migration stopped partway, and the records it never
+      // copied simply stop appearing. Naming it here is the only place it
+      // becomes visible.
+      const shortfall = (legacy, list, what) => {
+        if (!legacy || !legacy.ok || typeof legacy.records !== 'number') return null;
+        if (!list || !list.ok) return null;
+        if (list.count === 0) return null;
+        if (list.count >= legacy.records) return null;
+        return what + ': purane document mein ' + legacy.records + ' record hain lekin naye collection mein sirf '
+          + list.count + '. Migration adhoora hai - ' + (legacy.records - list.count) + ' record app mein nahi dikh rahe.';
+      };
+      const gaps = [
+        shortfall(p.appDataJobs, p.jobsList, 'Jobs'),
+        shortfall(p.appDataCustomers, p.customersList, 'Customers'),
+      ].filter(Boolean);
+
       let verdict;
-      if (p.auth && !p.auth.ok && denied) {
+      if (gaps.length > 0) {
+        verdict = gaps.join(' ');
+      } else if (p.auth && !p.auth.ok && denied) {
         verdict = 'Login fail + reads blocked. Firebase Console -> Authentication -> Sign-in method -> Anonymous ko Enable kijiye. Data safe hai.';
       } else if (denied) {
         verdict = 'Firestore Rules reads block kar rahe hain. Data safe hai, rules theek karne par wapas aa jayega.';

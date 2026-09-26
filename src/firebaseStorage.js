@@ -468,11 +468,26 @@ async function rawProbe() {
   const readDoc = async (path, id) => {
     try {
       const snap = await getDoc(doc(db, path, id));
+      if (!snap.exists()) return { ok: true, exists: false, fromCache: snap.metadata.fromCache, bytes: 0 };
+      const data = snap.data();
+      // How many records the pre-split document holds, where it holds a
+      // JSON array. This is the number the per-record collection has to
+      // match: the app prefers the collection whenever it is non-empty,
+      // so an interrupted migration shows fewer jobs than exist and says
+      // nothing about it. Counting both sides is what makes that visible.
+      let records = null;
+      if (typeof data.value === 'string') {
+        try {
+          const parsed = JSON.parse(data.value);
+          if (Array.isArray(parsed)) records = parsed.length;
+        } catch (e) { /* not an array document - leave records null */ }
+      }
       return {
         ok: true,
-        exists: snap.exists(),
+        exists: true,
         fromCache: snap.metadata.fromCache,
-        bytes: snap.exists() ? JSON.stringify(snap.data()).length : 0,
+        bytes: JSON.stringify(data).length,
+        records,
       };
     } catch (e) {
       return { ok: false, error: errCode(e) };
