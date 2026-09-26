@@ -23,7 +23,7 @@
 // deploying this changes nothing until you are ready.
 
 import admin from 'firebase-admin';
-import { readCurrentPin } from './change-pin.js';
+import { readCurrentPin, readStaffPins, stripStaffPin } from './change-pin.js';
 
 function getAdminApp() {
   if (admin.apps.length > 0) return admin.apps[0];
@@ -148,15 +148,39 @@ export default async function handler(req, res) {
   // Staff PINs are managed by the admin inside the app, so they stay in
   // Firestore - but they are read here, on the server, instead of being
   // shipped to every browser.
+  // Staff PINs. The real values live in secrets/staff_pins, which no
+  // client can read; app_data/staff keeps only the parts the app needs
+  // on screen - name, role, commission.
+  //
+  // Any pin still sitting inside app_data/staff is read too, so a
+  // karigar who has not been migrated yet can still log in - and is
+  // then lifted out, because a pin in app_data is a pin every signed-in
+  // user can read, and anonymous sign-in is open to anyone. The move
+  // happens here rather than waiting for an admin to do anything.
   if (!matched) {
     try {
       const staffSnap = await db.collection('app_data').doc('staff').get();
       const staffList = staffSnap.exists ? JSON.parse(staffSnap.data().value || '[]') : [];
-      const hit = staffList.find((s) => pinMatches(pin, String(s.pin || '')));
+      const list = Array.isArray(staffList) ? staffList : [];
+      const storedPins = await readStaffPins(db);
+
+      let hit = list.find((m) => storedPins[m.id] && pinMatches(pin, String(storedPins[m.id])));
+      if (!hit) hit = list.find((m) => m.pin && pinMatches(pin, String(m.pin)));
       if (hit) {
         const role = hit.role === 'karigar' ? 'karigar'
           : (hit.role === 'regional_partner' ? 'regional_partner' : 'admin');
         matched = { role, staffName: hit.name, staffId: hit.id };
+      }
+
+      const stillInline = list.filter((m) => m.pin !== undefined && m.id !== undefined);
+      if (stillInline.length > 0) {
+        const merged = { ...storedPins };
+        for (const m of stillInline) merged[m.id] = String(m.pin);
+        await db.collection('secrets').doc('staff_pins').set({
+          pins: merged, updatedAt: Date.now(), updatedBy: 'migration',
+        });
+        for (const m of stillInline) await stripStaffPin(db, m.id);
+        console.log('staff-login: moved ' + stillInline.length + ' staff pin(s) out of app_data');
       }
     } catch (e) {
       console.error('staff-login: staff lookup failed', e);

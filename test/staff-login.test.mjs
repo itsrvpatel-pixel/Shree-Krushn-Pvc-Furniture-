@@ -76,6 +76,15 @@ check('change-pin deletes the readable app_data copy', cp.includes('legacyDoc).d
 check('change-pin refuses to remove the admin PIN', cp.includes("removing && which === 'admin'"), 'admin PIN removable');
 check('login and change-pin share one PIN resolver', src.includes('readCurrentPin') && cp.includes('export async function readCurrentPin'), 'resolvers can diverge');
 
+// --- staff PINs must not sit in the list every client can read ---
+check('staff PINs are stored in secrets/staff_pins', cp.includes("STAFF_PINS_DOC = 'staff_pins'"), 'no staff pin document');
+check('change-pin accepts a staff target', cp.includes("startsWith('staff:')"), 'cannot address one staff member');
+check('the readable copy is stripped from app_data/staff', cp.includes('export async function stripStaffPin'), 'no strip step');
+check('login reads the stored staff PINs', src.includes('readStaffPins'), 'not consulted at login');
+check('login migrates any pin still inline', src.includes('stillInline') && src.includes('stripStaffPin'), 'old pins would linger readable');
+check('a new PIN cannot duplicate an existing one', cp.includes('pinAlreadyUsed'), 'no duplicate check on the server');
+check('removing a staff member can remove their PIN', cp.includes('delete pins[staffId]'), 'removed staff keep a working login');
+
 console.log('\n===== api/staff-login =====');
 T.forEach(([n, ok, d]) => console.log((ok ? 'PASS  ' : 'FAIL  ') + n + (ok ? '' : '   [' + d + ']')));
 const bad = T.filter((t) => !t[1]).length;

@@ -11076,6 +11076,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
   const [newCommissionPercent, setNewCommissionPercent] = useState('');
   const [staffError, setStaffError] = useState('');
   const [changingPin, setChangingPin] = useState(false);
+  const [addingStaff, setAddingStaff] = useState(false);
   const [newPartnerPin, setNewPartnerPin] = useState('');
   const [partnerPinError, setPartnerPinError] = useState('');
   const [newDhPartnerPin, setNewDhPartnerPin] = useState('');
@@ -11478,19 +11479,71 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     }
   };
 
-  const addStaff = () => {
+  // The staff record itself is not secret - name, role and commission
+  // all have to be readable for the app to work. The PIN is, so it goes
+  // to the server and never into app_data/staff, which every signed-in
+  // user can read. hasPin is what the screen shows instead.
+  const addStaff = async () => {
     if (!newStaffName.trim()) { setStaffError('Staff ka naam daalein'); return; }
     if (newStaffPin.length < 4) { setStaffError('PIN kam se kam 4 digit ka ho'); return; }
-    const allPins = [adminPin, partnerPin, dhPartnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
-    if (allPins.includes(newStaffPin)) { setStaffError('Ye PIN pehle se use ho raha hai - alag PIN chunein'); return; }
+    // A first pass against what this device can still see. The complete
+    // check is on the server, which is the only thing that knows every
+    // PIN now - it answers 409 and the message below shows that.
+    const visiblePins = [adminPin, partnerPin, dhPartnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
+    if (visiblePins.includes(newStaffPin)) { setStaffError('Ye PIN pehle se use ho raha hai - alag PIN chunein'); return; }
     if (newStaffRole === 'regional_partner' && (!newCommissionPercent || Number(newCommissionPercent) <= 0)) { setStaffError('Commission percentage daalein'); return; }
-    setStaff([...staff, { id: uid(), name: newStaffName.trim(), pin: newStaffPin, role: newStaffRole, commissionPercent: newStaffRole === 'regional_partner' ? Number(newCommissionPercent) : null, createdAt: new Date().toISOString() }]);
-    setNewStaffName(''); setNewStaffPin(''); setNewStaffRole('admin'); setNewCommissionPercent(''); setStaffError('');
-    showToast('Staff member add ho gaya');
+    if (addingStaff) return;
+    setAddingStaff(true);
+    try {
+      const id = uid();
+      const member = {
+        id, name: newStaffName.trim(), role: newStaffRole,
+        commissionPercent: newStaffRole === 'regional_partner' ? Number(newCommissionPercent) : null,
+        createdAt: new Date().toISOString(),
+      };
+      const api = window.staffAuth && window.staffAuth.changePin;
+      const res = api ? await api('staff:' + id, '', newStaffPin) : { unconfigured: true };
+      if (res && res.ok) {
+        // Stored server-side; the list carries only the flag.
+        setStaff([...staff, { ...member, hasPin: true }]);
+      } else if (res && res.unconfigured) {
+        // Server side not set up - keep the original behaviour so staff
+        // logins do not stop working on a half-configured deploy.
+        setStaff([...staff, { ...member, pin: newStaffPin }]);
+      } else {
+        setStaffError((res && res.error) || 'PIN set nahi ho paya');
+        return;
+      }
+      setNewStaffName(''); setNewStaffPin(''); setNewStaffRole('admin'); setNewCommissionPercent(''); setStaffError('');
+      showToast('Staff member add ho gaya');
+    } finally {
+      setAddingStaff(false);
+    }
   };
-  const removeStaff = (id) => {
+  const removeStaff = async (id) => {
+    const api = window.staffAuth && window.staffAuth.changePin;
+    // Drop the PIN as well, or the person keeps a working login after
+    // being removed from the list.
+    if (api) { try { await api('staff:' + id, '', ''); } catch (e) { /* removal below still stands */ } }
     setStaff(staff.filter((s) => s.id !== id));
     showToast('Staff member hataya gaya');
+  };
+  const resetStaffPin = async (member) => {
+    const entered = window.prompt('Naya PIN ' + member.name + ' ke liye (4+ digit):', '');
+    if (entered === null) return;
+    const next = String(entered).trim();
+    if (!/^[0-9]{4,10}$/.test(next)) { showToast('PIN 4 se 10 digit ka hona chahiye', true); return; }
+    const api = window.staffAuth && window.staffAuth.changePin;
+    const res = api ? await api('staff:' + member.id, '', next) : { unconfigured: true };
+    if (res && res.ok) {
+      setStaff(staff.map((m) => (m.id === member.id ? { ...m, pin: undefined, hasPin: true } : m)));
+      showToast('PIN badal gaya');
+    } else if (res && res.unconfigured) {
+      setStaff(staff.map((m) => (m.id === member.id ? { ...m, pin: next } : m)));
+      showToast('PIN badal gaya');
+    } else {
+      showToast((res && res.error) || 'PIN badla nahi ja saka', true);
+    }
   };
 
   const savePartnerPin = async () => {
@@ -11671,7 +11724,11 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <div key={s.id} style={styles.staffRow}>
             <div style={{ flex: 1 }}>
               <div style={styles.itemDesc}>{s.name} <span style={styles.reqCatBadge}>{s.role === 'karigar' ? 'Karigar' : (s.role === 'regional_partner' ? 'Regional Partner' : 'Admin')}</span></div>
-              <div style={styles.itemSub}>PIN: {s.pin}{s.role === 'regional_partner' && s.commissionPercent ? (' - Commission: ' + s.commissionPercent + '%') : ''}</div>
+              <div style={styles.itemSub}>
+                {s.pin ? ('PIN: ' + s.pin) : 'PIN set hai (surakshit)'}
+                {s.role === 'regional_partner' && s.commissionPercent ? (' - Commission: ' + s.commissionPercent + '%') : ''}
+              </div>
+              <button style={{ ...styles.previewLinkBtn, marginTop: 6 }} onClick={() => resetStaffPin(s)}>PIN badlein</button>
             </div>
             <button style={styles.iconBtnSmall} onClick={() => removeStaff(s.id)}><Trash2 size={14} color='#C7CCDC' /></button>
           </div>
