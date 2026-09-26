@@ -80,7 +80,17 @@ export default async function handler(req, res) {
 
   // Not set up yet: tell the app so it can fall back to its old
   // behaviour rather than locking everyone out.
-  if (!process.env.ADMIN_PIN) {
+  //
+  // BOTH variables are checked, not just ADMIN_PIN. Signing in needs a
+  // Firebase custom token, and minting one needs the service account -
+  // so with ADMIN_PIN set and FIREBASE_SERVICE_ACCOUNT missing this
+  // endpoint cannot do its job at all. Reporting that as a 500 would be
+  // worse than useless: the client falls back on 503 but not on 500, so
+  // a half-configured deploy would take admin login down completely,
+  // where an unconfigured one leaves it working. A missing service
+  // account is not a failure, it is the same "not set up yet" - so it
+  // gets the same answer.
+  if (!process.env.ADMIN_PIN || !process.env.FIREBASE_SERVICE_ACCOUNT) {
     res.status(503).json({ error: 'not_configured' });
     return;
   }
