@@ -3,228 +3,119 @@ rules_version = '2';
 // Firestore security rules for Shree Krushn PVC Furniture.
 //
 // ============================================================
-//  DO NOT DEPLOY THESE YET. Read the order below first.
+//  PUBLISH THESE LAST. The order below is not advice.
 // ============================================================
 //
-// Today the app reads Firestore with no authentication at all, so the
-// rules currently live in the Firebase Console must be allowing
-// anonymous reads. That is why the admin PIN, the staff PINs and every
-// customer's name, phone number and payment history can be read by
-// anyone who opens the site.
+// These rules say "you must be signed in to read or write anything".
+// Publishing them before the app can sign in, or while the app still
+// needs a document they deny, takes the whole app down for everyone -
+// which is exactly what happened once already. Each step below has a
+// check, and you do not move on until the check passes.
 //
-// Deploying these BEFORE the app is signing in would take the live app
-// down for everyone, instantly. The safe order is:
+//   1. Anonymous sign-in must be ON.
+//      Firebase console -> Authentication -> Sign-in method ->
+//      Anonymous -> Enable.
+//      CHECK: open the app, Admin -> Settings -> Data Check. The line
+//      "Login (anonymous)" must say "ho gaya". If it says FAIL, stop -
+//      publishing these now would lock everyone out.
 //
-//   1. Deploy the app change already in this repo (api/staff-login.js,
-//      the custom-token sign-in, and the anonymous sign-in that runs
-//      before any data is read).
-//   2. Turn ON anonymous sign-in: Firebase console -> Authentication ->
-//      Sign-in method -> Anonymous -> Enable. THIS IS NOT OPTIONAL.
-//      Staff get an identity from the PIN sign-in, but customers do not:
-//      the OTP screen runs in demo mode (the code is generated and checked
-//      in the browser) because real phone auth needs the Blaze plan. With
-//      anonymous sign-in off, publishing these rules locks every customer
-//      out of the app completely.
-//   3. In Vercel -> Settings -> Environment Variables set ADMIN_PIN
-//      (and PARTNER_PIN / DH_PARTNER_PIN if you use them), then redeploy.
-//   4. On real devices, log in as admin, partner, karigar AND a customer
-//      and confirm all four still work. Until ADMIN_PIN is set the app
-//      silently uses the old in-browser check, so this is the step where
-//      you confirm the server path is actually the one running.
-//   5. Delete the admin_pin / partner_pin / dh_partner_pin documents in
-//      Firestore. Nothing reads them any more.
-//   6. Only then paste these rules into the Firebase Console
-//      (Firestore Database -> Rules) and publish. Immediately afterwards,
-//      open the app as a customer once more and confirm it still loads.
+//   2. ADMIN_PIN must be set in Vercel.
+//      Vercel -> the project serving your live URL -> Settings ->
+//      Environment Variables -> add ADMIN_PIN (and PARTNER_PIN /
+//      DH_PARTNER_PIN if you use them), then redeploy.
+//      WHY THIS IS NOT OPTIONAL: these rules deny the PIN documents,
+//      and until ADMIN_PIN is set the app is still checking the PIN
+//      against app_data/admin_pin in the browser. Publish first and the
+//      real PIN becomes unreadable while it is still the thing being
+//      checked. The app now detects that and says so on the login
+//      screen instead of falling back to the built-in default PIN - but
+//      you still cannot log in.
+//      CHECK: log in as admin with your real PIN. It must work.
 //
-// STEP 3 IS AS NON-OPTIONAL AS STEP 2, AND FOR THE SAME REASON.
+//   3. Log in as admin, partner, karigar AND a customer.
+//      All four must work before you touch the rules.
 //
-// These rules deny the admin_pin / partner_pin / dh_partner_pin
-// documents outright. The app only stops needing them once ADMIN_PIN is
-// set in Vercel and login goes through api/staff-login.js. Publish these
-// before that and the admin PIN document becomes unreadable while the
-// app is still the thing checking the PIN - so the real PIN never loads
-// and the admin cannot get in.
+//   4. Delete app_data/admin_pin, app_data/partner_pin and
+//      app_data/dh_partner_pin in the Firestore console.
+//      Nothing reads them once step 2 is done, and these rules assume
+//      they are gone - see the app_data block below.
+//      CHECK: log in as admin again. Still works (the PIN now comes
+//      from Vercel, not Firestore).
 //
-// The app now detects exactly that and says so on the login screen
-// rather than silently falling back to the built-in default PIN (which
-// would have let anyone in with it). But the fix is still to do step 3
-// before step 6, not to work around it.
+//   5. NOW publish these rules - Firebase console -> Cloud Firestore ->
+//      Rules. Not Storage. Not Realtime Database. The page must say
+//      "Cloud Firestore" and its tabs must include "Indexes".
+//      CHECK: immediately open the app and log in as all four roles
+//      again, and run Data Check. Everything must read.
 //
-// If step 6 goes wrong, republishing the previous rules puts everything
-// back immediately - a rules deploy changes no data.
+// IF ANYTHING BREAKS AT STEP 5: publish this instead and everything
+// works again within seconds. A rules deploy never touches data.
+//
+//   rules_version = '2';
+//   service cloud.firestore {
+//     match /databases/{database}/documents {
+//       match /{document=**} { allow read, write: if true; }
+//     }
+//   }
 //
 // SCOPE: WHAT THIS DOES AND DOES NOT DO
 //
 // This is phase 1, and it does one thing: the database stops being
-// readable by the open internet. You must be signed in - as staff via
-// the PIN, or as a customer via OTP - to read anything at all.
-//
-// It deliberately does NOT narrow access per role, and it CANNOT yet
-// narrow per customer. Three reasons:
-//
-//   * A customer has no identity to key a rule on. In demo mode they sign
-//     in anonymously, and an anonymous uid says nothing about which
-//     customer they are. Per-customer rules need real Firebase phone auth
-//     (request.auth.token.phone_number), which needs the Blaze plan.
-//     Until then "this customer may read only their own job" cannot be
-//     expressed at all, no matter how the data is shaped.
-//
-//     Switching that on is a config change, not a code change: enable
-//     Blaze, then set VITE_PHONE_AUTH=on in Vercel and redeploy. The app
-//     then sends a real SMS and the customer gets a real Firebase session
-//     carrying their phone number. That is the point at which the rest of
-//     phase 3 becomes possible.
-//   * The customers list is still one document, so a reader of it reads
-//     every name and phone number.
-//   * Role narrowing has real trip-wires in this app. The karigar screen
-//     reads the staff list to find its own record, so an admin-only rule
-//     on 'staff' would lock karigars out. Rules that look obviously right
-//     can break a role silently, and those need testing against your live
-//     setup rather than guesswork.
+// readable by the open internet. It does NOT narrow access per role or
+// per customer, and it cannot yet - a customer signs in anonymously, and
+// an anonymous uid says nothing about which customer they are. Per
+// customer rules need real Firebase phone auth, which needs Blaze (the
+// project is already on Blaze) plus VITE_PHONE_AUTH=on in Vercel. The
+// block at the bottom is what to switch to once that is done.
 //
 // So this draws the line at "signed in or not", which is the line that
-// actually matters right now: it stops the open internet reading your
-// customers' phone numbers and payment history. Everything finer waits
-// for Blaze.
+// matters today: it stops the open internet reading your customers'
+// names, phone numbers and payment history.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // All app data lives in one collection keyed by name: 'jobs',
-    // 'customers', 'gallery_cat_Kitchen', and so on.
-    match /app_data/{docId} {
-
-      function signedIn() {
-        return request.auth != null;
-      }
-
-      // PIN documents are dead once step 4 above is done. Denying them
-      // outright means that if one is ever recreated by accident, it is
-      // still never readable from a browser.
-      function isSecretDoc() {
-        return docId in ['admin_pin', 'partner_pin', 'dh_partner_pin'];
-      }
-
-      // Login-attempt counters written by api/staff-login.js. Only the
-      // server touches these, and the Admin SDK bypasses rules entirely,
-      // so no client needs access: a client that could read them could
-      // watch for lockouts, and one that could write them could reset
-      // its own failed-attempt count and guess PINs forever.
-      function isLoginAttemptDoc() {
-        return docId.matches('login_attempts_.*');
-      }
-
-      // Note on how these combine: multiple allow statements are OR-ed
-      // together, so a second, narrower statement can never take access
-      // away that a broader one already granted. Every restriction has
-      // to live inside this single condition.
-      allow read, write: if signedIn()
-                         && !isSecretDoc()
-                         && !isLoginAttemptDoc();
+    function signedIn() {
+      return request.auth != null;
     }
 
-    // ------------------------------------------------------------------
-    // Jobs and customers: one document each (see src/jobsStore.js).
+    // Everything small and structured: the gallery pointers and per
+    // category photo lists, expenses, staff, settings, per customer
+    // notifications, featured reviews, and the pre-split jobs/customers
+    // documents.
     //
-    // These are the two collections a per-customer rule needs, and the
-    // data is now shaped for it: a job carries the customer's phone, and
-    // a customer document IS keyed by phone. So the rule you actually
-    // want is written out below - it just cannot be switched on yet.
+    // This grants LIST as well as read, deliberately. The previous
+    // version excluded the PIN documents by name, and a rule that
+    // depends on the document id can never allow a collection query -
+    // Firestore denies any query it cannot prove is safe in advance. So
+    // "recover missing gallery categories" in Settings, which lists the
+    // collection to find gallery_cat_* documents the pointer forgot,
+    // failed with permission-denied no matter who was signed in.
     //
-    // WHY NOT YET, AND WHAT TO DO
-    //
-    // A rule can only recognise a customer by request.auth.token.phone_number,
-    // which exists only with real Firebase phone auth. Today the OTP screen
-    // runs in demo mode and customers sign in ANONYMOUSLY, so that claim is
-    // absent - a phone-matching rule would deny every customer outright.
-    //
-    // Worse, anonymous sign-in is open to anyone: while it is the customer
-    // sign-in method, "signed in" cannot mean "trusted". So per-customer
-    // enforcement needs BOTH halves of the same switch:
-    //
-    //   1. Enable Blaze, set VITE_PHONE_AUTH=on in Vercel, redeploy.
-    //   2. Confirm customers now sign in by SMS (the on-screen demo code
-    //      is gone) and can still see their own job.
-    //   3. Turn OFF anonymous sign-in in the Firebase console, so an
-    //      anonymous session can no longer be used to read anything.
-    //   4. Replace the two rules below with the commented block beneath
-    //      them, and publish.
-    //
-    // Until step 3, these stay at signed-in-or-not - which still keeps the
-    // open internet out, and is the protection that matters most today.
-    // ------------------------------------------------------------------
+    // Listing is safe here only because nothing secret is left in this
+    // collection: the PIN documents are deleted at step 4, and the
+    // login-attempt counters moved to their own collection (see
+    // api/staff-login.js). Do not put a secret back in app_data.
+    match /app_data/{docId} {
+      allow read, write: if signedIn();
+    }
 
+    // One document per job and per customer (see src/jobsStore.js).
     match /jobs/{jobId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if signedIn();
     }
 
     match /customers/{phone} {
-      allow read, write: if request.auth != null;
+      allow read, write: if signedIn();
     }
 
-    // The per-customer versions. Swap these in at step 4 above.
-    //
-    // match /jobs/{jobId} {
-    //   function isStaff() {
-    //     return request.auth != null && request.auth.token.role != null;
-    //   }
-    //   function isMine() {
-    //     return request.auth != null
-    //            && request.auth.token.phone_number == '+91' + resource.data.job.phone;
-    //   }
-    //   // A customer creating their own job has no resource.data to match
-    //   // against yet, so creation is checked against what is being written.
-    //   function creatingMine() {
-    //     return request.auth != null
-    //            && request.auth.token.phone_number == '+91' + request.resource.data.job.phone;
-    //   }
-    //   allow read:   if isStaff() || isMine();
-    //   allow write:  if isStaff() || isMine() || creatingMine();
-    // }
-    //
-    // match /customers/{phone} {
-    //   function isStaff() {
-    //     return request.auth != null && request.auth.token.role != null;
-    //   }
-    //   // The document id IS the phone number, so this needs no read of
-    //   // the document itself - which also means it works for a customer
-    //   // fetching a record that does not exist yet.
-    //   function isMe() {
-    //     return request.auth != null
-    //            && request.auth.token.phone_number == '+91' + phone;
-    //   }
-    //   allow read, write: if isStaff() || isMe();
-    // }
-    //
-    // match /app_data/{docId} - notifications
-    //
-    // The shared 'notifications' document is staff-only: it names other
-    // customers in its messages. Customers no longer read it at all; each
-    // has their own 'customer_notifications_<phone>' document, and the
-    // document id carries the phone, so the same match as customers works:
-    //
-    //   match /app_data/{docId} {
-    //     function isStaff() {
-    //       return request.auth != null && request.auth.token.role != null;
-    //     }
-    //     function myNotifDoc() {
-    //       return request.auth != null
-    //              && docId == 'customer_notifications_'
-    //                 + request.auth.token.phone_number.replace('\\+91', '');
-    //     }
-    //     allow read, write: if isStaff() || myNotifDoc() || <the shared rules above>;
-    //   }
-    //
-    // Fold that into the app_data block rather than adding a second match:
-    // allow statements are OR-ed, so a separate one could only widen access.
-
-    // Reviews the business chooses to show publicly. Published as its own
-    // small document (see deriveFeaturedReviews in App.jsx) precisely so a
-    // customer can see testimonials without being able to read the jobs
-    // they came from - which is what phase 3 has to lock down.
-    match /app_data/featured_reviews {
-      allow read: if request.auth != null;
+    // Failed-login counters, written only by api/staff-login.js through
+    // the Admin SDK, which bypasses rules entirely. No client needs
+    // these at all: one that could read them could watch for lockouts,
+    // and one that could write them could reset its own failed-attempt
+    // count and guess a 4-digit PIN at leisure.
+    match /login_attempts/{callerId} {
+      allow read, write: if false;
     }
 
     // Anything else is denied. The app writes nothing there.
@@ -233,3 +124,92 @@ service cloud.firestore {
     }
   }
 }
+
+// ====================================================================
+//  PHASE 2: per-customer rules. Not yet - see below for the switch.
+// ====================================================================
+//
+// The data is already shaped for this: a job carries the customer's
+// phone, a customer document IS keyed by phone, and each customer has
+// their own customer_notifications_<phone> document. What is missing is
+// an identity to match against.
+//
+// A rule can only recognise a customer by request.auth.token.phone_number,
+// which exists only with real Firebase phone auth. Today the OTP screen
+// runs in demo mode and customers sign in ANONYMOUSLY, so that claim is
+// absent and the rules below would deny every customer outright.
+//
+// Anonymous sign-in is also open to anyone, so while it is the customer
+// sign-in method, "signed in" cannot mean "trusted". Switching this on
+// therefore needs both halves:
+//
+//   1. Set VITE_PHONE_AUTH=on in Vercel and redeploy (Blaze is already
+//      active, so real SMS will send).
+//   2. Confirm customers now sign in by SMS - the on-screen demo code is
+//      gone - and can still see their own job.
+//   3. Turn OFF anonymous sign-in in the Firebase console, so an
+//      anonymous session can no longer read anything.
+//   4. Replace the three matches above with the block below, and publish.
+//      Then test all four roles again, with the same rollback ready.
+//
+// match /app_data/{docId} {
+//   function isStaff() {
+//     return request.auth != null && request.auth.token.role != null;
+//   }
+//   // Each customer's own notification document carries their phone in
+//   // its id, so no read of the document itself is needed.
+//   function myNotifDoc() {
+//     return request.auth != null
+//            && docId == 'customer_notifications_'
+//               + request.auth.token.phone_number.replace('\\+91', '');
+//   }
+//   // What a customer legitimately needs before and after signing in:
+//   // the gallery, the brochures, the testimonials, the price list.
+//   function isPublicAppDoc() {
+//     return docId in ['categories', 'gallery_categories', 'brochures',
+//                      'featured_reviews', 'faqs', 'material_specs',
+//                      'estimate_rates', 'appointment_item_options',
+//                      'company_benefits']
+//            || docId.matches('gallery_cat_.*');
+//   }
+//   allow read:  if isStaff() || myNotifDoc() || isPublicAppDoc();
+//   allow write: if isStaff() || myNotifDoc();
+// }
+//
+// NOTE for phase 2: isPublicAppDoc names documents, so app_data can no
+// longer be LISTED once this is in place, and "recover missing gallery
+// categories" in Settings will stop working for everyone. If you still
+// want that button, move the gallery documents into their own
+// collection first and give staff a plain signedIn() rule on it.
+//
+// match /jobs/{jobId} {
+//   function isStaff() {
+//     return request.auth != null && request.auth.token.role != null;
+//   }
+//   function isMine() {
+//     return request.auth != null
+//            && request.auth.token.phone_number == '+91' + resource.data.job.phone;
+//   }
+//   // A customer creating their own job has no resource.data to match
+//   // against yet, so creation is checked against what is being written.
+//   function creatingMine() {
+//     return request.auth != null
+//            && request.auth.token.phone_number == '+91' + request.resource.data.job.phone;
+//   }
+//   allow read:  if isStaff() || isMine();
+//   allow write: if isStaff() || isMine() || creatingMine();
+// }
+//
+// match /customers/{phone} {
+//   function isStaff() {
+//     return request.auth != null && request.auth.token.role != null;
+//   }
+//   // The document id IS the phone number, so this needs no read of the
+//   // document - which also means it works for a customer fetching a
+//   // record that does not exist yet, at registration.
+//   function isMe() {
+//     return request.auth != null
+//            && request.auth.token.phone_number == '+91' + phone;
+//   }
+//   allow read, write: if isStaff() || isMe();
+// }
