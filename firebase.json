@@ -3,7 +3,17 @@
     "rules": "firestore.rules"
   },
   "emulators": {
-    "firestore": { "port": 8080 },
-    "ui": { "enabled": false }
+    "firestore": {
+      "port": 8080
+    },
+    "ui": {
+      "enabled": false
+    },
+    "storage": {
+      "port": 9199
+    }
+  },
+  "storage": {
+    "rules": "storage.rules"
   }
 }

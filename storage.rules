@@ -1,0 +1,85 @@
+rules_version = '2';
+
+// Firebase Storage rules for Shree Krushn PVC Furniture.
+//
+// ============================================================
+//  WHAT THIS DOES, AND WHAT IT HONESTLY DOES NOT
+// ============================================================
+//
+// The bucket is currently wide open - the console's own red banner says
+// so. Two different problems live behind that banner, and they are not
+// equally bad.
+//
+// THE REAL ONE: WRITE IS OPEN
+//
+// Anyone at all can upload into this bucket today. On the Blaze plan
+// that is somebody else's files stored at your expense, served from
+// your domain, with no limit. That is what these rules actually fix.
+//
+// THE ONE THESE RULES DO NOT FIX: A LEAKED PHOTO LINK
+//
+// The app never fetches a photo through the Storage SDK. It calls
+// getDownloadURL once at upload time and saves that link in Firestore;
+// every <img> afterwards just loads the link. Those links carry a token
+// and are authorised BY the token, so they keep working no matter what
+// these rules say - which is exactly why tightening read here cannot
+// break the gallery, and equally why it cannot hide a link somebody
+// already has.
+//
+// What does protect the photos is that the links themselves live in
+// Firestore, which is now closed to the open internet. Anonymous
+// sign-in is still open to anyone, so that protection is partial until
+// phase 2 (real phone auth, anonymous off) - the same limit that
+// applies to the Firestore rules.
+//
+// So: read is closed here because it costs nothing and removes SDK-level
+// browsing of the bucket; write is closed because that is the hole with
+// a bill attached.
+//
+// HOW TO PUBLISH
+//
+//   Firebase console -> Storage -> Rules. NOT Firestore, NOT Realtime
+//   Database - all three have a "Rules" tab. The Storage one has tabs
+//   Files / Rules / Usage.
+//
+//   Straight after publishing: open the app, look at the Gallery, and
+//   upload one photo. If anything fails, republishing the previous
+//   rules puts it back within seconds - a rules deploy touches no files.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Everything this app stores goes to files/<key> - gallery photos
+    // and their thumbnails, progress photos, note and complaint photos,
+    // and brochure PDFs (see uploadDataUri in src/firebaseStorage.js).
+    match /files/{fileName} {
+
+      allow read: if signedIn();
+
+      // create and update are separated from delete because
+      // request.resource does not exist on a delete - checking its size
+      // there would reject every deletion.
+      //
+      // The ceiling matches the app's own largest limit,
+      // MAX_BROCHURE_BYTES (100MB), with room for the difference
+      // between what the app measures and what Storage records. The
+      // content types are the only two the app's file pickers accept:
+      // accept='image/*' everywhere, accept='application/pdf' for
+      // brochures.
+      allow create, update: if signedIn()
+                            && request.resource.size < 110 * 1024 * 1024
+                            && request.resource.contentType.matches('image/.*|application/pdf');
+
+      allow delete: if signedIn();
+    }
+
+    // The app writes nowhere else.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
