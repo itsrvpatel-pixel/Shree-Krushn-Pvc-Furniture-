@@ -8201,6 +8201,70 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
 /* ---- Admin: Estimate builder - matches the real quotation sheet:
    item, length, height (inches), auto sq-ft, rate/sqft, amount. Editable
    inline. 'Preview Quotation' opens the formal customer-facing document. ---- */
+// A text input that saves when you stop typing, not on every letter.
+//
+// WHY THIS EXISTS
+//
+// Several fields were wired straight to onSave: every keystroke rebuilt
+// the job, re-rendered the whole admin tree, and wrote the job document
+// to Firestore. Typing "Flat 402" meant eight full document writes and
+// eight re-renders of a very large component, which is exactly what the
+// stutter while typing was.
+//
+// Debouncing is the easy half. The hard half is not losing what was
+// typed, because a field that silently drops the last few characters is
+// worse than a slow one - and "text disappears" is a bug this app has
+// already had once. So the pending value is committed on three
+// occasions: after a pause, on blur, and on unmount, which covers
+// switching tabs or closing the job mid-word.
+//
+// An update arriving from outside (another device, a listener) is
+// adopted only while nothing is pending. Otherwise a save landing
+// mid-word would replace what is being typed and move the cursor.
+function SavedInput({ value, onCommit, delay = 600, ...rest }) {
+  const asText = (v) => (v === null || v === undefined ? '' : String(v));
+  const [draft, setDraft] = useState(() => asText(value));
+  const latest = useRef(asText(value));
+  const lastSent = useRef(asText(value));
+  const timer = useRef(null);
+
+  // Kept in a ref, refreshed after every render, so a commit fired by
+  // the timer uses the current handler - and therefore the current job -
+  // rather than whichever one was captured when typing started.
+  const commitRef = useRef(onCommit);
+  useEffect(() => { commitRef.current = onCommit; });
+
+  useEffect(() => {
+    const incoming = asText(value);
+    if (timer.current) return;                 // still typing - leave it alone
+    if (incoming === lastSent.current) return; // our own value coming back
+    setDraft(incoming);
+    latest.current = incoming;
+    lastSent.current = incoming;
+  }, [value]);
+
+  const flush = () => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    if (latest.current === lastSent.current) return;
+    lastSent.current = latest.current;
+    commitRef.current(latest.current);
+  };
+
+  // Unmount is the one that matters most: leaving the tab with an
+  // uncommitted word must save it, not drop it.
+  useEffect(() => () => flush(), []);
+
+  const handleChange = (e) => {
+    const v = e.target.value;
+    setDraft(v);
+    latest.current = v;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { timer.current = null; flush(); }, delay);
+  };
+
+  return <input {...rest} value={draft} onChange={handleChange} onBlur={flush} />;
+}
+
 function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateItem, removeItem, total, itemTemplates, setItemTemplates, showToast, approveSuggestedItem, rejectSuggestedItem }) {
   const [showPreview, setShowPreview] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -8221,7 +8285,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
       {(job.items || []).length === 0 && <AdminEstimateDraftsPanel job={job} onSave={onSave} showToast={showToast} />}
 
       <div style={styles.fieldLabel}>Flat Name / Number</div>
-      <input style={styles.input} placeholder='Jaise Flat 402, Sun City' value={job.flatNo || ''} onChange={(e) => onSave({ ...job, flatNo: e.target.value })} />
+      <SavedInput style={styles.input} placeholder='Jaise Flat 402, Sun City' value={job.flatNo || ''} onCommit={(v) => onSave({ ...job, flatNo: v })} />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
         <div style={styles.fieldLabel}>Estimate items</div>
@@ -8315,7 +8379,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
         <div style={{ marginTop: 12 }}>
           <div style={styles.fieldLabel}>Discount (optional)</div>
           <div style={styles.plainTextMuted}>Poore estimate par flat discount - jitne mein estimate final hua hai.</div>
-          <input style={styles.input} placeholder='Discount ₹' inputMode='decimal' value={job.discount || ''} onChange={(e) => onSave({ ...job, discount: e.target.value })} />
+          <SavedInput style={styles.input} placeholder='Discount ₹' inputMode='decimal' value={job.discount || ''} onCommit={(v) => onSave({ ...job, discount: v })} />
           {Number(job.discount) > 0 && (
             <div style={styles.hintText}>
               Subtotal: {currency((job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0) + (job.extraWork || []).filter((e) => e.status === 'approved' && !e.mergedIntoEstimate).reduce((s, e) => s + (Number(e.amount) || 0), 0))} - Discount: {currency(job.discount)}
@@ -9238,8 +9302,8 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
               <div style={styles.fieldLabel}>Material (poore estimate ke liye)</div>
               <div style={styles.plainTextMuted}>Kaunsi company ki sheet, kitni kg - poore estimate mein ek hi material use hota hai.</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                <input style={styles.input} placeholder='Company (jaise Kaka)' value={job.materialCompany || ''} onChange={(e) => saveJob({ ...jobRef.current, materialCompany: e.target.value })} />
-                <input style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={job.sheetWeightKg || ''} onChange={(e) => saveJob({ ...jobRef.current, sheetWeightKg: e.target.value })} />
+                <SavedInput style={styles.input} placeholder='Company (jaise Kaka)' value={job.materialCompany || ''} onCommit={(v) => saveJob({ ...jobRef.current, materialCompany: v })} />
+                <SavedInput style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={job.sheetWeightKg || ''} onCommit={(v) => saveJob({ ...jobRef.current, sheetWeightKg: v })} />
               </div>
             </div>
 
