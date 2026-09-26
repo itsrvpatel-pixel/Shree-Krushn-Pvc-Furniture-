@@ -401,6 +401,49 @@ async function staffLogin(pin) {
   return { ok: true, role: data.role, staffName: data.staffName, staffId: data.staffId };
 }
 
+// Changes a role PIN through api/change-pin.js.
+//
+// The PIN never travels back to the browser - only forward, to be
+// checked and stored server-side. The caller proves it is an admin with
+// its Firebase ID token, which carries the 'role' claim minted by
+// api/staff-login.js; a client cannot invent that claim.
+//
+// Returns the same shape as staffLogin so callers can treat an
+// unconfigured server the same way they already do:
+//   { ok: true }                signed and stored
+//   { unconfigured: true }      server side not set up - caller falls
+//                               back to its old Firestore write
+//   { ok: false, error }        refused, with a reason to show
+async function changeRolePin(which, currentPin, newPin) {
+  let idToken = null;
+  try {
+    const user = auth.currentUser;
+    if (user) idToken = await withTimeout(user.getIdToken(), LOGIN_TIMEOUT_MS, 'id token');
+  } catch (e) {
+    console.error('changeRolePin: could not get id token', e);
+  }
+  // No Firebase session with a role claim means the server path was
+  // never in play for this login, so there is nothing for it to verify.
+  if (!idToken) return { unconfigured: true };
+
+  let res;
+  try {
+    res = await withTimeout(fetch('/api/change-pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+      body: JSON.stringify({ which, currentPin, newPin }),
+    }), LOGIN_TIMEOUT_MS, 'change pin request');
+  } catch (e) {
+    console.error('changeRolePin: request failed', e);
+    return { ok: false, error: 'Server tak nahi pahunch paye - internet check karein' };
+  }
+  if (res.status === 503 || res.status === 404) return { unconfigured: true };
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* handled below */ }
+  if (!res.ok) return { ok: false, error: data.error || 'PIN change nahi ho paya' };
+  return { ok: true };
+}
+
 async function signOutStaff() {
   try {
     await auth.signOut();
@@ -543,6 +586,7 @@ export function installWindowStorage() {
   window.staffAuth = {
     login: (pin) => staffLogin(pin),
     signOut: () => signOutStaff(),
+    changePin: (which, currentPin, newPin) => changeRolePin(which, currentPin, newPin),
   };
   window.pushMessaging = {
     requestPermissionAndGetToken: () => requestPermissionAndGetToken(),

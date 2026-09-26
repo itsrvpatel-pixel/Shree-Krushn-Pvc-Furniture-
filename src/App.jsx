@@ -2525,8 +2525,13 @@ export default function App() {
       jobsWriteInFlightRef.current = false;
     }
   }, [jobs]);
-  const persistPin = useCallback(async (pin) => {
+  // localOnly is set when the PIN was just stored server-side, where no
+  // browser may hold it. Writing it to Firestore here would put the
+  // readable copy straight back - so the value updates on screen for
+  // this session and goes no further.
+  const persistPin = useCallback(async (pin, localOnly) => {
     setAdminPin(pin);
+    if (localOnly) return;
     try { await window.storage.set('admin_pin', pin, true); }
     catch (e) { showToast('PIN save failed', true); }
   }, []);
@@ -2550,13 +2555,23 @@ export default function App() {
     try { await window.storage.set('company_benefits', JSON.stringify(list), true); }
     catch (e) { showToast('Company benefits save failed', true); }
   }, []);
-  const persistPartnerPin = useCallback(async (pin) => {
+  // localOnly is set when the PIN was just stored server-side, where no
+  // browser may hold it. Writing it to Firestore here would put the
+  // readable copy straight back - so the value updates on screen for
+  // this session and goes no further.
+  const persistPartnerPin = useCallback(async (pin, localOnly) => {
     setPartnerPin(pin);
+    if (localOnly) return;
     try { await window.storage.set('partner_pin', pin, true); }
     catch (e) { showToast('Partner PIN save failed', true); }
   }, []);
-  const persistDhPartnerPin = useCallback(async (pin) => {
+  // localOnly is set when the PIN was just stored server-side, where no
+  // browser may hold it. Writing it to Firestore here would put the
+  // readable copy straight back - so the value updates on screen for
+  // this session and goes no further.
+  const persistDhPartnerPin = useCallback(async (pin, localOnly) => {
     setDhPartnerPin(pin);
+    if (localOnly) return;
     try { await window.storage.set('dh_partner_pin', pin, true); }
     catch (e) { showToast('DH Partner PIN save failed', true); }
   }, []);
@@ -10819,6 +10834,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
   const [newStaffRole, setNewStaffRole] = useState('admin');
   const [newCommissionPercent, setNewCommissionPercent] = useState('');
   const [staffError, setStaffError] = useState('');
+  const [changingPin, setChangingPin] = useState(false);
   const [newPartnerPin, setNewPartnerPin] = useState('');
   const [partnerPinError, setPartnerPinError] = useState('');
   const [newDhPartnerPin, setNewDhPartnerPin] = useState('');
@@ -11175,13 +11191,50 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     );
   }
 
-  const change = () => {
-    if (current !== adminPin) { setError('Current PIN galat hai'); return; }
+  // Changing a PIN goes through the server when the server is the thing
+  // checking PINs, and through the old Firestore write when it is not.
+  //
+  // The two paths cannot be collapsed: on the server path the PIN is
+  // deliberately NOT written to Firestore or kept in local state, because
+  // the whole point is that no browser holds it. Calling setAdminPin
+  // there would write app_data/admin_pin straight back - recreating the
+  // readable copy the server had just deleted.
+  const changePinVia = async (which, currentValue, newValue, localSetter) => {
+    const api = window.staffAuth && window.staffAuth.changePin;
+    if (api) {
+      const res = await api(which, currentValue, newValue);
+      if (res && res.ok) { localSetter(newValue, true); return { ok: true, server: true }; }
+      if (res && !res.unconfigured) return { ok: false, error: res.error };
+    }
+    // Server side not set up: keep the original in-browser behaviour.
+    localSetter(newValue);
+    return { ok: true, server: false };
+  };
+
+  const change = async () => {
     if (next1.length < 4) { setError('Naya PIN kam se kam 4 digit ka hona chahiye'); return; }
     if (next1 !== next2) { setError('Dono naye PIN match nahi karte'); return; }
-    setAdminPin(next1);
-    setCurrent(''); setNext1(''); setNext2(''); setError('');
-    showToast('Admin PIN change ho gaya');
+    if (changingPin) return;
+    setChangingPin(true);
+    try {
+      const api = window.staffAuth && window.staffAuth.changePin;
+      let res = api ? await api('admin', current, next1) : { unconfigured: true };
+      if (res.unconfigured) {
+        // No server session to verify against, so the old local check is
+        // the only one there is.
+        if (current !== adminPin) { setError('Current PIN galat hai'); return; }
+        setAdminPin(next1);
+      } else if (!res.ok) {
+        setError(res.error || 'PIN change nahi ho paya');
+        return;
+      } else {
+        setAdminPin(next1, true);
+      }
+      setCurrent(''); setNext1(''); setNext2(''); setError('');
+      showToast('Admin PIN change ho gaya');
+    } finally {
+      setChangingPin(false);
+    }
   };
 
   const addStaff = () => {
@@ -11199,28 +11252,32 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     showToast('Staff member hataya gaya');
   };
 
-  const savePartnerPin = () => {
+  const savePartnerPin = async () => {
     if (newPartnerPin.length < 4) { setPartnerPinError('PIN kam se kam 4 digit ka ho'); return; }
     const allPins = [adminPin, dhPartnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
     if (allPins.includes(newPartnerPin)) { setPartnerPinError('Ye PIN pehle se use ho raha hai - alag PIN chunein'); return; }
-    setPartnerPin(newPartnerPin);
+    const res = await changePinVia('partner', '', newPartnerPin, setPartnerPin);
+    if (!res.ok) { setPartnerPinError(res.error || 'PIN set nahi ho paya'); return; }
     setNewPartnerPin(''); setPartnerPinError('');
     showToast('Partner PIN set ho gaya');
   };
-  const removePartnerPin = () => {
-    setPartnerPin('');
+  const removePartnerPin = async () => {
+    const res = await changePinVia('partner', '', '', setPartnerPin);
+    if (!res.ok) { setPartnerPinError(res.error || 'Hataya nahi ja saka'); return; }
     showToast('Partner access hata diya gaya');
   };
-  const saveDhPartnerPin = () => {
+  const saveDhPartnerPin = async () => {
     if (newDhPartnerPin.length < 4) { setDhPartnerPinError('PIN kam se kam 4 digit ka ho'); return; }
     const allPins = [adminPin, partnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
     if (allPins.includes(newDhPartnerPin)) { setDhPartnerPinError('Ye PIN pehle se use ho raha hai - alag PIN chunein'); return; }
-    setDhPartnerPin(newDhPartnerPin);
+    const res = await changePinVia('dh_partner', '', newDhPartnerPin, setDhPartnerPin);
+    if (!res.ok) { setDhPartnerPinError(res.error || 'PIN set nahi ho paya'); return; }
     setNewDhPartnerPin(''); setDhPartnerPinError('');
     showToast('DH Home Decor PIN set ho gaya');
   };
-  const removeDhPartnerPin = () => {
-    setDhPartnerPin('');
+  const removeDhPartnerPin = async () => {
+    const res = await changePinVia('dh_partner', '', '', setDhPartnerPin);
+    if (!res.ok) { setDhPartnerPinError(res.error || 'Hataya nahi ja saka'); return; }
     showToast('DH Home Decor access hata diya gaya');
   };
 

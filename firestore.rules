@@ -37,10 +37,15 @@ rules_version = '2';
 //
 //   4. Delete app_data/admin_pin, app_data/partner_pin and
 //      app_data/dh_partner_pin in the Firestore console.
-//      Nothing reads them once step 2 is done, and these rules assume
-//      they are gone - see the app_data block below.
-//      CHECK: log in as admin again. Still works (the PIN now comes
-//      from Vercel, not Firestore).
+//      These rules assume they are gone: app_data is readable by any
+//      signed-in user, and anonymous sign-in is open to anyone, so a PIN
+//      left there is a PIN anybody can read. The real values now live in
+//      the 'secrets' collection, which no client can touch - written by
+//      api/change-pin.js when you change a PIN in Settings.
+//      Changing each PIN once from inside the app deletes its old
+//      app_data copy for you; deleting them by hand is the belt-and
+//      braces version.
+//      CHECK: log in as admin again, and as partner if you use it.
 //
 //   5. NOW publish these rules - Firebase console -> Cloud Firestore ->
 //      Rules. Not Storage. Not Realtime Database. The page must say
@@ -107,6 +112,20 @@ service cloud.firestore {
 
     match /customers/{phone} {
       allow read, write: if signedIn();
+    }
+
+    // The role PINs (admin, partner, dh_partner), written by
+    // api/change-pin.js and read by api/staff-login.js - both through the
+    // Admin SDK, which bypasses rules entirely.
+    //
+    // Denied to every client, including an admin. That is the difference
+    // that makes the PIN check worth moving to the server at all: while
+    // the PINs sat in app_data they were readable by anyone signed in,
+    // and anonymous sign-in is open to the whole internet, so "signed in"
+    // was never a meaningful guard for them. A PIN nobody can read is
+    // the only kind that stays secret.
+    match /secrets/{docId} {
+      allow read, write: if false;
     }
 
     // Failed-login counters, written only by api/staff-login.js through

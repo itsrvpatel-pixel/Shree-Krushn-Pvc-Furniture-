@@ -36,6 +36,7 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(db, 'jobs', 'j1'), { job: { id: 'j1', phone: '9876543210' } });
   await setDoc(doc(db, 'customers', '9876543210'), { customer: { phone: '9876543210' } });
   await setDoc(doc(db, 'login_attempts', '1_2_3_4'), { failures: 3, last: 1 });
+  await setDoc(doc(db, 'secrets', 'admin_pin'), { value: '7777' });
 });
 
 const anon = env.authenticatedContext('anon-uid').firestore();       // customer: anonymous
@@ -70,6 +71,14 @@ await t('anon CANNOT read login_attempts',  () => assertFails(getDoc(doc(anon,'l
 await t('anon CANNOT write login_attempts', () => assertFails(setDoc(doc(anon,'login_attempts','1_2_3_4'),{failures:0,last:0})));
 await t('staff CANNOT read login_attempts', () => assertFails(getDoc(doc(staff,'login_attempts','1_2_3_4'))));
 await t('logged out CANNOT read login_attempts', () => assertFails(getDoc(doc(out,'login_attempts','1_2_3_4'))));
+
+// --- the role PINs must be unreadable by everyone, admins included ---
+await t('logged out CANNOT read a PIN', () => assertFails(getDoc(doc(out,'secrets','admin_pin'))));
+await t('anon CANNOT read a PIN',       () => assertFails(getDoc(doc(anon,'secrets','admin_pin'))));
+await t('anon CANNOT list secrets',     () => assertFails(getDocs(collection(anon,'secrets'))));
+await t('anon CANNOT overwrite a PIN',  () => assertFails(setDoc(doc(anon,'secrets','admin_pin'),{value:'0000'})));
+await t('even staff CANNOT read a PIN', () => assertFails(getDoc(doc(staff,'secrets','admin_pin'))));
+await t('even staff CANNOT write a PIN',() => assertFails(setDoc(doc(staff,'secrets','admin_pin'),{value:'0000'})));
 
 // --- nothing else is reachable ---
 await t('anon CANNOT touch an unknown collection', () => assertFails(setDoc(doc(anon,'random_stuff','x'),{a:1})));

@@ -56,11 +56,25 @@ check('GET is rejected', res2.code === 405, 'got ' + res2.code);
 // that the lookup exists, which is what was missing when partner login
 // broke.
 const src = await (await import('node:fs/promises')).readFile(new URL('../api/staff-login.js', import.meta.url), 'utf8');
-check('admin PIN comes from ADMIN_PIN', src.includes('process.env.ADMIN_PIN'), 'missing');
-check('partner PIN is looked up in Firestore', src.includes("'partner_pin'"), 'no partner_pin lookup');
-check('dh partner PIN is looked up in Firestore', src.includes("'dh_partner_pin'"), 'no dh_partner_pin lookup');
+const cpSrc = await (await import('node:fs/promises')).readFile(new URL('../api/change-pin.js', import.meta.url), 'utf8');
+check('login resolves all three role PINs', ["'admin'", "'partner'", "'dh_partner'"].every((r) => src.includes('which: ' + r)), 'a role is not resolved');
+for (const [role, secret, env] of [['admin', 'admin_pin', 'ADMIN_PIN'], ['partner', 'partner_pin', 'PARTNER_PIN'], ['dh_partner', 'dh_partner_pin', 'DH_PARTNER_PIN']]) {
+  check(role + ' PIN: secrets + env + legacy app_data all reachable',
+    cpSrc.includes(role + ':') && cpSrc.includes("'" + secret + "'") && cpSrc.includes("'" + env + "'"),
+    'missing a source for ' + role);
+}
 check('staff PINs are looked up in Firestore', src.includes("doc('staff')"), 'no staff lookup');
 check('attempt counters are NOT in app_data', !src.includes("collection('app_data').doc(callerKey"), 'still in app_data');
+
+// --- api/change-pin.js: who may change a PIN, and where it lands ---
+const cp = await (await import('node:fs/promises')).readFile(new URL('../api/change-pin.js', import.meta.url), 'utf8');
+check('change-pin verifies the caller\'s ID token', cp.includes('verifyIdToken'), 'no token verification');
+check('change-pin requires the admin role claim', cp.includes("claims.role !== 'admin'"), 'no role check');
+check('change-pin re-checks the current admin PIN', cp.includes("which === 'admin'") && cp.includes('pinMatches(currentPin'), 'no current-PIN check');
+check('change-pin writes to the secrets collection', cp.includes("collection('secrets')"), 'not writing to secrets');
+check('change-pin deletes the readable app_data copy', cp.includes('legacyDoc).delete()'), 'legacy copy left behind');
+check('change-pin refuses to remove the admin PIN', cp.includes("removing && which === 'admin'"), 'admin PIN removable');
+check('login and change-pin share one PIN resolver', src.includes('readCurrentPin') && cp.includes('export async function readCurrentPin'), 'resolvers can diverge');
 
 console.log('\n===== api/staff-login =====');
 T.forEach(([n, ok, d]) => console.log((ok ? 'PASS  ' : 'FAIL  ') + n + (ok ? '' : '   [' + d + ']')));
