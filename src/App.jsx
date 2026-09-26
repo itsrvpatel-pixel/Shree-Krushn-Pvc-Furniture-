@@ -2799,6 +2799,7 @@ export default function App() {
     return (
       <div style={styles.app}>
         <style>{fontImport}</style>
+        <ErrorBoundary scope='login'>
         <LoginScreen
           adminPin={adminPin}
           adminPinReadDenied={adminPinReadDenied}
@@ -2833,6 +2834,7 @@ export default function App() {
           }}
           onAdminLogin={(staffName, role, staffId) => setSession({ role: role || 'admin', staffName, staffId })}
         />
+        </ErrorBoundary>
         <ToastEl toast={toast} />
       </div>
     );
@@ -2844,6 +2846,7 @@ export default function App() {
     return (
       <div style={styles.app}>
         <style>{fontImport}</style>
+        <ErrorBoundary scope={'staff:' + session.role}>
         <AdminApp
           gallery={gallery} setGallery={persistGallery}
           loadGalleryData={loadGalleryData} galleryLoading={galleryLoading}
@@ -2888,6 +2891,7 @@ export default function App() {
           onLogout={handleLogout}
           showToast={showToast}
         />
+        </ErrorBoundary>
         <ToastEl toast={toast} />
       </div>
     );
@@ -2910,6 +2914,7 @@ export default function App() {
     return (
       <div style={styles.app}>
         <style>{fontImport}</style>
+        <ErrorBoundary scope='karigar'>
         <KarigarApp
           jobs={myJobs}
           staffName={session.staffName}
@@ -2924,6 +2929,7 @@ export default function App() {
           attendance={attendance}
           setAttendance={setAttendance}
         />
+        </ErrorBoundary>
         <ToastEl toast={toast} />
       </div>
     );
@@ -3065,6 +3071,7 @@ export default function App() {
   return (
     <div style={styles.app}>
       <style>{fontImport}</style>
+      <ErrorBoundary scope='customer'>
       <CustomerApp
         customer={customer}
         gallery={gallery}
@@ -3147,6 +3154,7 @@ export default function App() {
         onLogout={handleLogout}
         showToast={showToast}
       />
+      </ErrorBoundary>
       <ToastEl toast={toast} />
     </div>
   );
@@ -3230,6 +3238,93 @@ const REAL_PHONE_AUTH = import.meta.env.VITE_PHONE_AUTH === 'on';
 
 // No customers prop: the login screen looks up exactly the one phone
 // number being entered, so it never needs the full list.
+// Catches a crash in one screen instead of letting it blank the app.
+//
+// WHY THIS EXISTS
+//
+// React unmounts the entire tree when a render throws and nothing
+// catches it. With no boundary anywhere, every render bug in this app
+// has shown up as a completely white screen with no message and no way
+// back - the only recovery was closing and reopening the app. That has
+// already happened several times here (a hook after an early return,
+// a missing variable in an event path), and each fix only removed that
+// one cause. A boundary is what makes the NEXT unknown bug survivable.
+//
+// HOW RECOVERY WORKS
+//
+// One of these wraps each role's app. Clearing the error re-renders the
+// children, and because the crashed component was unmounted, it comes
+// back fresh - which lands the user back on the Home tab rather than on
+// the screen that just failed. That matters: a "try again" that returns
+// you to the same broken screen is a loop, not a recovery. Reloading is
+// offered as well, for a crash that survives a remount.
+//
+// The message is deliberately shown rather than hidden. Diagnosing this
+// app from a distance has been the hard part all along - "app kaam nahi
+// kar raha" with no detail costs hours - so the error text is on screen
+// and copyable, and the last crash is also remembered for Data Check.
+const LAST_CRASH_KEY = 'skpf_last_crash';
+
+function rememberCrash(error, scope) {
+  try {
+    window.localStorage.setItem(LAST_CRASH_KEY, JSON.stringify({
+      message: String((error && error.message) || error).slice(0, 300),
+      scope: scope || 'app',
+      at: new Date().toISOString(),
+    }));
+  } catch (e) { /* private mode, quota - never let logging cause a crash */ }
+}
+
+export function readLastCrash() {
+  try {
+    const raw = window.localStorage.getItem(LAST_CRASH_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+export class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('Screen crashed:', this.props.scope || 'app', error, info && info.componentStack);
+    rememberCrash(error, this.props.scope);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    // Plain inline styles, no shared tokens and no other components:
+    // whatever just broke, this has to render.
+    const box = { padding: 20, fontFamily: 'system-ui, sans-serif', color: '#1b2a4a', maxWidth: 520, margin: '0 auto' };
+    const btn = { display: 'block', width: '100%', padding: '13px 16px', marginTop: 10, borderRadius: 10,
+      border: '1px solid #c9a227', background: '#c9a227', color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer' };
+    const btn2 = { ...btn, background: '#fff', color: '#1b2a4a', borderColor: '#d8dce6' };
+    return (
+      <div style={box}>
+        <div style={{ fontSize: 34, marginBottom: 6 }}>⚠️</div>
+        <div style={{ fontSize: 19, fontWeight: 800, marginBottom: 8 }}>Kuch gadbad ho gayi</div>
+        <div style={{ fontSize: 14, lineHeight: 1.6, color: '#5a6478' }}>
+          Is screen mein dikkat aa gayi. <b>Aapka data surakshit hai</b> - kuch delete nahi hua.
+          Neeche wale button se wapas jaakar kaam jaari rakh sakte hain.
+        </div>
+        <button style={btn} onClick={() => this.setState({ error: null })}>Wapas jaayein</button>
+        <button style={btn2} onClick={() => window.location.reload()}>App dobara kholein</button>
+        <div style={{ marginTop: 18, fontSize: 12, color: '#8a94a8' }}>Agar ye baar baar ho to ye message bhej dijiye:</div>
+        <pre style={{ marginTop: 6, padding: 10, background: '#f4f6fa', borderRadius: 8, fontSize: 11,
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#5a6478' }}>
+          {String((this.state.error && this.state.error.message) || this.state.error)}
+        </pre>
+      </div>
+    );
+  }
+}
+
 function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
   const [mode, setMode] = useState('choose');
   const [name, setName] = useState('');
@@ -6621,7 +6716,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
 
           <div style={{ ...styles.formCard, marginTop: 16 }}>
             <div style={styles.fieldLabel}>Estimate Banayein</div>
-            <div style={styles.plainTextMuted}>Aapke sheher ke market rate ke hisab se items banayein - admin approve karenge, tabhi asli estimate mein jodegा.</div>
+            <div style={styles.plainTextMuted}>Aapke sheher ke market rate ke hisab se items banayein - admin approve karenge, tabhi asli estimate mein jodega.</div>
             {(activeJob.suggestedItems || []).length > 0 && (
               <div style={{ marginTop: 8 }}>
                 {activeJob.suggestedItems.map((s) => (
@@ -6863,7 +6958,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
           </div>
           <div style={{ ...styles.formCard, marginTop: 12 }}>
             <div style={styles.fieldLabel}>Notifications</div>
-            <div style={styles.plainTextMuted}>App band ho tab bhi naye kaam ki khabar mil jaएgi.</div>
+            <div style={styles.plainTextMuted}>App band ho tab bhi naye kaam ki khabar mil jayegi.</div>
             {hasPushToken ? (
               <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
                 <CheckCircle2 size={14} /> Notifications on hain
@@ -7457,11 +7552,11 @@ function AdminCommissionReport({ staff, jobs, setStaff, showToast }) {
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Regional Partner Commission</div>
-      <div style={styles.plainTextMuted}>Har partner ko ab tak kitna commission bantа hai, kितna de diya hai, aur kितna baaki hai.</div>
+      <div style={styles.plainTextMuted}>Har partner ko ab tak kitna commission banta hai, kitna de diya hai, aur kitna baaki hai.</div>
       {leaderboard.length > 1 && (
         <div style={{ marginTop: 12 }}>
           <div style={styles.fieldLabel}>Performance Score</div>
-          <div style={styles.plainTextMuted}>Naye customer kisko dein, ye decide karne mein madad karega - completion rate, poore kiye kaam, aur revenue teenों ko milाके.</div>
+          <div style={styles.plainTextMuted}>Naye customer kisko dein, ye decide karne mein madad karega - completion rate, poore kiye kaam, aur revenue teenon ko milake.</div>
           {leaderboard.map((r, i) => (
             <div key={r.partner.id} style={{ ...styles.formCard, marginTop: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -8342,7 +8437,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
       {(job.suggestedItems || []).length > 0 && (
         <div style={{ ...styles.card, marginTop: 12, borderColor: BRAND.gold, borderWidth: 1.5 }}>
           <div style={styles.fieldLabel}>Regional Partner Ke Suggestions</div>
-          <div style={styles.plainTextMuted}>Partner ne estimate items banaाए hain - approve karne par hi asli estimate mein add hoगा.</div>
+          <div style={styles.plainTextMuted}>Partner ne estimate items banaye hain - approve karne par hi asli estimate mein add hoga.</div>
           {job.suggestedItems.map((s) => (
             <div key={s.id} style={{ ...styles.formCard, marginTop: 8 }}>
               <div style={styles.itemDesc}>{s.desc}</div>
@@ -10808,6 +10903,18 @@ function DataCheckPanel({ gallery, showToast }) {
       const cats = Object.keys(gallery || {});
       const photos = cats.reduce((n, c) => n + ((gallery[c] || []).length), 0);
       add('Gallery (screen par)', cats.length + ' category, ' + photos + ' photo');
+
+      // A crash this device hit earlier, kept by the error boundary.
+      // Without this, a screen that broke once and then recovered
+      // leaves no trace at all - which is exactly the situation where
+      // "app kaam nahi kar raha" arrives with nothing to go on.
+      const crash = readLastCrash();
+      if (crash) {
+        add('Pichhla crash', crash.scope + ' - ' + new Date(crash.at).toLocaleString('en-IN'));
+        add('Crash ka message', crash.message);
+      } else {
+        add('Pichhla crash', 'koi nahi');
+      }
 
       // The one-line verdict, so the answer does not depend on reading
       // seven rows correctly. Ordered by which cause makes the others

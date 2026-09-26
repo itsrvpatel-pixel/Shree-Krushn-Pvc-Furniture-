@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App.jsx';
+import App, { ErrorBoundary } from './App.jsx';
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import { installWindowStorage } from './firebaseStorage.js';
@@ -11,7 +11,13 @@ installWindowStorage();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    {/* The last resort. The per-role boundaries inside App catch a
+        crash in one screen and leave the rest working; this one only
+        matters if App itself fails to render, where the alternative is
+        the blank white page this app used to show. */}
+    <ErrorBoundary scope='root'>
+      <App />
+    </ErrorBoundary>
     <Analytics />
     <SpeedInsights />
   </React.StrictMode>
