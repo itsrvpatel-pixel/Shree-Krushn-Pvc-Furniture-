@@ -48,14 +48,26 @@ function pinMatches(candidate, actual) {
 // make bulk guessing impractical, not to be a full WAF.
 const MAX_FAILURES = 8;
 const LOCKOUT_MS = 15 * 60 * 1000;
-const ATTEMPT_DOC_PREFIX = 'login_attempts_';
+
+// These counters live in their own collection rather than in app_data.
+//
+// app_data is the collection the whole app reads, so anything kept there
+// has to be carved out of the security rules by name - and a rule that
+// excludes documents by name cannot allow a collection listing at all,
+// because Firestore refuses a query it cannot prove is safe. Keeping
+// counters here instead means app_data holds nothing a signed-in user
+// may not see, so its rule stays simple and listing keeps working.
+//
+// Only this endpoint touches this collection, through the Admin SDK,
+// which bypasses rules entirely - so the rules deny it to every client.
+const ATTEMPT_COLLECTION = 'login_attempts';
 
 function callerKey(req) {
   const fwd = req.headers['x-forwarded-for'];
   const ip = (Array.isArray(fwd) ? fwd[0] : (fwd || '')).split(',')[0].trim() || 'unknown';
   // Firestore document ids cannot contain '/', and ':' from IPv6 is fine
   // but replaced anyway to keep ids simple to read.
-  return ATTEMPT_DOC_PREFIX + ip.replace(/[^a-zA-Z0-9]/g, '_');
+  return ip.replace(/[^a-zA-Z0-9]/g, '_');
 }
 
 export default async function handler(req, res) {
@@ -85,7 +97,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const attemptRef = db.collection('app_data').doc(callerKey(req));
+  const attemptRef = db.collection(ATTEMPT_COLLECTION).doc(callerKey(req));
   const now = Date.now();
   try {
     const snap = await attemptRef.get();
