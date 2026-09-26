@@ -37,6 +37,20 @@ rules_version = '2';
 //      (Firestore Database -> Rules) and publish. Immediately afterwards,
 //      open the app as a customer once more and confirm it still loads.
 //
+// STEP 3 IS AS NON-OPTIONAL AS STEP 2, AND FOR THE SAME REASON.
+//
+// These rules deny the admin_pin / partner_pin / dh_partner_pin
+// documents outright. The app only stops needing them once ADMIN_PIN is
+// set in Vercel and login goes through api/staff-login.js. Publish these
+// before that and the admin PIN document becomes unreadable while the
+// app is still the thing checking the PIN - so the real PIN never loads
+// and the admin cannot get in.
+//
+// The app now detects exactly that and says so on the login screen
+// rather than silently falling back to the built-in default PIN (which
+// would have let anyone in with it). But the fix is still to do step 3
+// before step 6, not to work around it.
+//
 // If step 6 goes wrong, republishing the previous rules puts everything
 // back immediately - a rules deploy changes no data.
 //
