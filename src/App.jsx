@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { jsPDF } from 'jspdf';
 import {
   Calendar, Hammer, IndianRupee, Plus, X, Phone, User,
   ChevronRight, ChevronLeft, ChevronUp, ChevronDown, Trash2, Edit3, Search, CheckCircle2,
@@ -480,6 +479,7 @@ async function loadImageAsDataUrl(url) {
 }
 
 async function buildReceiptPdfDoc(job, payment) {
+  const jsPDF = await loadJsPDF();
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -702,6 +702,7 @@ async function buildReceiptPdfDoc(job, payment) {
 // entry there) rather than restating them differently, so the two
 // never drift out of sync with each other.
 async function buildWarrantyPdfDoc(job) {
+  const jsPDF = await loadJsPDF();
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -918,6 +919,7 @@ async function generateWarrantyCertificate(job, showToast) {
 // visit yet) just wants "what do things roughly cost" without opening
 // the app at all.
 async function buildPriceListPdfDoc(estimateRates) {
+  const jsPDF = await loadJsPDF();
   const doc = new jsPDF('p', 'mm', 'a4');
   const pageWidth = doc.internal.pageSize.getWidth();
   const navy = [15, 27, 61];
@@ -1095,9 +1097,63 @@ async function shareReceiptPdf(job, payment, showToast) {
    both afterward (in a finally block, so it happens even if the capture
    itself throws) puts the on-screen modal back to its normal scrollable
    mobile layout once the screenshot is done. */
+// Fetches html2canvas the first time a PDF is actually wanted.
+//
+// It used to be a plain <script> in index.html, which meant every page
+// load waited on a third-party CDN for a library only the quotation PDF
+// uses - paid for by every customer who never opens one. Loading it here
+// costs a second or two on the first PDF and nothing ever again.
+//
+// Resolves false rather than throwing if it cannot be fetched, so the
+// caller degrades the way it already did when the script was missing.
+// jsPDF is fetched the first time a PDF is built, not on every page
+// load. It was a static import, so its whole bundle shipped to everyone
+// - including every customer, who never generates one. Every caller
+// already wraps its build in try/catch and shows "PDF banane mein
+// dikkat aayi", so a failed fetch degrades exactly like a failed render.
+let jsPdfPromise = null;
+function loadJsPDF() {
+  if (!jsPdfPromise) {
+    jsPdfPromise = import('jspdf')
+      .then((m) => m.jsPDF)
+      .catch((e) => { jsPdfPromise = null; throw e; });
+  }
+  return jsPdfPromise;
+}
+
+const HTML2CANVAS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+let html2canvasPromise = null;
+function loadHtml2Canvas() {
+  if (window.html2canvas) return Promise.resolve(true);
+  if (html2canvasPromise) return html2canvasPromise;
+  html2canvasPromise = new Promise((resolve) => {
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      // A failed load must not be cached as "never again" - the next
+      // attempt should be allowed to retry on a better connection.
+      if (!ok) html2canvasPromise = null;
+      resolve(ok);
+    };
+    const el = document.createElement('script');
+    el.src = HTML2CANVAS_SRC;
+    el.async = true;
+    el.onload = () => done(!!window.html2canvas);
+    el.onerror = () => done(false);
+    document.head.appendChild(el);
+    setTimeout(() => done(!!window.html2canvas), 20000);
+  });
+  return html2canvasPromise;
+}
+
 async function buildEstimatePdfFromDom(elementId) {
   const element = document.getElementById(elementId);
-  if (!element || !window.html2canvas) return null;
+  if (!element) return null;
+  if (!window.html2canvas) {
+    const ok = await loadHtml2Canvas();
+    if (!ok) return null;
+  }
 
   const sheetEl = document.getElementById('quote-sheet-container');
   const tableWrapEl = document.getElementById('quote-table-wrap');
@@ -1130,6 +1186,7 @@ async function buildEstimatePdfFromDom(elementId) {
     // actually receive quickly over mobile data.
     const canvas = await window.html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
     const imgData = canvas.toDataURL('image/png');
+    const jsPDF = await loadJsPDF();
     const doc = new jsPDF('p', 'mm', 'a4');
     const pdfWidth = doc.internal.pageSize.getWidth();
     const pdfHeight = doc.internal.pageSize.getHeight();

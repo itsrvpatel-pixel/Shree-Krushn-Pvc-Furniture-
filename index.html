@@ -82,7 +82,12 @@
          (colors, logo, fonts, layout - everything) so the PDF shared to
          WhatsApp is a true visual match to what's shown on screen,
          rather than a separately hand-drawn approximation. -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- html2canvas is NOT loaded here any more. It is only needed to
+         screenshot the quotation for its PDF, but as a plain <script> in
+         the head it blocked the first paint of every page load, for
+         everyone, on a third-party host - including customers who never
+         open a PDF. loadHtml2Canvas() in src/App.jsx fetches it the
+         first time someone actually asks for one. -->
     <style>
       /* Used by loading spinners (gallery lazy-load, etc.) throughout
          the app - defined once here since inline <style> attributes
