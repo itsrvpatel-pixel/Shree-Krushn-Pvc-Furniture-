@@ -6610,7 +6610,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
             <div key={it.id} style={styles.itemRow}>
               <div style={{ flex: 1 }}>
                 <div style={styles.itemDesc}>{it.desc}</div>
-                {it.length && it.height && <div style={styles.itemSub}>{it.length}&quot; x {it.height}&quot;{it.qty > 1 ? (' x ' + it.qty) : ''}</div>}
+                {it.length && it.height && <div style={styles.itemSub}>{it.length}&quot; x {it.height}&quot;</div>}
               </div>
               <div style={styles.itemDesc}>{currency(estimateItemAmount(it))}</div>
             </div>
@@ -6628,7 +6628,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
                   <div key={s.id} style={styles.itemRow}>
                     <div style={{ flex: 1 }}>
                       <div style={styles.itemDesc}>{s.desc}</div>
-                      {s.length && s.height && <div style={styles.itemSub}>{s.length}&quot; x {s.height}&quot; = {estimateItemSqft(s).toFixed(2)} sq ft{s.qty > 1 ? (' x ' + s.qty) : ''}</div>}
+                      {s.length && s.height && <div style={styles.itemSub}>{s.length}&quot; x {s.height}&quot; = {estimateItemSqft(s).toFixed(2)} sq ft</div>}
                       <div style={styles.itemSub}>Pending approval</div>
                     </div>
                     <div style={styles.itemDesc}>{currency(estimateItemAmount(s))}</div>
@@ -8319,9 +8319,19 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
           <input style={styles.input} placeholder='Qty (agar naap nahi)' inputMode='numeric' value={newItem.qty} onChange={(e) => setNewItem((n) => ({ ...n, qty: e.target.value }))} />
           <input style={styles.input} placeholder='Rate ₹' inputMode='decimal' value={newItem.rate} onChange={(e) => setNewItem((n) => ({ ...n, rate: e.target.value }))} />
         </div>
+        {/* Naap diya ho to Qty ginti mein nahi aati - estimateItemAmount
+            sqft x rate leta hai, qty sirf bina-naap wale item ke liye hai.
+            Pehle ye chup-chaap hota tha aur screen par " x 2" bhi dikh
+            jata tha, jabki paisa ek ka hi lagta tha. */}
+        {estimateItemSqft(newItem) !== null && Number(newItem.qty) > 1 && (
+          <div style={{ ...styles.hintText, color: BRAND.gold, fontWeight: 700, marginTop: 6 }}>
+            Naap diya hai, isliye Qty {newItem.qty} ginti mein nahi aayegi - daam sirf {estimateItemSqft(newItem).toFixed(2)} sq ft ka lagega.
+            Ek hi naap ke {newItem.qty} item chahiye to item {newItem.qty} baar add karein.
+          </div>
+        )}
         {estimateItemSqft(newItem) !== null && (
           <div style={styles.liveCalcBox}>
-            <span>{newItem.length}' x {newItem.height}' = <b>{estimateItemSqft(newItem).toFixed(2)} sq ft</b></span>
+            <span>{newItem.length}&quot; x {newItem.height}&quot; = <b>{estimateItemSqft(newItem).toFixed(2)} sq ft</b></span>
             {newItem.rate && <span>x {currency(newItem.rate)} = <b>{currency(estimateItemAmount(newItem))}</b></span>}
           </div>
         )}
@@ -8336,7 +8346,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
           {job.suggestedItems.map((s) => (
             <div key={s.id} style={{ ...styles.formCard, marginTop: 8 }}>
               <div style={styles.itemDesc}>{s.desc}</div>
-              {s.length && s.height && <div style={styles.itemSub}>{s.length}&quot; x {s.height}&quot; = {estimateItemSqft(s).toFixed(2)} sq ft{s.qty > 1 ? (' x ' + s.qty) : ''}</div>}
+              {s.length && s.height && <div style={styles.itemSub}>{s.length}&quot; x {s.height}&quot; = {estimateItemSqft(s).toFixed(2)} sq ft</div>}
               <div style={styles.itemSub}>{currency(estimateItemAmount(s))} - {s.suggestedBy} ne banaya</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => approveSuggestedItem(s)}><CheckCircle2 size={13} /> Approve Karein</button>
@@ -8962,7 +8972,10 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
       desc: newItem.desc.trim(),
       length: newItem.length || '',
       height: newItem.height || '',
-      qty: newItem.qty || '1',
+      // With a measurement present the price is sqft x rate and the
+      // quantity is not part of it, so storing anything but 1 would
+      // record a quantity nobody was charged for.
+      qty: estimateItemSqft(newItem) !== null ? '1' : (newItem.qty || '1'),
       rate: newItem.rate || '0',
     };
     const base = jobRef.current;
