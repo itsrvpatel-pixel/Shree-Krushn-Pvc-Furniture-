@@ -23,6 +23,7 @@
 // deploying this changes nothing until you are ready.
 
 import admin from 'firebase-admin';
+import { readCurrentPin } from './change-pin.js';
 
 function getAdminApp() {
   if (admin.apps.length > 0) return admin.apps[0];
@@ -124,43 +125,23 @@ export default async function handler(req, res) {
     console.error('staff-login: attempt lookup failed', e);
   }
 
-  // Fixed roles come from environment variables.
+  // The three role PINs, each resolved by readCurrentPin: the value set
+  // from inside the app (secrets/<name>, unreadable by any client) wins,
+  // then the environment variable, then the pre-move app_data document.
+  // One place decides where a PIN comes from, so this endpoint and
+  // api/change-pin.js can never disagree about which value is current -
+  // if they did, you could change a PIN and still be refused by it.
   let matched = null;
-  if (pinMatches(pin, process.env.ADMIN_PIN)) {
-    matched = { role: 'admin', staffName: 'Admin', staffId: null };
-  } else if (pinMatches(pin, process.env.PARTNER_PIN)) {
-    matched = { role: 'partner', staffName: 'Partner', staffId: null };
-  } else if (pinMatches(pin, process.env.DH_PARTNER_PIN)) {
-    matched = { role: 'dh_partner', staffName: 'DH Home Decor', staffId: null };
-  }
-
-  // The partner PINs are managed by the admin inside the app (Settings ->
-  // change partner PIN), which writes them to Firestore. They are read
-  // here for the same reason the staff list is: the server is now the
-  // only thing that compares a PIN, so every PIN the app accepts has to
-  // be reachable from here.
-  //
-  // Environment variables above still win, so a partner PIN can be
-  // pinned in Vercel instead if you would rather it not live in the
-  // database at all - but leaving them unset is the normal case, and
-  // without this lookup changing a partner PIN in the app would have no
-  // effect and partner login would fail outright.
-  if (!matched) {
-    const partnerDocs = [
-      { key: 'partner_pin', role: 'partner', staffName: 'Partner' },
-      { key: 'dh_partner_pin', role: 'dh_partner', staffName: 'DH Home Decor' },
-    ];
-    for (const p of partnerDocs) {
-      try {
-        const snap = await db.collection('app_data').doc(p.key).get();
-        const stored = snap.exists ? String(snap.data().value || '') : '';
-        if (stored && pinMatches(pin, stored)) {
-          matched = { role: p.role, staffName: p.staffName, staffId: null };
-          break;
-        }
-      } catch (e) {
-        console.error('staff-login: ' + p.key + ' lookup failed', e);
-      }
+  const roles = [
+    { which: 'admin', role: 'admin', staffName: 'Admin' },
+    { which: 'partner', role: 'partner', staffName: 'Partner' },
+    { which: 'dh_partner', role: 'dh_partner', staffName: 'DH Home Decor' },
+  ];
+  for (const r of roles) {
+    const actual = await readCurrentPin(db, r.which);
+    if (actual && pinMatches(pin, actual)) {
+      matched = { role: r.role, staffName: r.staffName, staffId: null };
+      break;
     }
   }
 
