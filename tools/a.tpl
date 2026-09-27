@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>PVC Furniture Ahmedabad | Modular Kitchen &amp; Wardrobe - Shree Krushn</title>
 <meta name="description" content="Shree Krushn PVC Furniture, Nikol, Ahmedabad. Modular kitchen, wardrobe, TV unit, pooja mandir - 100% waterproof, termite proof, full home fitted in about 10 days. Free site visit and a written estimate." />
+<link rel="canonical" href="https://www.shreekrushnpvcfurniture.com/" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="PVC Furniture Ahmedabad | Modular Kitchen &amp; Wardrobe - Shree Krushn" />
+<meta property="og:description" content="Shree Krushn PVC Furniture, Nikol, Ahmedabad. Modular kitchen, wardrobe, TV unit, pooja mandir - 100% waterproof, termite proof, full home fitted in about 10 days. Free site visit and a written estimate." />
+<meta property="og:url" content="https://www.shreekrushnpvcfurniture.com/" />
 <link rel="icon" type="image/png" href="/icon-192.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
