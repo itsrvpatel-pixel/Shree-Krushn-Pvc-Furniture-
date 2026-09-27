@@ -81,15 +81,15 @@ socs=''.join('<a href="%s" target="_blank" rel="noopener" aria-label="%s"><svg v
 revs=''.join('<figure><div class="st">%s</div><blockquote>%s</blockquote><figcaption>%s</figcaption></figure>'
              % ('&#9733;'*int(r.get('rating',5)), E(r.get('text','')), E(r.get('customerName','')))
              for r in content['featured_reviews'])
-css=open('/tmp/a.css').read()+open('/tmp/cat.css').read()
-tpl=open('/tmp/cat.tpl').read()
+css=open('tools/a.css').read()+open('tools/cat.css').read()
+tpl=open('tools/cat.tpl').read()
 
 for key,slug,h1,title,intro,incl in PAGES:
     photos=pick.get(key,[])
     grid=''.join('<img src="img/g/%s" alt="%s design %d - Shree Krushn PVC Furniture, Nikol Ahmedabad" loading="lazy" />'
                  % (n, E(h1.replace(' in Ahmedabad','')), i+1) for i,n in enumerate(photos))
     incl_html=''.join('<li>%s</li>' % E(x) for x in incl)
-    others=''.join('<a class="oc" href="%s.html"><img src="img/card/%s" alt="" loading="lazy" /><span>%s</span></a>'
+    others=''.join('<a class="oc" href="/%s"><img src="img/card/%s" alt="" loading="lazy" /><span>%s</span></a>'
                    % (SLUG[k], man[k][0], E(SHORT[k])) for k,_,_,_,_,_ in PAGES if k!=key and man.get(k))
     album=ALBUM.get(key)
     album_btn=('<a class="btn b3" href="%s" target="_blank" rel="noopener">See all %d designs in the album</a>'
