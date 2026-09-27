@@ -1,7 +1,8 @@
 // The warranty card stays one card, whatever the job.
 //
-// It is a quarter of an A4 sheet cut the long way - 210mm x 74mm, four
-// to a page. That size is the whole constraint: a full-home job can run
+// It is 210mm x 99mm - a third of an A4 sheet cut the long way, three
+// to a page, proportioned roughly like a phone screen held sideways.
+// That size is the whole constraint: a full-home job can run
 // to fifty items and there is no honest way to print fifty lines on a
 // card this size. Earlier versions tried, and produced a list running
 // off the page with the footer and warranty box printed over the top of
@@ -43,12 +44,15 @@ for (const count of [1, 6, 20, 50, 120]) {
   ok(count + ' items: the warranty itself is there', warranty.includes('2 Years'), 'no warranty block');
 }
 
-// The card is a quarter of an A4, cut the long way.
+// The card's shape is the point - a third of an A4, cut the long way.
 const { warranty, receipt } = build(6);
 const box = warranty.match(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)/);
 const mm = (pt) => Math.round((Number(pt) / 72) * 25.4);
-ok('the card is 210mm x 74mm', box && mm(box[1]) === 210 && mm(box[2]) === 74,
+ok('the card is 210mm x 99mm', box && mm(box[1]) === 210 && mm(box[2]) === 99,
   box ? mm(box[1]) + ' x ' + mm(box[2]) : 'no MediaBox');
+ok('it keeps roughly a phone-screen proportion',
+  box && Math.abs((Number(box[1]) / Number(box[2])) - 2.12) < 0.15,
+  box ? (Number(box[1]) / Number(box[2])).toFixed(2) + ':1' : 'no MediaBox');
 ok('it points at the quotation for the detail', warranty.includes('as per Quotation'), 'no quotation reference');
 ok('one item reads as singular', build(1).warranty.includes('Covers 1 item as per'), 'plural for one item');
 

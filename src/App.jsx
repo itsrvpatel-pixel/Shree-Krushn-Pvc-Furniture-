@@ -887,9 +887,10 @@ async function buildReceiptPdfDoc(job, payment) {
 
 // The warranty card.
 //
-// A quarter of an A4 sheet, cut the long way: 210mm x 74mm. Four to a
-// page, and the shape is deliberate - it is a card to hand over and
-// keep, not a certificate to frame.
+// 210mm x 99mm - a third of an A4 sheet, cut the long way, three to a
+// page. The proportion is roughly a phone screen held sideways (2.1:1),
+// which is what was asked for: the first attempt at a quarter-sheet
+// card was 210x74 and came out too flat to read comfortably.
 //
 // WHAT IS AND IS NOT ON IT
 //
@@ -905,37 +906,37 @@ async function buildReceiptPdfDoc(job, payment) {
 // strip underneath.
 async function buildWarrantyPdfDoc(job) {
   const jsPDF = await loadJsPDF();
-  const doc = new jsPDF({ unit: 'mm', format: [210, 74], orientation: 'landscape' });
+  const doc = new jsPDF({ unit: 'mm', format: [210, 99], orientation: 'landscape' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
-  // Header band, slimmer than the A4 documents - 15mm of 74 is already
-  // a fifth of the card.
-  const band = 15;
+  // Header band. 18 of 99mm rather than 15 of 74 - the same share of a
+  // taller card, so it does not look pinched.
+  const band = 18;
   doc.setFillColor(...DOC_NAVY);
   doc.rect(0, 0, pageWidth, band, 'F');
   doc.setFillColor(...DOC_GOLD);
   doc.rect(0, band, pageWidth, 0.8, 'F');
   try {
     const logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
-    doc.addImage(logoDataUrl, 'PNG', 5, 2, 11, 11);
+    doc.addImage(logoDataUrl, 'PNG', 6, 2.5, 13, 13);
     doc.saveGraphicsState();
     doc.setGState(new doc.GState({ opacity: 0.03 }));
-    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 22, pageHeight / 2 - 18, 44, 44);
+    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 27, pageHeight / 2 - 27, 54, 54);
     doc.restoreGraphicsState();
   } catch (e) {
     // No logo - the card is still complete.
   }
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(10);
+  doc.setFontSize(11.5);
   doc.setFont(undefined, 'bold');
-  doc.text(BUSINESS.name, 19, 7);
-  doc.setFontSize(5.8);
+  doc.text(BUSINESS.name, 22, 8);
+  doc.setFontSize(6.2);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_GOLD);
-  doc.text(BUSINESS.tagline.toUpperCase(), 19, 10.6);
+  doc.text(BUSINESS.tagline.toUpperCase(), 22, 12);
   doc.setTextColor(214, 218, 228);
-  doc.text(BUSINESS.addressLine + '   |   ' + BUSINESS.phone, 19, 13.6);
+  doc.text(BUSINESS.addressLine + '   |   ' + BUSINESS.phone, 22, 15.6);
 
   doc.setDrawColor(...DOC_GOLD);
   doc.setLineWidth(0.5);
@@ -943,39 +944,39 @@ async function buildWarrantyPdfDoc(job) {
 
   // Left: who it is for, and what it covers.
   const leftX = 9;
-  let y = band + 10;
+  let y = band + 12;
   doc.setTextColor(...DOC_NAVY);
-  doc.setFontSize(11);
+  doc.setFontSize(13);
   doc.setFont(undefined, 'bold');
   doc.text('WARRANTY CERTIFICATE', leftX, y);
   doc.setDrawColor(...DOC_GOLD);
-  doc.setLineWidth(0.5);
-  doc.line(leftX, y + 1.8, leftX + 40, y + 1.8);
-  y += 7.5;
+  doc.setLineWidth(0.6);
+  doc.line(leftX, y + 2.2, leftX + 48, y + 2.2);
+  y += 10;
 
-  doc.setFontSize(6);
+  doc.setFontSize(6.4);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_MUTED);
   doc.text('ISSUED TO', leftX, y);
-  y += 4.4;
-  doc.setFontSize(10);
+  y += 5.2;
+  doc.setFontSize(12);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...DOC_NAVY);
   doc.text(job.customerName, leftX, y);
-  y += 4.4;
+  y += 5.4;
   if (job.flatNo || job.address) {
-    doc.setFontSize(6.5);
+    doc.setFontSize(7.2);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(...DOC_MUTED);
     const addr = doc.splitTextToSize([job.flatNo, job.address].filter(Boolean).join(', '), 108);
     doc.text(addr.slice(0, 2), leftX, y);
-    y += addr.slice(0, 2).length * 3.4;
+    y += addr.slice(0, 2).length * 4;
   }
-  y += 2.6;
+  y += 4;
 
   // The coverage line, in place of the list.
   const count = (job.items || []).length;
-  doc.setFontSize(7);
+  doc.setFontSize(8);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...DOC_NAVY);
   const covered = count === 0
@@ -984,45 +985,46 @@ async function buildWarrantyPdfDoc(job) {
   doc.text(doc.splitTextToSize(covered, 112), leftX, y);
 
   // Right: the warranty.
-  const boxW = 74;
+  const boxW = 78;
   const boxX = pageWidth - boxW - 9;
-  const boxY = band + 9;
-  const boxH = 30;
+  const boxY = band + 11;
+  const boxH = 40;
   doc.setFillColor(...DOC_PAPER);
   doc.setDrawColor(...DOC_GOLD);
   doc.setLineWidth(0.5);
   doc.roundedRect(boxX, boxY, boxW, boxH, 1.5, 1.5, 'FD');
-  doc.setFontSize(15);
+  doc.setFontSize(20);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...DOC_GOLD);
-  doc.text('2 Years', boxX + boxW / 2, boxY + 11, { align: 'center' });
-  doc.setFontSize(7);
+  doc.text('2 Years', boxX + boxW / 2, boxY + 15, { align: 'center' });
+  doc.setFontSize(8);
   doc.setTextColor(...DOC_NAVY);
-  doc.text('Shree Krushn Maintenance Warranty', boxX + boxW / 2, boxY + 17, { align: 'center' });
-  doc.setFontSize(5.8);
+  doc.text('Shree Krushn', boxX + boxW / 2, boxY + 22, { align: 'center' });
+  doc.text('Maintenance Warranty', boxX + boxW / 2, boxY + 27, { align: 'center' });
+  doc.setFontSize(6.2);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_MUTED);
-  doc.text('Free service visits for fitting /', boxX + boxW / 2, boxY + 22, { align: 'center' });
-  doc.text('adjustment issues on the work covered', boxX + boxW / 2, boxY + 25.5, { align: 'center' });
+  doc.text('Free service visits for fitting /', boxX + boxW / 2, boxY + 33, { align: 'center' });
+  doc.text('adjustment issues on the work covered', boxX + boxW / 2, boxY + 36.8, { align: 'center' });
 
   // One footer strip across the bottom. Everything below the rule has
   // to clear the frame, which ends 3mm from the page edge - on a 74mm
   // card that is a few millimetres of room, and the first attempt put
   // the signature and the exclusions line straight through it.
-  const ruleY = pageHeight - 17;
+  const ruleY = pageHeight - 20;
   doc.setDrawColor(...DOC_RULE);
   doc.setLineWidth(0.3);
   doc.line(9, ruleY, pageWidth - 9, ruleY);
 
   const small = (x, label, value) => {
-    doc.setFontSize(5.4);
+    doc.setFontSize(6);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(...DOC_MUTED);
-    doc.text(label, x, ruleY + 3.5);
-    doc.setFontSize(7);
+    doc.text(label, x, ruleY + 4.5);
+    doc.setFontSize(8);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(...DOC_NAVY);
-    doc.text(String(value), x, ruleY + 7.5);
+    doc.text(String(value), x, ruleY + 9.5);
   };
   small(9, 'DELIVERY DATE', formatDate(jobDeliveredAt(job) || job.expectedCompletionDate || job.createdAt));
   small(52, 'CERTIFICATE NO', warrantyCertNo(job));
@@ -1031,20 +1033,20 @@ async function buildWarrantyPdfDoc(job) {
   // Signatory and name on one line - two stacked lines did not fit.
   doc.setDrawColor(...DOC_MUTED);
   doc.setLineWidth(0.25);
-  doc.line(pageWidth - 52, ruleY + 4, pageWidth - 9, ruleY + 4);
-  doc.setFontSize(5.4);
+  doc.line(pageWidth - 52, ruleY + 5.5, pageWidth - 9, ruleY + 5.5);
+  doc.setFontSize(6);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_MUTED);
-  doc.text('AUTHORISED SIGNATORY', pageWidth - 9, ruleY + 3.2, { align: 'right' });
+  doc.text('AUTHORISED SIGNATORY', pageWidth - 9, ruleY + 4.2, { align: 'right' });
   doc.setFont(undefined, 'bold');
-  doc.setFontSize(7);
+  doc.setFontSize(8);
   doc.setTextColor(...DOC_NAVY);
-  doc.text(BUSINESS.owner, pageWidth - 9, ruleY + 7.5, { align: 'right' });
+  doc.text(BUSINESS.owner, pageWidth - 9, ruleY + 9.5, { align: 'right' });
 
-  doc.setFontSize(4.8);
+  doc.setFontSize(5.4);
   doc.setFont(undefined, 'italic');
   doc.setTextColor(...DOC_MUTED);
-  doc.text('Excludes physical damage, misuse, water damage beyond normal use and normal wear and tear.', 9, pageHeight - 4.5);
+  doc.text('Excludes physical damage, misuse, water damage beyond normal use and normal wear and tear.', 9, pageHeight - 5);
 
   return doc;
 }
