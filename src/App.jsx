@@ -887,166 +887,225 @@ async function buildReceiptPdfDoc(job, payment) {
 
 // The warranty card.
 //
-// 210mm x 99mm - a third of an A4 sheet, cut the long way, three to a
-// page. The proportion is roughly a phone screen held sideways (2.1:1),
-// which is what was asked for: the first attempt at a quarter-sheet
-// card was 210x74 and came out too flat to read comfortably.
+// 1080 x 1920 - a phone screen, portrait. That is the shape asked for
+// and it is the right one, because this is a card that mostly gets
+// looked at on a phone: sent on WhatsApp, opened, kept. A page shaped
+// like the screen it is read on needs no pinching or rotating.
 //
-// WHAT IS AND IS NOT ON IT
+// Sized in pixels rather than millimetres for the same reason. It is a
+// screen document first; printing still works, it simply scales.
 //
-// Not the item list. A full-home job can run to fifty lines, and on a
-// card that size any attempt to show them either spills onto extra
-// cards or shrinks to something nobody can read. So the card states how
-// many items are covered and points at the quotation, which already
-// carries every line and now has a number to refer to. The card stays
-// one page, always.
+// THE ITEMS ARE ON IT
 //
-// The width is used rather than fought: customer and coverage on the
-// left, the warranty itself boxed on the right, and a single footer
-// strip underneath.
+// An earlier version left them off because a 210x74mm strip could not
+// hold fifty lines honestly. A tall page can hold a real list, so it
+// does - and when a job genuinely runs past what fits, the rest is
+// summarised against the quotation rather than spilling onto a second
+// card. The card stays one page either way.
+const CARD_W = 1080;
+const CARD_H = 1920;
+
 async function buildWarrantyPdfDoc(job) {
   const jsPDF = await loadJsPDF();
-  const doc = new jsPDF({ unit: 'mm', format: [210, 99], orientation: 'landscape' });
+  const doc = new jsPDF({ unit: 'px', format: [CARD_W, CARD_H], orientation: 'portrait', hotfixes: ['px_scaling'] });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
+  const pad = 56;
 
-  // Header band. 18 of 99mm rather than 15 of 74 - the same share of a
-  // taller card, so it does not look pinched.
-  const band = 18;
+  // Header band.
+  const band = 210;
   doc.setFillColor(...DOC_NAVY);
   doc.rect(0, 0, pageWidth, band, 'F');
   doc.setFillColor(...DOC_GOLD);
-  doc.rect(0, band, pageWidth, 0.8, 'F');
+  doc.rect(0, band, pageWidth, 8, 'F');
   try {
     const logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
-    doc.addImage(logoDataUrl, 'PNG', 6, 2.5, 13, 13);
+    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 58, 26, 116, 116);
     doc.saveGraphicsState();
     doc.setGState(new doc.GState({ opacity: 0.03 }));
-    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 27, pageHeight / 2 - 27, 54, 54);
+    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 330, pageHeight / 2 - 330, 660, 660);
     doc.restoreGraphicsState();
   } catch (e) {
     // No logo - the card is still complete.
   }
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(11.5);
+  doc.setFontSize(27);
   doc.setFont(undefined, 'bold');
-  doc.text(BUSINESS.name, 22, 8);
-  doc.setFontSize(6.2);
+  doc.text(BUSINESS.name, pageWidth / 2, 172, { align: 'center' });
+  doc.setFontSize(13);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_GOLD);
-  doc.text(BUSINESS.tagline.toUpperCase(), 22, 12);
-  doc.setTextColor(214, 218, 228);
-  doc.text(BUSINESS.addressLine + '   |   ' + BUSINESS.phone, 22, 15.6);
+  doc.text(BUSINESS.tagline.toUpperCase(), pageWidth / 2, 196, { align: 'center' });
 
   doc.setDrawColor(...DOC_GOLD);
-  doc.setLineWidth(0.5);
-  doc.rect(3, band + 3, pageWidth - 6, pageHeight - band - 6);
+  doc.setLineWidth(3);
+  doc.rect(22, band + 30, pageWidth - 44, pageHeight - band - 52);
 
-  // Left: who it is for, and what it covers.
-  const leftX = 9;
-  let y = band + 12;
+  let y = band + 92;
   doc.setTextColor(...DOC_NAVY);
-  doc.setFontSize(13);
+  doc.setFontSize(34);
   doc.setFont(undefined, 'bold');
-  doc.text('WARRANTY CERTIFICATE', leftX, y);
+  doc.text('WARRANTY CERTIFICATE', pageWidth / 2, y, { align: 'center' });
+  y += 16;
   doc.setDrawColor(...DOC_GOLD);
-  doc.setLineWidth(0.6);
-  doc.line(leftX, y + 2.2, leftX + 48, y + 2.2);
-  y += 10;
+  doc.setLineWidth(4);
+  doc.line(pageWidth / 2 - 150, y, pageWidth / 2 + 150, y);
+  y += 52;
 
-  doc.setFontSize(6.4);
+  doc.setFontSize(15);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_MUTED);
-  doc.text('ISSUED TO', leftX, y);
-  y += 5.2;
-  doc.setFontSize(12);
+  doc.text('ISSUED TO', pageWidth / 2, y, { align: 'center' });
+  y += 38;
+  doc.setFontSize(30);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...DOC_NAVY);
-  doc.text(job.customerName, leftX, y);
-  y += 5.4;
+  doc.text(job.customerName, pageWidth / 2, y, { align: 'center' });
+  y += 30;
   if (job.flatNo || job.address) {
-    doc.setFontSize(7.2);
+    doc.setFontSize(16);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(...DOC_MUTED);
-    const addr = doc.splitTextToSize([job.flatNo, job.address].filter(Boolean).join(', '), 108);
-    doc.text(addr.slice(0, 2), leftX, y);
-    y += addr.slice(0, 2).length * 4;
+    const addr = doc.splitTextToSize([job.flatNo, job.address].filter(Boolean).join(', '), pageWidth - 240);
+    doc.text(addr.slice(0, 2), pageWidth / 2, y, { align: 'center' });
+    y += addr.slice(0, 2).length * 24;
   }
-  y += 4;
+  y += 34;
 
-  // The coverage line, in place of the list.
-  const count = (job.items || []).length;
-  doc.setFontSize(8);
+  // The warranty block sits at a fixed place so the item list always has
+  // a known amount of room above it - that is what keeps the card to one
+  // page whatever the job size.
+  const boxH = 190;
+  const footerRuleY = pageHeight - 250;
+  const maxBoxY = footerRuleY - boxH - 46;
+  const itemsBottom = maxBoxY - 40;
+
+  const items = job.items || [];
+  doc.setFontSize(16);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...DOC_NAVY);
-  const covered = count === 0
-    ? 'Work covered as per the estimate'
-    : ('Covers ' + count + ' item' + (count === 1 ? '' : 's') + (job.quoteNo ? (' as per Quotation ' + job.quoteNo) : ' as per the estimate'));
-  doc.text(doc.splitTextToSize(covered, 112), leftX, y);
+  doc.text('WORK COVERED', pad, y);
+  y += 12;
+  doc.setDrawColor(...DOC_RULE);
+  doc.setLineWidth(2);
+  doc.line(pad, y, pageWidth - pad, y);
+  y += 32;
 
-  // Right: the warranty.
-  const boxW = 78;
-  const boxX = pageWidth - boxW - 9;
-  const boxY = band + 11;
-  const boxH = 40;
+  let itemsEndY = y;
+  if (items.length === 0) {
+    doc.setFontSize(17);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(...DOC_MUTED);
+    doc.text('As per the estimate.', pad, y);
+    itemsEndY = y + 10;
+  } else {
+    // One column, because a phone-shaped page is narrow and two columns
+    // of wrapped furniture names read badly on it. The line height
+    // tightens as the list grows so a longer job still fits.
+    const cfg = items.length <= 10 ? { size: 18, line: 26, gap: 12 }
+      : items.length <= 16 ? { size: 16, line: 23, gap: 8 }
+      : { size: 14, line: 20, gap: 5 };
+    // One line is always kept back for the "and N more" note, so the
+    // list can never run into the warranty block.
+    const noteRoom = 34;
+    let shown = 0;
+    let iy = y;
+    for (const it of items) {
+      const wrapped = doc.splitTextToSize(it.desc || '', pageWidth - 2 * pad - 46);
+      const h = wrapped.length * cfg.line + cfg.gap;
+      const needsNote = shown + 1 < items.length;
+      if (iy + h > itemsBottom - (needsNote ? noteRoom : 0)) break;
+      doc.setFont(undefined, 'normal');
+      doc.setFontSize(cfg.size);
+      doc.setTextColor(...DOC_INK);
+      doc.text(String(shown + 1) + '.', pad, iy);
+      doc.text(wrapped, pad + 34, iy);
+      iy += h;
+      shown += 1;
+    }
+    itemsEndY = iy;
+    if (shown < items.length) {
+      doc.setFontSize(15);
+      doc.setFont(undefined, 'italic');
+      doc.setTextColor(...DOC_MUTED);
+      const rest = items.length - shown;
+      doc.text('and ' + rest + ' more item' + (rest === 1 ? '' : 's')
+        + (job.quoteNo ? (' - full list in Quotation ' + job.quoteNo) : ' - see the estimate'), pad, iy + 6);
+      itemsEndY = iy + 20;
+    }
+  }
+
+  // The warranty, centred in whatever space is left between the list and
+  // the footer. Pinned to the bottom it left a six-item card a third
+  // empty; pinned directly under the list it moved the same gap below
+  // the box instead. Splitting the leftover space in two reads as
+  // deliberate at both extremes - a short list and a long one.
+  const boxY = Math.max(
+    itemsEndY + 50,
+    Math.min(maxBoxY, itemsEndY + (footerRuleY - itemsEndY - boxH) / 2),
+  );
   doc.setFillColor(...DOC_PAPER);
   doc.setDrawColor(...DOC_GOLD);
-  doc.setLineWidth(0.5);
-  doc.roundedRect(boxX, boxY, boxW, boxH, 1.5, 1.5, 'FD');
-  doc.setFontSize(20);
+  doc.setLineWidth(3);
+  doc.roundedRect(pad, boxY, pageWidth - 2 * pad, boxH, 10, 10, 'FD');
+  doc.setFontSize(52);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...DOC_GOLD);
-  doc.text('2 Years', boxX + boxW / 2, boxY + 15, { align: 'center' });
-  doc.setFontSize(8);
+  doc.text('2 Years', pageWidth / 2, boxY + 74, { align: 'center' });
+  doc.setFontSize(21);
   doc.setTextColor(...DOC_NAVY);
-  doc.text('Shree Krushn', boxX + boxW / 2, boxY + 22, { align: 'center' });
-  doc.text('Maintenance Warranty', boxX + boxW / 2, boxY + 27, { align: 'center' });
-  doc.setFontSize(6.2);
+  doc.text('Shree Krushn Maintenance Warranty', pageWidth / 2, boxY + 112, { align: 'center' });
+  doc.setFontSize(15);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_MUTED);
-  doc.text('Free service visits for fitting /', boxX + boxW / 2, boxY + 33, { align: 'center' });
-  doc.text('adjustment issues on the work covered', boxX + boxW / 2, boxY + 36.8, { align: 'center' });
+  doc.text('Free service visits for fitting / adjustment', pageWidth / 2, boxY + 145, { align: 'center' });
+  doc.text('issues on the work covered above', pageWidth / 2, boxY + 168, { align: 'center' });
 
-  // One footer strip across the bottom. Everything below the rule has
-  // to clear the frame, which ends 3mm from the page edge - on a 74mm
-  // card that is a few millimetres of room, and the first attempt put
-  // the signature and the exclusions line straight through it.
-  const ruleY = pageHeight - 20;
+  // Footer.
   doc.setDrawColor(...DOC_RULE);
-  doc.setLineWidth(0.3);
-  doc.line(9, ruleY, pageWidth - 9, ruleY);
+  doc.setLineWidth(2);
+  doc.line(pad, footerRuleY, pageWidth - pad, footerRuleY);
 
-  const small = (x, label, value) => {
-    doc.setFontSize(6);
+  const cell = (x, label, value, align) => {
+    doc.setFontSize(13);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(...DOC_MUTED);
-    doc.text(label, x, ruleY + 4.5);
-    doc.setFontSize(8);
+    doc.text(label, x, footerRuleY + 34, align ? { align } : undefined);
+    doc.setFontSize(18);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(...DOC_NAVY);
-    doc.text(String(value), x, ruleY + 9.5);
+    doc.text(String(value), x, footerRuleY + 60, align ? { align } : undefined);
   };
-  small(9, 'DELIVERY DATE', formatDate(jobDeliveredAt(job) || job.expectedCompletionDate || job.createdAt));
-  small(52, 'CERTIFICATE NO', warrantyCertNo(job));
-  small(100, 'WARRANTY CLAIMS', BUSINESS.phone);
-
-  // Signatory and name on one line - two stacked lines did not fit.
-  doc.setDrawColor(...DOC_MUTED);
-  doc.setLineWidth(0.25);
-  doc.line(pageWidth - 52, ruleY + 5.5, pageWidth - 9, ruleY + 5.5);
-  doc.setFontSize(6);
+  cell(pad, 'DELIVERY DATE', formatDate(jobDeliveredAt(job) || job.expectedCompletionDate || job.createdAt));
+  cell(pageWidth - pad, 'CERTIFICATE NO', warrantyCertNo(job), 'right');
+  // Warranty claims goes on the second row, below - an earlier call put
+  // it on the first and it printed straight over the delivery date.
+  doc.setFontSize(13);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_MUTED);
-  doc.text('AUTHORISED SIGNATORY', pageWidth - 9, ruleY + 4.2, { align: 'right' });
+  doc.text('WARRANTY CLAIMS', pad, footerRuleY + 100);
+  doc.setFontSize(18);
   doc.setFont(undefined, 'bold');
-  doc.setFontSize(8);
   doc.setTextColor(...DOC_NAVY);
-  doc.text(BUSINESS.owner, pageWidth - 9, ruleY + 9.5, { align: 'right' });
+  doc.text(BUSINESS.phone, pad, footerRuleY + 126);
 
-  doc.setFontSize(5.4);
+  doc.setDrawColor(...DOC_MUTED);
+  doc.setLineWidth(2);
+  doc.line(pageWidth - pad - 230, footerRuleY + 108, pageWidth - pad, footerRuleY + 108);
+  doc.setFontSize(13);
+  doc.setFont(undefined, 'normal');
+  doc.setTextColor(...DOC_MUTED);
+  doc.text('AUTHORISED SIGNATORY', pageWidth - pad, footerRuleY + 100, { align: 'right' });
+  doc.setFont(undefined, 'bold');
+  doc.setFontSize(18);
+  doc.setTextColor(...DOC_NAVY);
+  doc.text(BUSINESS.owner, pageWidth - pad, footerRuleY + 130, { align: 'right' });
+
+  doc.setFontSize(12);
   doc.setFont(undefined, 'italic');
   doc.setTextColor(...DOC_MUTED);
-  doc.text('Excludes physical damage, misuse, water damage beyond normal use and normal wear and tear.', 9, pageHeight - 5);
+  doc.text('Excludes physical damage, misuse, water damage beyond normal use and normal wear and tear.',
+    pageWidth / 2, pageHeight - 34, { align: 'center', maxWidth: pageWidth - 2 * pad });
 
   return doc;
 }
