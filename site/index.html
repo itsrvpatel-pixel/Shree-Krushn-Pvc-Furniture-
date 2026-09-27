@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- Google Search Console ownership. Removing this un-verifies the
+     property and the search reports stop - leave it in place. -->
+<meta name="google-site-verification" content="ICxYartNOi71d__vEEnXYI19bZkJhWzGE-3M1j-6Xgs" />
 <title>PVC Furniture Ahmedabad | Modular Kitchen &amp; Wardrobe - Shree Krushn</title>
 <meta name="description" content="Shree Krushn PVC Furniture, Nikol, Ahmedabad. Modular kitchen, wardrobe, TV unit, pooja mandir - 100% waterproof, termite proof, full home fitted in about 10 days. Free site visit and a written estimate." />
 <link rel="canonical" href="https://www.shreekrushnpvcfurniture.com/" />
