@@ -109,6 +109,15 @@ for key,slug,h1,title,intro,incl in PAGES:
           "areaServed":{"@type":"City","name":"Ahmedabad"}},
         "areaServed":{"@type":"City","name":"Ahmedabad"},
         "description":intro[:250]}
+    # Mirrors the visible "Home > <H1>" crumb exactly - Google wants the
+    # markup to match what the reader sees. Both objects go in one @graph
+    # so the page keeps a single ld+json block.
+    crumb={"@type":"BreadcrumbList","itemListElement":[
+        {"@type":"ListItem","position":1,"name":"Home",
+         "item":"https://www.shreekrushnpvcfurniture.com/"},
+        {"@type":"ListItem","position":2,"name":h1,
+         "item":"https://www.shreekrushnpvcfurniture.com/%s" % slug}]}
+    ld={"@context":ld.pop("@context"),"@graph":[ld,crumb]}
     vals={'CSS':css,'TITLE':E(title),'DESC':E(intro[:155]),'SLUG':slug,'H1':E(h1),'INTRO':E(intro),
           'GRID':grid,'INCL':incl_html,'OTHERS':others,'ALBUMBTN':album_btn,'REVS':revs,'SOCS':socs,
           'COUNT':str(len(g.get(key,[]))),'N':str(N),'TEL':TEL,'PHONE':PHONE,'PHONE2':PHONE2,'WA':E(WA),
