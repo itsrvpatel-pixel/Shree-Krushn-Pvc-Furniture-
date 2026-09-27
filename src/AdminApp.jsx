@@ -4461,9 +4461,16 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
   // while and other writes could land in the meantime.
   const [backfillingThumbnails, setBackfillingThumbnails] = useState(false);
   const [backfillProgress, setBackfillProgress] = useState(null);
+  // Which photos failed and WHY. The count on its own was useless: a
+  // photo that cannot be thumbnailed fails identically on every run, so
+  // "12 fail hui" was all you ever got no matter how many times you
+  // pressed the button, with nothing saying which twelve or what to do
+  // about them.
+  const [backfillReport, setBackfillReport] = useState(null);
   const backfillThumbnails = async () => {
     setBackfillingThumbnails(true);
     setBackfillProgress(null);
+    setBackfillReport(null);
     try {
       const categoriesToProcess = [...new Set([...(categories || []), ...Object.keys(gallery || {})])];
       let totalNeedingThumb = 0;
@@ -4480,23 +4487,31 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         return;
       }
       let doneCount = 0;
-      let failCount = 0;
+      const failures = [];
       setBackfillProgress({ done: 0, total: totalNeedingThumb });
       for (const cat of Object.keys(perCategoryNeeding)) {
         const needing = perCategoryNeeding[cat];
         const thumbUrlById = {};
         await mapWithConcurrencyLimit(needing, 3, async (p) => {
           try {
+            // A photo whose url never made it to Storage is still sitting
+            // inline as a data: URI. If that inline copy was cut short by
+            // the failed upload there is no image left to shrink, and no
+            // number of retries will conjure one - say so plainly instead
+            // of letting it fail as a mystery on every run.
+            if (typeof p.url === 'string' && p.url.startsWith('data:') && p.url.length < 2000) {
+              throw new Error('Photo ka data adhoora hai - ise dobara upload karna hoga');
+            }
             const fullDataUri = await loadImageAsDataUrl(p.url);
             const thumbDataUri = await generateThumbnail(fullDataUri);
             const uploaded = await window.fileStorage.upload('gallery_thumb_' + p.id, thumbDataUri);
             if (uploaded && !uploaded.error) {
               thumbUrlById[p.id] = uploaded.url;
             } else {
-              failCount++;
+              failures.push({ cat, id: p.id, caption: p.caption || '', reason: 'Upload nahi hui: ' + ((uploaded && uploaded.error) || 'pata nahi') });
             }
           } catch (e) {
-            failCount++;
+            failures.push({ cat, id: p.id, caption: p.caption || '', reason: e.message || String(e) });
           }
           doneCount++;
           setBackfillProgress({ done: doneCount, total: totalNeedingThumb });
@@ -4511,7 +4526,9 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         const updatedPhotos = freshPhotos.map((p) => (thumbUrlById[p.id] ? { ...p, thumbUrl: thumbUrlById[p.id] } : p));
         await window.storage.set('gallery_cat_' + cat, JSON.stringify(updatedPhotos));
       }
-      showToast((totalNeedingThumb - failCount) + ' photo(s) ke thumbnail ban gaye' + (failCount > 0 ? (', ' + failCount + ' fail hui') : '') + ' - app band karke dobara kholein');
+      const made = totalNeedingThumb - failures.length;
+      setBackfillReport({ made, total: totalNeedingThumb, failures });
+      showToast(made + ' photo(s) ke thumbnail ban gaye' + (failures.length > 0 ? (', ' + failures.length + ' nahi bani - neeche wajah dekhein') : '') + (made > 0 ? ' - app band karke dobara kholein' : ''), failures.length > 0 && made === 0);
     } catch (e) {
       showToast('Backfill mein dikkat aayi: ' + (e.message || 'unknown error'), true);
     } finally {
@@ -5154,6 +5171,33 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={backfillThumbnails} disabled={backfillingThumbnails}>
             <Search size={14} /> {backfillingThumbnails ? (backfillProgress ? ('Ban rahi hain... (' + backfillProgress.done + '/' + backfillProgress.total + ')') : 'Shuru ho raha hai...') : 'Thumbnails Banayein'}
           </button>
+          {backfillReport && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ ...styles.estimateStatusBanner, ...(backfillReport.failures.length === 0
+                ? { background: '#E8F5E9', color: '#2E7D32' } : { background: '#FFF3E0', color: '#E65100' }) }}>
+                {backfillReport.failures.length === 0
+                  ? <><CheckCircle2 size={14} /> {backfillReport.made} thumbnail ban gaye - sab ho gaya</>
+                  : <><AlertCircle size={14} /> {backfillReport.made}/{backfillReport.total} bane, {backfillReport.failures.length} nahi</>}
+              </div>
+              {/* Grouped by reason - one line per cause beats twelve
+                  identical lines, and the cause is the part you act on. */}
+              {Object.entries(backfillReport.failures.reduce((acc, f) => {
+                (acc[f.reason] = acc[f.reason] || []).push(f); return acc;
+              }, {})).map(([reason, list]) => (
+                <div key={reason} style={{ ...styles.itemRow, marginTop: 6 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={styles.itemDesc}>{list.length} photo - {reason}</div>
+                    <div style={styles.itemSub}>{list.slice(0, 6).map((f) => f.cat + (f.caption ? (' / ' + f.caption) : '')).join(', ')}{list.length > 6 ? (' +' + (list.length - 6) + ' aur') : ''}</div>
+                  </div>
+                </div>
+              ))}
+              {backfillReport.failures.length > 0 && (
+                <div style={{ ...styles.plainTextMuted, marginTop: 8 }}>
+                  Dobara chalane se yahi photos phir fail hongi - inhe theek karne ke liye upar wala "Poori App Check Karein" chalayein, ya ye photos gallery mein dobara upload karein. Baaki gallery par koi asar nahi, ye photos ab bhi dikhti hain - bas grid mein thodi dheere.
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {pendingGalleryPhotos && pendingGalleryPhotos.length > 0 && (

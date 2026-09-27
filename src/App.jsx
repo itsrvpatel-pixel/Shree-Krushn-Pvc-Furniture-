@@ -482,11 +482,19 @@ function buildEstimateWhatsAppText(job) {
 // already uses for its icon.
 export async function loadImageAsDataUrl(url) {
   const res = await fetch(url);
+  // Without this a 404 or 403 sails straight through: the error page's
+  // own body becomes the "image", FileReader happily encodes it, and the
+  // failure only surfaces later as an undecodable image with nothing
+  // left to say about why.
+  if (!res.ok) throw new Error('HTTP ' + res.status + ' - photo download nahi hui');
   const blob = await res.blob();
+  if (blob.type && !blob.type.startsWith('image/')) {
+    throw new Error('Photo ki jagah ' + blob.type + ' mila');
+  }
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
+    reader.onerror = () => reject(reader.error || new Error('Photo padhi nahi ja saki'));
     reader.readAsDataURL(blob);
   });
 }
