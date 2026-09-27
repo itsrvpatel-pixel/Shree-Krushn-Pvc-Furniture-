@@ -5,4 +5,4 @@ Allow: /
 # crawler to read, and every URL under it would be a dead end.
 Disallow: /app
 
-Sitemap: https://shreekrushnpvcfurniture.com/sitemap.xml
+Sitemap: https://www.shreekrushnpvcfurniture.com/sitemap.xml

@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>{TITLE}</title>
 <meta name="description" content="{DESC}" />
-<link rel="canonical" href="https://shreekrushnpvcfurniture.com/{SLUG}" />
+<link rel="canonical" href="https://www.shreekrushnpvcfurniture.com/{SLUG}" />
 <meta property="og:type" content="website" />
 <meta property="og:title" content="{TITLE}" />
 <meta property="og:description" content="{DESC}" />
-<meta property="og:url" content="https://shreekrushnpvcfurniture.com/{SLUG}" />
+<meta property="og:url" content="https://www.shreekrushnpvcfurniture.com/{SLUG}" />
 <link rel="icon" type="image/png" href="/icon-192.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
