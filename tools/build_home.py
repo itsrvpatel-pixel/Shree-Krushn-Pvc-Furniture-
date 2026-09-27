@@ -44,7 +44,10 @@ N=sum(len(v) for v in g.values())
 
 parts=[]
 for i,(c,n) in enumerate(slides):
-    lazy='' if i==0 else ' loading="lazy"'
+    # The four slides sit side by side, so the browser treats them all as
+    # in-viewport and loading="lazy" does not hold them back. Without the
+    # hints they share the pipe with the hero and the LCP image crawls in.
+    lazy=' fetchpriority="high"' if i==0 else ' loading="lazy" fetchpriority="low"'
     on=' on' if i==0 else ''
     parts.append('<div class="sld"><img src="img/slide/%s" alt="%s by Shree Krushn PVC Furniture, Ahmedabad"%s /><span>%s</span></div>'
                  % (n, E(SL[c]), lazy, E(SL[c])))
@@ -62,11 +65,11 @@ for k,t,s in CATS:
     else:
         open_tag='<div class="card">'; close='</div>'
         more='%d designs' % len(g.get(k,[]))
-    cards+=('%s<img src="img/card/%s" alt="%s PVC furniture, Nikol Ahmedabad" loading="lazy" />'
+    cards+=('%s<img src="img/card/%s" alt="%s PVC furniture, Nikol Ahmedabad" loading="lazy" fetchpriority="low" />'
             '<span class="t"><b>%s</b><i>%s</i></span>%s'
             % (open_tag, man[k][0], E(t), E(t), more, close))
 
-rail=''.join('<img src="img/rail/%s" alt="%s PVC design, Ahmedabad" loading="lazy" />' % (n, E(t))
+rail=''.join('<img src="img/rail/%s" alt="%s PVC design, Ahmedabad" loading="lazy" fetchpriority="low" />' % (n, E(t))
              for k,t,_ in CATS for n in (man.get(k) or [])[:2])
 why=''.join('<div class="w"><span>%02d</span><h3>%s</h3><p>%s</p></div>'
             % (i, E(t.replace(' — ',' - ')), E(clean(specs.get(t,''))))
