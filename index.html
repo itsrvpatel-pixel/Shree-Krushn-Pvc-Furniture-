@@ -93,6 +93,36 @@
          the app - defined once here since inline <style> attributes
          can't declare @keyframes themselves. */
       @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+      /* The shell below #root, before React takes over.
+
+         The page already carried real text for search engines to index,
+         but it was unstyled - so for the whole time the bundle is
+         downloading (a few seconds on a phone on mobile data) the first
+         thing a customer saw was a wall of raw black Times New Roman.
+         It reads as a broken page, which is worse than a blank one.
+
+         The same words, laid out as the app's own loading screen: logo,
+         name, and a spinner, with the indexable copy still on the page
+         as real visible text underneath. Nothing is hidden - hiding it
+         is what Google penalises, and it is honest copy either way. */
+      #boot { min-height: 100vh; margin: 0; display: flex; flex-direction: column;
+              align-items: center; justify-content: center; gap: 14px; padding: 32px 22px;
+              box-sizing: border-box; text-align: center;
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              background: #F8FAFB; color: #0F1B3D; }
+      /* 64px, from a 128px file - 8KB. The app's own icon-512.png is
+         288KB, and putting it here was measured costing four seconds on
+         slow 3G: it shares the connection with the bundle the page is
+         actually waiting for. A holding screen must not be the reason
+         the wait is long. */
+      #boot img { width: 64px; height: 64px; border-radius: 50%; }
+      #boot h1 { font-size: 19px; line-height: 1.35; font-weight: 800; margin: 0; max-width: 20em; }
+      #boot .tag { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+                   color: #A8975F; font-weight: 700; margin: -6px 0 2px; }
+      #boot .dot { width: 26px; height: 26px; border: 3px solid #E1E4EB; border-top-color: #A8975F;
+                   border-radius: 50%; animation: spin 0.8s linear infinite; margin-top: 6px; }
+      #boot p { font-size: 12px; line-height: 1.6; color: #7A8291; margin: 0; max-width: 34em; }
     </style>
   </head>
   <body>
@@ -108,8 +138,11 @@
       so a real visitor never sees it flash.
     -->
     <div id="root">
-      <main>
+      <main id="boot">
+        <img src="/boot-mark.jpg" alt="Shree Krushn PVC Furniture logo" width="64" height="64" />
+        <div class="tag">Premium PVC Interior Solutions</div>
         <h1>Shree Krushn PVC Furniture - PVC Furniture Design, Nikol, Ahmedabad</h1>
+        <div class="dot" role="status" aria-label="Loading"></div>
         <p>
           Shree Krushn PVC Furniture, run by Ravi Vasoya, designs and builds PVC furniture
           for the full home in Ahmedabad and Vadodara. We are known among the top PVC
