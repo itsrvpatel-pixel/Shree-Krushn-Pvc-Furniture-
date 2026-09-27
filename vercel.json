@@ -8,6 +8,17 @@
   ],
   "redirects": [
     {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "(www\\.)?shreekrushnpvcfurniture\\.site"
+        }
+      ],
+      "destination": "/app",
+      "permanent": false
+    },
+    {
       "source": "/handmade-vase-ikigai1",
       "destination": "/",
       "permanent": true
@@ -29,18 +40,6 @@
     }
   ],
   "cleanUrls": true,
-  "rewrites": [
-    {
-      "source": "/",
-      "has": [
-        {
-          "type": "host",
-          "value": "(www\\.)?shreekrushnpvcfurniture\\.site"
-        }
-      ],
-      "destination": "/app/index.html"
-    }
-  ],
   "headers": [
     {
       "source": "/(.*)",
