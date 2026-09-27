@@ -908,12 +908,88 @@ async function buildReceiptPdfDoc(job, payment) {
 // Roomiest first. The first layout whose list fits above the warranty
 // block wins, so a small job gets big readable type and only a long one
 // pays for the space it needs.
+// The terms the warranty actually runs on. They were a single line of
+// small print at the foot of the page - "excludes physical damage,
+// misuse..." - which is the one thing a customer argues about and the
+// one thing that was never spelled out. Numbered, they are also
+// something to point at on a phone call.
+//
+// Deliberately short. Terms nobody reads protect nobody; these are the
+// six that decide whether a visit is free.
+const WARRANTY_TERMS = [
+  'Warranty runs for 2 years from the delivery date shown above, and covers manufacturing and fitting defects only.',
+  'Free service visits cover fitting, alignment and adjustment. Material replaced for any other reason is chargeable.',
+  'Excludes physical damage, misuse, water damage beyond normal use, and normal wear and tear.',
+  'Hardware - channels, hinges, handles and fittings - carries its own manufacturer warranty.',
+  'Work repaired or altered by anyone other than ' + BUSINESS.name + ' is not covered.',
+  'Produce this certificate when making a claim. Subject to Ahmedabad jurisdiction.',
+];
+
+// Two balanced columns of small print above the footer. Measuring and
+// drawing share one pass so the space reserved for the block is exactly
+// the space it takes - the item list above it is given whatever is left,
+// and an estimate that was even 2mm out would show as a collision.
+function drawWarrantyTerms(doc, x, y, width, draw) {
+  const size = 6.2;
+  const line = 2.6;
+  const gap = 1.2;
+  const gutter = 8;
+  const colW = (width - gutter) / 2;
+  const indent = 3.4;
+
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(size);
+  const wrapped = WARRANTY_TERMS.map((t) => doc.splitTextToSize(t, colW - indent));
+  const total = wrapped.reduce((n, w) => n + w.length, 0);
+
+  // Split where the running line count passes halfway, so the two
+  // columns end level rather than one running well past the other.
+  let split = wrapped.length;
+  let run = 0;
+  for (let i = 0; i < wrapped.length; i += 1) {
+    run += wrapped[i].length;
+    if (run >= Math.ceil(total / 2)) { split = i + 1; break; }
+  }
+
+  const headH = 6.4;
+  if (draw) {
+    doc.setFontSize(7.5);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(...DOC_NAVY);
+    doc.text('TERMS & CONDITIONS', x, y);
+    doc.setDrawColor(...DOC_RULE);
+    doc.setLineWidth(0.3);
+    doc.line(x, y + 2, x + width, y + 2);
+  }
+
+  let tallest = 0;
+  for (let c = 0; c < 2; c += 1) {
+    const from = c === 0 ? 0 : split;
+    const to = c === 0 ? split : wrapped.length;
+    const cx = x + c * (colW + gutter);
+    let cy = y + headH;
+    for (let i = from; i < to; i += 1) {
+      if (draw) {
+        doc.setFont(undefined, 'normal');
+        doc.setFontSize(size);
+        doc.setTextColor(...DOC_MUTED);
+        doc.text(String(i + 1) + '.', cx, cy);
+        doc.text(wrapped[i], cx + indent, cy);
+      }
+      cy += wrapped[i].length * line + gap;
+    }
+    tallest = Math.max(tallest, cy - y);
+  }
+  return tallest;
+}
+
 const CERT_ITEM_LAYOUTS = [
   { cols: 2, size: 10, line: 4.8, gap: 2.2 },
   { cols: 2, size: 9, line: 4.3, gap: 1.4 },
   { cols: 2, size: 8, line: 3.9, gap: 0.9 },
   { cols: 3, size: 7.5, line: 3.6, gap: 0.8 },
   { cols: 3, size: 6.5, line: 3.1, gap: 0.5 },
+  { cols: 3, size: 6, line: 2.8, gap: 0.4 },
 ];
 
 // Places items across `cfg.cols` columns, left to right then down, and
@@ -973,7 +1049,12 @@ async function buildWarrantyPdfDoc(job) {
   doc.setLineWidth(0.25);
   doc.rect(10.5, 40.5, pageWidth - 21, pageHeight - 51);
 
-  let y = 54;
+  // The head of the page is tighter than it was by about ten
+  // millimetres. Every one of those went to the item list: with the
+  // terms now holding the foot, fifty items stopped fitting, and
+  // whitespace around a title is the cheapest thing on the page to
+  // give up.
+  let y = 51;
   doc.setTextColor(...DOC_NAVY);
   doc.setFontSize(22);
   doc.setFont(undefined, 'bold');
@@ -982,18 +1063,18 @@ async function buildWarrantyPdfDoc(job) {
   doc.setDrawColor(...DOC_GOLD);
   doc.setLineWidth(0.7);
   doc.line(pageWidth / 2 - 38, y, pageWidth / 2 + 38, y);
-  y += 13;
+  y += 11;
 
   doc.setFontSize(9);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_MUTED);
   doc.text('ISSUED TO', pageWidth / 2, y, { align: 'center' });
-  y += 9;
+  y += 8;
   doc.setFontSize(18);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...DOC_NAVY);
   doc.text(job.customerName, pageWidth / 2, y, { align: 'center' });
-  y += 7;
+  y += 6.5;
   if (job.flatNo || job.address) {
     doc.setFontSize(9.5);
     doc.setFont(undefined, 'normal');
@@ -1002,15 +1083,19 @@ async function buildWarrantyPdfDoc(job) {
     doc.text(addr.slice(0, 2), pageWidth / 2, y, { align: 'center' });
     y += addr.slice(0, 2).length * 5;
   }
-  y += 9;
+  y += 7;
 
-  // The warranty block and the footer own the bottom of the page, so the
-  // item list is given exactly what is left above them and never has to
-  // spill onto a second sheet.
-  const boxH = 34;
+  // The warranty block, the terms and the footer own the bottom of the
+  // page, so the item list is given exactly what is left above them and
+  // never has to spill onto a second sheet. The terms are measured
+  // rather than guessed at - an estimate 2mm out would print them over
+  // the last row of the list.
+  const boxH = 26;
   const footerRuleY = pageHeight - 46;
-  const maxBoxY = footerRuleY - boxH - 9;
-  const itemsBottom = maxBoxY - 7;
+  const termsH = drawWarrantyTerms(doc, blockX, 0, blockWidth, false);
+  const termsY = footerRuleY - 6 - termsH;
+  const maxBoxY = termsY - 6 - boxH;
+  const itemsBottom = maxBoxY - 5;
 
   const items = job.items || [];
   doc.setFontSize(9);
@@ -1034,8 +1119,14 @@ async function buildWarrantyPdfDoc(job) {
     // One line is always held back for the "and N more" note, so the
     // list can never grow into the warranty block.
     const noteRoom = 7;
-    let cfg = CERT_ITEM_LAYOUTS[CERT_ITEM_LAYOUTS.length - 1];
-    for (const c of CERT_ITEM_LAYOUTS) {
+    // "Across" means nothing with one or two items, and half a page is
+    // narrow enough that a single furniture name wraps in it - so those
+    // two cases get the full width instead of a column they do not need.
+    const candidates = items.length <= 2
+      ? [{ cols: 1, size: 10.5, line: 5, gap: 2.4 }].concat(CERT_ITEM_LAYOUTS)
+      : CERT_ITEM_LAYOUTS;
+    let cfg = candidates[candidates.length - 1];
+    for (const c of candidates) {
       if (layoutCertItems(doc, items, blockX, y, blockWidth, itemsBottom, c, false).placed >= items.length) {
         cfg = c;
         break;
@@ -1062,30 +1153,32 @@ async function buildWarrantyPdfDoc(job) {
   }
 
   // The warranty, centred in whatever space is left between the list and
-  // the footer. Pinned to the bottom it leaves a short list stranded at
+  // the terms. Pinned to the bottom it leaves a short list stranded at
   // the top of the page; pinned under the list it moves the same gap
   // below the box. Splitting the leftover space reads as deliberate at
   // both extremes.
   const boxY = Math.max(
-    itemsEndY + 9,
-    Math.min(maxBoxY, itemsEndY + (footerRuleY - itemsEndY - boxH) / 2),
+    itemsEndY + 8,
+    Math.min(maxBoxY, itemsEndY + (termsY - itemsEndY - boxH) / 2),
   );
   doc.setFillColor(...DOC_PAPER);
   doc.setDrawColor(...DOC_GOLD);
   doc.setLineWidth(0.6);
   doc.roundedRect(blockX, boxY, blockWidth, boxH, 2, 2, 'FD');
-  doc.setFontSize(26);
+  doc.setFontSize(22);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...DOC_GOLD);
-  doc.text('2 Years', pageWidth / 2, boxY + 13, { align: 'center' });
-  doc.setFontSize(12);
+  doc.text('2 Years', pageWidth / 2, boxY + 11, { align: 'center' });
+  doc.setFontSize(11);
   doc.setTextColor(...DOC_NAVY);
-  doc.text('Shree Krushn Maintenance Warranty', pageWidth / 2, boxY + 20.5, { align: 'center' });
-  doc.setFontSize(8.5);
+  doc.text('Shree Krushn Maintenance Warranty', pageWidth / 2, boxY + 17, { align: 'center' });
+  doc.setFontSize(8);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_MUTED);
   doc.text('Free service visits for fitting / adjustment issues on the work covered above',
-    pageWidth / 2, boxY + 27, { align: 'center' });
+    pageWidth / 2, boxY + 22.5, { align: 'center' });
+
+  drawWarrantyTerms(doc, blockX, termsY, blockWidth, true);
 
   // Footer.
   doc.setDrawColor(...DOC_RULE);
@@ -1096,12 +1189,6 @@ async function buildWarrantyPdfDoc(job) {
   drawField(doc, pageWidth / 2, footerRuleY + 6, 'Certificate No', warrantyCertNo(job), { align: 'center' });
   drawField(doc, blockX, footerRuleY + 17, 'Warranty Claims', BUSINESS.phone);
   drawSignature(doc, pageWidth, footerRuleY + 14, m + 6, true);
-
-  doc.setFontSize(7.5);
-  doc.setFont(undefined, 'italic');
-  doc.setTextColor(...DOC_MUTED);
-  doc.text('Excludes physical damage, misuse, water damage beyond normal use and normal wear and tear.',
-    pageWidth / 2, pageHeight - 12, { align: 'center', maxWidth: pageWidth - 2 * m });
 
   return doc;
 }

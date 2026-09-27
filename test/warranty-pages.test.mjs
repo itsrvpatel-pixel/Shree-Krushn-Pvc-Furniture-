@@ -33,16 +33,24 @@ const build = (count) => {
   };
 };
 const pageCount = (raw) => (raw.match(/\/Type\s*\/Page[^s]/g) || []).length;
+// The terms are numbered too, and they are drawn after the work covered,
+// so the item count is read from the part of the page above them.
 const listed = (raw) => {
+  const end = raw.indexOf('TERMS & CONDITIONS');
+  const upto = end === -1 ? raw : raw.slice(0, end);
   let n = 0;
-  while (raw.includes('(' + (n + 1) + '.)')) n += 1;
+  while (upto.includes('(' + (n + 1) + '.)')) n += 1;
   return n;
 };
+// Every string the page draws, joined - so a phrase can be looked for
+// without caring which line the wrap put it on.
+const words = (raw) => (raw.match(/\((?:[^()\\]|\\.)*\) Tj/g) || [])
+  .map((t) => t.slice(1, -4)).join(' ').replace(/\\([()])/g, '$1');
 
 // Short and medium jobs: every item on the card, no note. Fifty is in
 // this group on purpose - it is the size the customer asked about, and
 // across three columns an A4 page holds all fifty.
-for (const count of [1, 6, 20, 30, 50]) {
+for (const count of [6, 20, 30, 50]) {
   const { warranty } = build(count);
   ok(count + ' items: one card', pageCount(warranty) === 1, pageCount(warranty) + ' pages');
   ok(count + ' items: all of them are listed', listed(warranty) === count, 'listed ' + listed(warranty));
@@ -60,6 +68,15 @@ for (const count of [120]) {
     note && Number(note[1]) + shown === count, note ? note[0] + ' vs ' + shown + ' shown' : 'no note');
   ok(count + ' items: the note points at the quotation',
     /full list in Quotation/.test(warranty), 'no quotation reference');
+}
+
+// One item has no "across" to do, so it gets the full width instead of
+// being wrapped into half a page it does not need.
+{
+  const one = build(1).warranty;
+  ok('one item: one page, listed, no note',
+    pageCount(one) === 1 && listed(one) === 1 && !/and \d+ more item/.test(one),
+    pageCount(one) + ' pages, ' + listed(one) + ' listed');
 }
 
 // The size is the request, so it is pinned.
@@ -99,6 +116,27 @@ ok('no fractional rupees on the receipt', !receipt.includes('.333'), 'decimals a
 ok('the receipt spells the amount out', /Rupees Only/.test(receipt), 'no amount in words');
 ok('Vadodara is gone from both documents',
   !warranty.includes('Vadodara') && !receipt.includes('Vadodara'), 'still there');
+
+// The terms the warranty runs on. They used to be one line of small
+// print; the exclusions in particular are what a claim argues about, so
+// they are numbered and on the certificate rather than assumed.
+ok('the certificate carries terms and conditions',
+  warranty.includes('TERMS & CONDITIONS'), 'no terms block');
+for (const [name, needle] of [
+  ['the 2 year term and what it covers', '2 years from the delivery date'],
+  ['what a free visit covers, and what is chargeable', 'chargeable'],
+  ['the exclusions', 'normal wear and tear'],
+  ['hardware carries its own warranty', 'manufacturer warranty'],
+  ['outside repairs void it', 'repaired or altered by anyone other'],
+  ['produce the certificate, and jurisdiction', 'Ahmedabad jurisdiction'],
+]) ok('terms state ' + name, words(warranty).includes(needle), 'missing: ' + needle);
+ok('the old one-line exclusion note is gone, not duplicated',
+  (words(warranty).match(/normal wear and tear/g) || []).length === 1, 'appears twice');
+// Terms are worth nothing if they land on top of the work they govern.
+const longest = build(50).warranty;
+ok('terms still fit alongside a fifty item list',
+  pageCount(longest) === 1 && listed(longest) === 50 && longest.includes('TERMS & CONDITIONS'),
+  pageCount(longest) + ' pages, ' + listed(longest) + ' listed');
 
 fs.rmSync(dir, { recursive: true, force: true });
 console.log('\n===== WARRANTY CARD / RECEIPT =====');
