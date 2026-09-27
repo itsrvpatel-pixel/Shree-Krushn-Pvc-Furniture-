@@ -1,9 +1,7 @@
-@font-face{font-family:Manrope;font-style:normal;font-weight:500 800;
-font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
 
 /* --- category page --- */
 .crumb{font-size:12.5px;color:var(--soft);font-weight:700;margin-bottom:14px}
-.crumb a{color:var(--acc)}
+.crumb a{color:var(--navy)}
 .chead{padding-top:26px}
 .chead h1{font-size:32px}
 .chead .intro{margin:14px 0 20px;font-size:16px;max-width:36em}
@@ -12,8 +10,8 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
 .incl{list-style:none;margin:16px 0 0;padding:0;display:grid;grid-template-columns:1fr;gap:10px}
 .incl li{position:relative;padding-left:26px;font-size:14.5px;color:var(--ink);font-weight:600}
 .incl li::before{content:'';position:absolute;left:0;top:7px;width:14px;height:14px;border-radius:50%;
-background:var(--acc);opacity:.15}
-.incl li::after{content:'';position:absolute;left:4.5px;top:11px;width:5px;height:5px;border-radius:50%;background:var(--acc)}
+background:var(--navy);opacity:.15}
+.incl li::after{content:'';position:absolute;left:4.5px;top:11px;width:5px;height:5px;border-radius:50%;background:var(--navy)}
 .others{display:flex;gap:10px;overflow-x:auto;padding-left:18px;padding-right:18px;padding-bottom:6px;scrollbar-width:none}
 .others::-webkit-scrollbar{display:none}
 .oc{flex:0 0 132px;text-align:center}
