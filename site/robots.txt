@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# The customer app is behind a login - there is nothing in it for a
+# crawler to read, and every URL under it would be a dead end.
+Disallow: /app
+
+Sitemap: https://shreekrushnpvcfurniture.com/sitemap.xml
