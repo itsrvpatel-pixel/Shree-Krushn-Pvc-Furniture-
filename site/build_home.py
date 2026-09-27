@@ -45,10 +45,10 @@ parts=[]
 for i,(c,n) in enumerate(slides):
     lazy='' if i==0 else ' loading="lazy"'
     on=' on' if i==0 else ''
-    parts.append('<figure class="sl%s"><img src="img/slide/%s" alt="%s by Shree Krushn PVC Furniture, Ahmedabad"%s /></figure>'
-                 % (on, n, E(SL[c]), lazy))
+    parts.append('<div class="sld"><img src="img/slide/%s" alt="%s by Shree Krushn PVC Furniture, Ahmedabad"%s /><span>%s</span></div>'
+                 % (n, E(SL[c]), lazy, E(SL[c])))
 slide_html=''.join(parts)
-dots=''.join('<button class="d%s" data-i="%d" aria-label="Slide %d"></button>' % (' on' if i==0 else '', i, i+1)
+dots=''.join('<button class="dot%s" data-i="%d" aria-label="Slide %d"></button>' % (' on' if i==0 else '', i, i+1)
              for i in range(len(slides)))
 
 cards=''
@@ -56,14 +56,14 @@ for k,t,s in CATS:
     if not man.get(k): continue
     a=ALBUM.get(k)
     if a:
-        open_tag='<a class="col" href="%s" target="_blank" rel="noopener">' % E(a); close='</a>'
-        more='<span class="more">View album &rarr;</span>'
+        open_tag='<a class="card" href="%s" target="_blank" rel="noopener">' % E(a); close='</a>'
+        more='%d designs &#183; view album' % len(g.get(k,[]))
     else:
-        open_tag='<div class="col">'; close='</div>'
-        more='<span class="more">%d designs</span>' % len(g.get(k,[]))
-    cards+=('%s<span class="col-img"><img src="img/card/%s" alt="%s PVC furniture, Nikol Ahmedabad" loading="lazy" /></span>'
-            '<span class="col-b"><h3>%s</h3><p>%s</p>%s</span>%s'
-            % (open_tag, man[k][0], E(t), E(t), E(s), more, close))
+        open_tag='<div class="card">'; close='</div>'
+        more='%d designs' % len(g.get(k,[]))
+    cards+=('%s<img src="img/card/%s" alt="%s PVC furniture, Nikol Ahmedabad" loading="lazy" />'
+            '<span class="t"><b>%s</b><i>%s</i></span>%s'
+            % (open_tag, man[k][0], E(t), E(t), more, close))
 
 rail=''.join('<img src="img/rail/%s" alt="%s PVC design, Ahmedabad" loading="lazy" />' % (n, E(t))
              for k,t,_ in CATS for n in (man.get(k) or [])[:2])
@@ -79,8 +79,8 @@ ICON={'instagram':'M12 2.2c3.2 0 3.6 0 4.9.07 3.3.15 4.8 1.7 5 5 .06 1.3.07 1.7.
 socs=''.join('<a href="%s" target="_blank" rel="noopener" aria-label="%s"><svg viewBox="0 0 24 24"><path d="%s"/></svg></a>'
              % (E(u), k, ICON[k]) for k,u in SOCIAL.items())
 
-css = open('/tmp/home.css').read()
-tpl = open('/tmp/home.tpl').read()
+css = open('/tmp/a.css').read()
+tpl = open('/tmp/a.tpl').read()
 # Plain replacement, not str.format - the stylesheet is full of braces.
 vals={'CSS':css,'N':str(N),'SLIDES':slide_html,'DOTS':dots,'CARDS':cards,'RAIL':rail,
       'WHY':why,'REVS':revs,'SOCS':socs,'TEL':TEL,'PHONE':PHONE,'PHONE2':PHONE2,
