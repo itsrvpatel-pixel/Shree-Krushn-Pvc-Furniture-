@@ -390,6 +390,142 @@ const PAYMENT_MILESTONES = [
 // unpaid - allocating actual payments against milestones in order, so a
 // partial payment fills the earliest open milestone first rather than
 // being split evenly across all three.
+// The 2-year maintenance warranty, turned into something the business
+// can actually act on.
+//
+// Every delivered job carries a promise the warranty certificate spells
+// out: "2 Years - Shree Krushn Maintenance Warranty - free service
+// visits for fitting/adjustment issues". Nothing in the app tracked it,
+// so whether those visits happened depended on the customer complaining.
+// Four visits over two years is also four conversations with somebody
+// who already bought - which is where repeat work and referrals come
+// from.
+const SERVICE_VISIT_MONTHS = [6, 12, 18, 24];
+const MAINTENANCE_WARRANTY_MONTHS = 24;
+
+function addMonths(iso, months) {
+  const d = new Date(iso);
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + months);
+  // 31 August + 6 months must not land in March: clamp to the last day
+  // of the shorter month instead of rolling over.
+  if (d.getDate() < day) d.setDate(0);
+  return d.toISOString();
+}
+
+// When the work was finished. deliveredAt is recorded from now on; for
+// jobs delivered before that existed, the status change is still in the
+// activity log, and createdAt is the last resort.
+function jobDeliveredAt(job) {
+  if (!job) return null;
+  if (job.deliveredAt) return job.deliveredAt;
+  if (job.status !== 'delivered' && job.status !== 'paid') return null;
+  const entry = (job.activity || []).filter((a) => a && /Delivered/i.test(a.text || '')).pop();
+  return (entry && entry.date) || job.createdAt || null;
+}
+
+function warrantyEndsAt(job) {
+  const from = jobDeliveredAt(job);
+  return from ? addMonths(from, MAINTENANCE_WARRANTY_MONTHS) : null;
+}
+
+// Each scheduled visit with its due date and whether it has been done.
+function serviceSchedule(job) {
+  const from = jobDeliveredAt(job);
+  if (!from) return [];
+  const done = job.serviceVisits || [];
+  return SERVICE_VISIT_MONTHS.map((months) => {
+    const hit = done.find((v) => Number(v.n) === months);
+    return {
+      n: months,
+      label: months === 12 ? '1 saal' : (months === 24 ? '2 saal' : months + ' mahine'),
+      dueAt: addMonths(from, months),
+      doneAt: hit ? hit.at : null,
+      note: hit ? hit.note : '',
+    };
+  });
+}
+
+// The visit to act on: the oldest one that is due and not yet done.
+// Null once every visit is done or the warranty has run out.
+// Compared by calendar day, not by timestamp. A visit due on the 15th
+// is due all of the 15th - matching it against the exact hour the job
+// was delivered would leave it "not due yet" until mid-morning, which
+// is not how anybody reads a due date.
+function serviceVisitDue(job, nowIso) {
+  const today = new Date(nowIso || Date.now()).toISOString().slice(0, 10);
+  return serviceSchedule(job).find((v) => !v.doneAt && v.dueAt.slice(0, 10) <= today) || null;
+}
+
+function buildServiceOfferText(job, visit) {
+  const lines = [];
+  lines.push('Namaste ' + job.customerName + ',');
+  lines.push('');
+  lines.push('Aapke kaam ko ' + visit.label + ' ho gaye hain.');
+  lines.push('Hamari 2 saal ki maintenance warranty ke andar aapka free service visit due hai -');
+  lines.push('fitting, adjustment, ya koi bhi chhoti dikkat ho to hum aakar theek kar denge.');
+  lines.push('');
+  lines.push('Kab aana theek rahega? Din aur time bata dijiye.');
+  lines.push('');
+  lines.push('- ' + BUSINESS.name);
+  return lines.join(NEWLINE);
+}
+
+// A quotation number, so a printed estimate can be referred to.
+//
+// The quotation PDF is headed "Estimate & Invoice" but carried nothing
+// to name it by: two estimates for the same customer were identical on
+// paper, and a customer ringing up about "that quote you sent" had
+// nothing to quote. The number is assigned once, when a job first gets
+// an estimate item, and never changes afterwards - reprinting an old
+// quotation must produce the same number it had the first time.
+//
+// Indian financial year, April to March, because that is the year the
+// business's own books run on: an estimate given in March 2027 belongs
+// to 2026-27, one given that April to 2027-28.
+function financialYearLabel(iso) {
+  const d = new Date(iso || Date.now());
+  const y = d.getFullYear();
+  const startYear = d.getMonth() >= 3 ? y : y - 1;
+  return startYear + '-' + String((startYear + 1) % 100).padStart(2, '0');
+}
+
+// The next free number in that year. Takes the numbers already in use
+// rather than a stored counter: there is no counter to drift out of
+// step with the data, and a job deleted by hand cannot make the next
+// quotation reuse its number.
+function nextQuoteNo(iso, used) {
+  const prefix = 'SK/' + financialYearLabel(iso) + '/';
+  let n = 1;
+  for (const q of used) {
+    if (typeof q === 'string' && q.startsWith(prefix)) {
+      const v = Number(q.slice(prefix.length));
+      if (Number.isFinite(v) && v >= n) n = v + 1;
+    }
+  }
+  while (used.has(prefix + String(n).padStart(3, '0'))) n += 1;
+  return prefix + String(n).padStart(3, '0');
+}
+
+// Gives a number to any job that has an estimate and does not have one
+// yet. Done over the whole list, at save time, so the number is chosen
+// against every other job rather than against whatever one screen
+// happened to know about. Returns the original array untouched when
+// there is nothing to assign, so a normal save writes nothing extra.
+function assignQuoteNumbers(list) {
+  const jobs = Array.isArray(list) ? list : [];
+  const used = new Set(jobs.map((j) => j && j.quoteNo).filter(Boolean));
+  let changed = false;
+  const next = jobs.map((j) => {
+    if (!j || j.quoteNo || !(j.items || []).length) return j;
+    const no = nextQuoteNo(j.estimateGivenAt || j.createdAt, used);
+    used.add(no);
+    changed = true;
+    return { ...j, quoteNo: no };
+  });
+  return changed ? next : jobs;
+}
+
 function jobMilestoneStatus(job) {
   const total = jobTotal(job);
   const paid = jobPaid(job);
@@ -425,6 +561,7 @@ function buildEstimateWhatsAppText(job) {
   const lines = [];
   lines.push('*' + BUSINESS.name + '*');
   lines.push('Estimate for ' + job.customerName);
+  if (job.quoteNo) lines.push('Quotation No. ' + job.quoteNo);
   if (job.materialCompany || job.sheetWeightKg) {
     lines.push('Material: ' + [job.materialCompany, job.sheetWeightKg && (job.sheetWeightKg + ' kg sheet')].filter(Boolean).join(' - '));
   }
@@ -1267,6 +1404,47 @@ async function shareEstimatePdf(job, elementId, showToast) {
   }
 }
 
+
+// The one payment reminder message, used everywhere one is sent.
+//
+// A reminder button did already exist, per milestone, inside a job's
+// Payment tab - but it sent a single line ("aapka Material Advance
+// payment due hai: Rs 1,20,000") with no context, and it was only
+// reachable after opening that one job. The Due Payments list, which is
+// where the admin actually reviews who owes what across every customer,
+// had no way to send anything at all.
+//
+// So there is now one message, built here and used from both places: it
+// states the total, what has been paid, what is left, and - when the job
+// is mid-way - which milestone that amount belongs to, so the customer
+// can see WHY this much is due now rather than just being asked for
+// money. No pressure wording; this goes to people the business wants to
+// work for again.
+function buildPaymentReminderText(job) {
+  const total = jobTotal(job);
+  const paid = jobPaid(job);
+  const due = jobDue(job);
+  const lines = [];
+  lines.push('Namaste ' + job.customerName + ',');
+  lines.push('');
+  lines.push('Aapke kaam ka hisaab:');
+  lines.push('Total: ' + currency(total));
+  lines.push('Ab tak mila: ' + currency(paid));
+  lines.push('Baaki: ' + currency(due));
+
+  // Which stage this money belongs to, when one is actually due now.
+  const milestone = jobMilestoneStatus(job).find((m) => m.due > 0);
+  if (milestone) {
+    lines.push('');
+    lines.push(milestone.label + ' ka ' + currency(milestone.due) + ' abhi due hai.');
+  }
+  lines.push('');
+  lines.push('Aap jab bhi bhej dein, bata dijiyega - hum receipt bhej denge.');
+  lines.push('Koi sawaal ho to poochh lijiye.');
+  lines.push('');
+  lines.push('- ' + BUSINESS.name);
+  return lines.join(NEWLINE);
+}
 
 function whatsAppShareUrl(phoneDigits10, text) {
   const encoded = encodeURIComponent(text);
@@ -2558,9 +2736,10 @@ export default function App() {
   // mergeJobsWithFreshServer is still used for the case it was written for:
   // two people editing the SAME job at the same time, where the two versions
   // have to be merged field by field rather than one simply winning.
-  const persistJobs = useCallback(async (next) => {
+  const persistJobs = useCallback(async (nextRaw) => {
     jobsWriteInFlightRef.current = true;
     const prevLocalJobs = jobs;
+    const next = assignQuoteNumbers(nextRaw);
     setJobs(next);
     try {
       const merged = await mergeJobsWithFreshServer(next, prevLocalJobs);
@@ -7112,6 +7291,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
           customers={customers} jobs={jobs} expenses={expenses} gallery={gallery} categories={categories}
           pendingEstimates={pendingEstimates} overdue={overdue} pendingAppointments={pendingAppointments} pendingExtraWork={pendingExtraWork}
           onOpenJob={setActiveJobId} setTab={setTab} isPartner={isPartner} isDhPartner={isDhPartner}
+          onSaveJob={(nextJob) => setJobs(jobs.map((j) => (j.id === nextJob.id ? nextJob : j)))} showToast={showToast}
         />
       )}
       {tab === 'customers' && <AdminCustomers customers={customers} setCustomers={setCustomers} jobs={jobs} setJobs={setJobs} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} onOpenJob={setActiveJobId} showToast={showToast} isPartner={isPartner} isDhPartner={isDhPartner} />}
@@ -7148,7 +7328,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   );
 }
 
-function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEstimates, overdue, pendingAppointments, pendingExtraWork, onOpenJob, setTab, isPartner, isDhPartner }) {
+function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEstimates, overdue, pendingAppointments, pendingExtraWork, onOpenJob, setTab, onSaveJob, showToast, isPartner, isDhPartner }) {
   const [showList, setShowList] = useState(null); // null | 'inProgress' | 'dueList' | 'todaysVisits' | 'tomorrowsVisits' | 'staleJobs' | 'allEstimates'
 
   // Every customer/job predates businessUnit, so treating a missing
@@ -7232,7 +7412,24 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
   // question sitting unanswered is easy to miss buried inside one
   // specific job's detail screen otherwise.
   const jobsWithPendingQuestions = visibleJobs.filter((j) => (j.questions || []).some((q) => q.status !== 'answered'));
+
+  // Free service visits that have come due under the 2-year maintenance
+  // warranty. Surfaced here because the promise is easy to forget and
+  // nobody else is going to raise it - the customer generally does not
+  // know the visits are owed to them.
+  const serviceDueJobs = visibleJobs.filter((j) => serviceVisitDue(j));
   const pendingQuestionsCount = visibleJobs.reduce((s, j) => s + (j.questions || []).filter((q) => q.status !== 'answered').length, 0);
+
+  if (showList === 'serviceDue') {
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
+        </div>
+        <AdminServiceDueList jobs={visibleJobs} onSaveJob={onSaveJob} onOpenJob={onOpenJob} showToast={showToast} />
+      </div>
+    );
+  }
 
   if (showList === 'inProgress') {
     return (
@@ -7473,6 +7670,11 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
             {pendingEstimates > 0 && <div style={styles.alertText}>{pendingEstimates} customer{pendingEstimates !== 1 ? 's' : ''} ka estimate pending hai</div>}
             {overdue > 0 && <div style={styles.alertText}>{overdue} job{overdue !== 1 ? 's' : ''} mein payment due hai</div>}
             {pendingExtraWork > 0 && <div style={styles.alertText}>{pendingExtraWork} extra work item{pendingExtraWork !== 1 ? 's' : ''} pending hai (price/approval)</div>}
+            {serviceDueJobs.length > 0 && (
+              <button style={{ ...styles.alertText, width: '100%', textAlign: 'left', border: 'none', background: 'none', cursor: 'pointer', padding: 0 }} onClick={() => setShowList('serviceDue')}>
+                {serviceDueJobs.length} customer{serviceDueJobs.length !== 1 ? 's' : ''} ka free service visit due hai
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -7481,6 +7683,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <QuickTile icon={<Grid3x3 size={20} color={BRAND.navy} />} label={'Gallery (' + totalPhotos + ')'} onClick={() => setTab('gallery')} />
         <QuickTile icon={<User size={20} color={BRAND.navy} />} label='All Customers' onClick={() => setTab('customers')} />
         <QuickTile icon={<Star size={20} color={BRAND.navy} />} label='Reviews' onClick={() => setTab('reviews')} />
+        <QuickTile icon={<Hammer size={20} color={BRAND.navy} />} label={'Service Due' + (serviceDueJobs.length ? (' (' + serviceDueJobs.length + ')') : '')} onClick={() => setShowList('serviceDue')} />
         {!isPartner && <QuickTile icon={<IndianRupee size={20} color={BRAND.navy} />} label='Expenses' onClick={() => setTab('expenses')} />}
       </div>
 
@@ -8440,7 +8643,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
       <SavedInput style={styles.input} placeholder='Jaise Flat 402, Sun City' value={job.flatNo || ''} onCommit={(v) => onSave({ ...job, flatNo: v })} />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
-        <div style={styles.fieldLabel}>Estimate items</div>
+        <div style={styles.fieldLabel}>Estimate items{job.quoteNo ? (' - ' + job.quoteNo) : ''}</div>
         {(job.items || []).length > 0 && (
           <div style={{ display: 'flex', gap: 8 }}>
             <button style={styles.previewLinkBtn} onClick={() => setShowPreview(true)}><FileText size={12} /> Preview Quotation</button>
@@ -8859,6 +9062,7 @@ function QuotationPreview({ job, onClose, showToast }) {
               <div style={{ flex: 1 }}>
                 <div style={styles.quoteBizName}>{BUSINESS.name}</div>
                 <div style={styles.quoteDocTitle}>Estimate &amp; Invoice</div>
+                {job.quoteNo && <div style={styles.quoteBizContact}>No. {job.quoteNo}</div>}
                 <div style={styles.quoteBizContact}>
                   Mobile no. {BUSINESS.phone.replace('+91 ', '')} / {BUSINESS.altPhone.replace('+91 ', '')}. {BUSINESS.website}
                 </div>
@@ -8873,7 +9077,11 @@ function QuotationPreview({ job, onClose, showToast }) {
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={styles.quoteLabel}>Date</div>
-                <div style={styles.quoteCustSub}>{formatDate(new Date().toISOString())}</div>
+                {/* The date the estimate was actually given, not today.
+                    Reprinting a quotation from three months ago used to
+                    stamp it with today's date, so the customer's copy
+                    and the reprint disagreed. */}
+                <div style={styles.quoteCustSub}>{formatDate(job.estimateGivenAt || job.createdAt || new Date().toISOString())}</div>
               </div>
             </div>
             {job.flatNo && (
@@ -9055,6 +9263,12 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
 
   const updateStatus = (status) => {
     let next = { ...jobRef.current, status };
+    // When the work was finished, recorded once. The whole service
+    // schedule counts from this date, and until now nothing stored it -
+    // it had to be dug back out of the activity log.
+    if ((status === 'delivered' || status === 'paid') && !next.deliveredAt) {
+      next.deliveredAt = new Date().toISOString();
+    }
     next = logActivity(next, 'Status updated: ' + STATUS[status].label);
     saveJob(next);
     showToast('Status set to ' + STATUS[status].label);
@@ -9641,8 +9855,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
               <div style={{ marginTop: 14 }}>
                 <div style={styles.fieldLabel}>Payment Milestones (50 / 40 / 10)</div>
                 {jobMilestoneStatus(job).map((m) => {
-                  const reminderText = 'Namaste ' + job.customerName + ', aapka ' + m.label + ' payment due hai: ' + currency(m.due) + '. Shree Krushn PVC Furniture.';
-                  const reminderUrl = whatsAppShareUrl(job.phone, reminderText);
+                  const reminderUrl = whatsAppShareUrl(job.phone, buildPaymentReminderText(job));
                   return (
                     <div key={m.key} style={styles.milestoneRow}>
                       <div style={{ flex: 1 }}>
@@ -10760,14 +10973,125 @@ function AdminDuePaymentsList({ jobs, expenses, onOpenJob }) {
 
       {rows.length === 0 && <div style={styles.emptySmall}>Koi payment due nahi hai.</div>}
       {rows.map((r) => (
-        <button key={r.job.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob && onOpenJob(r.job.id)}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div style={styles.cardName}>{r.job.customerName}</div>
-            <span style={{ ...styles.badge, background: '#FFEBEE', color: '#C62828' }}>{currency(r.due)} due</span>
-          </div>
-          <div style={styles.itemSub}>{STATUS[r.job.status]?.label || r.job.status}{r.linkedExpense > 0 && (' - ' + currency(r.linkedExpense) + ' expense is project mein')}</div>
-        </button>
+        // The row is a div rather than a button now: it holds the
+        // WhatsApp link, and a link inside a button is invalid markup
+        // that browsers handle inconsistently.
+        <div key={r.job.id} style={styles.reviewCard}>
+          <button
+            style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }}
+            onClick={() => onOpenJob && onOpenJob(r.job.id)}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={styles.cardName}>{r.job.customerName}</div>
+              <span style={{ ...styles.badge, background: '#FFEBEE', color: '#C62828' }}>{currency(r.due)} due</span>
+            </div>
+            <div style={styles.itemSub}>{STATUS[r.job.status]?.label || r.job.status}{r.linkedExpense > 0 && (' - ' + currency(r.linkedExpense) + ' expense is project mein')}</div>
+          </button>
+          <a
+            href={whatsAppShareUrl(r.job.phone, buildPaymentReminderText(r.job))}
+            target='_blank'
+            rel='noopener noreferrer'
+            style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}
+          >
+            <Send size={13} /> Payment Yaad Dilayein
+          </a>
+        </div>
       ))}
+    </div>
+  );
+}
+
+function AdminServiceDueList({ jobs, onSaveJob, onOpenJob, showToast }) {
+  const nowIso = new Date().toISOString();
+
+  const rows = useMemo(() => {
+    return (jobs || [])
+      .map((j) => ({ job: j, visit: serviceVisitDue(j, nowIso), warrantyEnds: warrantyEndsAt(j) }))
+      .filter((r) => r.visit)
+      // Longest overdue first - the promise that has been outstanding
+      // the longest is the one to keep today.
+      .sort((a, b) => new Date(a.visit.dueAt) - new Date(b.visit.dueAt));
+  }, [jobs, nowIso]);
+
+  const upcoming = useMemo(() => {
+    return (jobs || [])
+      .map((j) => ({ job: j, next: serviceSchedule(j).find((v) => !v.doneAt && new Date(v.dueAt) > new Date(nowIso)) }))
+      .filter((r) => r.next)
+      .sort((a, b) => new Date(a.next.dueAt) - new Date(b.next.dueAt))
+      .slice(0, 5);
+  }, [jobs, nowIso]);
+
+  const markDone = (job, visit) => {
+    const done = [...(job.serviceVisits || []), { n: visit.n, at: new Date().toISOString(), note: '' }];
+    let next = { ...job, serviceVisits: done };
+    next = logActivity(next, 'Free service visit (' + visit.label + ') ho gaya');
+    onSaveJob(next);
+    if (showToast) showToast('Service visit mark ho gaya');
+  };
+
+  const daysLate = (iso) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      <div style={styles.sectionTitle}>Free Service Due</div>
+      <div style={styles.plainTextMuted}>
+        Har delivered kaam par 2 saal ki maintenance warranty hai - 6 mahine, 1 saal, 18 mahine
+        aur 2 saal par ek free service visit. Jinka time aa gaya hai, wo yahan hain.
+      </div>
+
+      <div style={styles.statRow2}>
+        <StatCard icon={<AlertCircle size={16} />} label='Abhi due' value={rows.length} accent />
+        <StatCard icon={<Calendar size={16} />} label='Aage aane wale' value={upcoming.length} />
+      </div>
+
+      {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi service visit due nahi hai.</div>}
+      {rows.map((r) => (
+        <div key={r.job.id} style={styles.reviewCard}>
+          <button
+            style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }}
+            onClick={() => onOpenJob && onOpenJob(r.job.id)}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+              <div style={styles.cardName}>{r.job.customerName}</div>
+              <span style={{ ...styles.badge, background: '#FFF4E5', color: '#8A5A00' }}>{r.visit.label} ka visit</span>
+            </div>
+            <div style={styles.itemSub}>
+              {formatDate(r.visit.dueAt)} ko due tha
+              {daysLate(r.visit.dueAt) > 0 ? (' - ' + daysLate(r.visit.dueAt) + ' din ho gaye') : ''}
+            </div>
+            {r.warrantyEnds && (
+              <div style={styles.itemSub}>Warranty {formatDate(r.warrantyEnds)} tak</div>
+            )}
+          </button>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <a
+              href={whatsAppShareUrl(r.job.phone, buildServiceOfferText(r.job, r.visit))}
+              target='_blank'
+              rel='noopener noreferrer'
+              style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', display: 'inline-flex' }}
+            >
+              <Send size={13} /> Visit Offer Bhejein
+            </a>
+            <button style={styles.cardActionBtn} onClick={() => markDone(r.job, r.visit)}>
+              <CheckCircle2 size={13} /> Ho gaya
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {upcoming.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div style={styles.fieldLabel}>Aage aane wale</div>
+          {upcoming.map((r) => (
+            <div key={r.job.id} style={styles.milestoneRow}>
+              <div style={{ flex: 1 }}>
+                <div style={styles.itemDesc}>{r.job.customerName}</div>
+                <div style={styles.itemSub}>{r.next.label} ka visit - {formatDate(r.next.dueAt)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
