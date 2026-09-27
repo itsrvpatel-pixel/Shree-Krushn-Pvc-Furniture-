@@ -1,3 +1,5 @@
+@font-face{font-family:Manrope;font-style:normal;font-weight:500 800;
+font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
 :root{--ink:#10151F;--mut:#6B7280;--soft:#9AA2AF;--line:#ECEEF2;--bg2:#F7F8FA;
 --acc:#D2552B;--acc-d:#B8461F;--navy:#0E1A38;--ok:#1FA855}
 *{box-sizing:border-box}

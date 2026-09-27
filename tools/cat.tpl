@@ -11,11 +11,11 @@
 <meta property="og:description" content="{DESC}" />
 <meta property="og:url" content="https://www.shreekrushnpvcfurniture.com/{SLUG}" />
 <link rel="icon" type="image/png" href="/icon-192.png" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="preload" href="/fonts/manrope.woff2" as="font" type="font/woff2" crossorigin />
 <script type="application/ld+json">{LD}</script>
 <style>
+@font-face{font-family:Manrope;font-style:normal;font-weight:500 800;
+font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
 {CSS}
 </style>
 </head>

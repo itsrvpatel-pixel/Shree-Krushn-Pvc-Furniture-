@@ -14,10 +14,10 @@
 <meta property="og:description" content="Shree Krushn PVC Furniture, Nikol, Ahmedabad. Modular kitchen, wardrobe, TV unit, pooja mandir - 100% waterproof, termite proof, full home fitted in about 10 days. Free site visit and a written estimate." />
 <meta property="og:url" content="https://www.shreekrushnpvcfurniture.com/" />
 <link rel="icon" type="image/png" href="/icon-192.png" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="preload" href="/fonts/manrope.woff2" as="font" type="font/woff2" crossorigin />
 <style>
+@font-face{font-family:Manrope;font-style:normal;font-weight:500 800;
+font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
 {CSS}
 </style>
 <script type="application/ld+json">
