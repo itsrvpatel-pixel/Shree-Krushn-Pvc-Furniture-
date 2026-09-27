@@ -885,227 +885,223 @@ async function buildReceiptPdfDoc(job, payment) {
 }
 
 
-// The warranty card.
+// The warranty certificate.
 //
-// 1080 x 1920 - a phone screen, portrait. That is the shape asked for
-// and it is the right one, because this is a card that mostly gets
-// looked at on a phone: sent on WhatsApp, opened, kept. A page shaped
-// like the screen it is read on needs no pinching or rotating.
+// A4 portrait - the size it was to begin with, and the size the customer
+// asked to keep. The strip and phone-screen shapes tried in between are
+// gone: they were an answer to a question about fifty items that a full
+// page never had.
 //
-// Sized in pixels rather than millimetres for the same reason. It is a
-// screen document first; printing still works, it simply scales.
+// THE WORK COVERED READS ACROSS
 //
-// THE ITEMS ARE ON IT
+// That was the one thing actually wrong with the original. A single
+// column down a full page turns eight items into a thin ribbon of text
+// with two thirds of the page empty, and fifty items into a second
+// page. Laid out in columns, reading left to right, the same list fills
+// the width it has been given - and the column count and type size step
+// down together as the job grows, so a fifty-item certificate is still
+// one page.
 //
-// An earlier version left them off because a 210x74mm strip could not
-// hold fifty lines honestly. A tall page can hold a real list, so it
-// does - and when a job genuinely runs past what fits, the rest is
-// summarised against the quotation rather than spilling onto a second
-// card. The card stays one page either way.
-const CARD_W = 1080;
-const CARD_H = 1920;
+// Row-major, not column-major: item 2 sits beside item 1, not halfway
+// down the page. That is what "horizontal" means to someone reading it.
+
+// Roomiest first. The first layout whose list fits above the warranty
+// block wins, so a small job gets big readable type and only a long one
+// pays for the space it needs.
+const CERT_ITEM_LAYOUTS = [
+  { cols: 2, size: 10, line: 4.8, gap: 2.2 },
+  { cols: 2, size: 9, line: 4.3, gap: 1.4 },
+  { cols: 2, size: 8, line: 3.9, gap: 0.9 },
+  { cols: 3, size: 7.5, line: 3.6, gap: 0.8 },
+  { cols: 3, size: 6.5, line: 3.1, gap: 0.5 },
+];
+
+// Places items across `cfg.cols` columns, left to right then down, and
+// stops at `bottom`. Returns how many it managed to place and where it
+// ended. Measuring and drawing share one function so the fit test can
+// never disagree with what actually gets printed.
+function layoutCertItems(doc, items, x, y, width, bottom, cfg, draw) {
+  // A wide gutter matters more than it looks: at 5mm the end of a long
+  // name in one column sat right against the next column's number and
+  // the two read as one sentence.
+  const gutter = 8;
+  const colW = (width - gutter * (cfg.cols - 1)) / cfg.cols;
+  const indent = cfg.cols > 2 ? 5 : 6;
+  const textW = colW - indent;
+  // The font has to be set BEFORE anything is measured. splitTextToSize
+  // wraps at whatever size the document is currently on, so measuring
+  // while the heading's size was still active counted lines that the
+  // smaller type never needed - which is what left a fifty-item
+  // certificate with a blank band under a list that had stopped early.
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(cfg.size);
+  let iy = y;
+  let placed = 0;
+  for (let i = 0; i < items.length; i += cfg.cols) {
+    const row = items.slice(i, i + cfg.cols);
+    const wrapped = row.map((it) => doc.splitTextToSize(String((it && it.desc) || ''), textW));
+    const rowH = Math.max(...wrapped.map((w) => w.length)) * cfg.line + cfg.gap;
+    if (iy + rowH > bottom) break;
+    if (draw) {
+      row.forEach((it, c) => {
+        const cx = x + c * (colW + gutter);
+        doc.setTextColor(...DOC_MUTED);
+        doc.text(String(i + c + 1) + '.', cx, iy);
+        doc.setTextColor(...DOC_INK);
+        doc.text(wrapped[c], cx + indent, iy);
+      });
+    }
+    iy += rowH;
+    placed += row.length;
+  }
+  return { placed, endY: iy };
+}
 
 async function buildWarrantyPdfDoc(job) {
   const jsPDF = await loadJsPDF();
-  const doc = new jsPDF({ unit: 'px', format: [CARD_W, CARD_H], orientation: 'portrait', hotfixes: ['px_scaling'] });
+  const doc = new jsPDF('p', 'mm', 'a4');
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const pad = 56;
+  const m = 14;
+  const blockX = m + 6;
+  const blockWidth = pageWidth - 2 * (m + 6);
 
-  // Header band.
-  const band = 210;
-  doc.setFillColor(...DOC_NAVY);
-  doc.rect(0, 0, pageWidth, band, 'F');
-  doc.setFillColor(...DOC_GOLD);
-  doc.rect(0, band, pageWidth, 8, 'F');
-  try {
-    const logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
-    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 58, 26, 116, 116);
-    doc.saveGraphicsState();
-    doc.setGState(new doc.GState({ opacity: 0.03 }));
-    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 330, pageHeight / 2 - 330, 660, 660);
-    doc.restoreGraphicsState();
-  } catch (e) {
-    // No logo - the card is still complete.
-  }
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(27);
-  doc.setFont(undefined, 'bold');
-  doc.text(BUSINESS.name, pageWidth / 2, 172, { align: 'center' });
-  doc.setFontSize(13);
-  doc.setFont(undefined, 'normal');
-  doc.setTextColor(...DOC_GOLD);
-  doc.text(BUSINESS.tagline.toUpperCase(), pageWidth / 2, 196, { align: 'center' });
-
+  await drawDocHeader(doc, pageWidth, pageHeight, { margin: m, bandHeight: 32 });
   doc.setDrawColor(...DOC_GOLD);
-  doc.setLineWidth(3);
-  doc.rect(22, band + 30, pageWidth - 44, pageHeight - band - 52);
+  doc.setLineWidth(0.9);
+  doc.rect(8, 38, pageWidth - 16, pageHeight - 46);
+  doc.setLineWidth(0.25);
+  doc.rect(10.5, 40.5, pageWidth - 21, pageHeight - 51);
 
-  let y = band + 92;
+  let y = 54;
   doc.setTextColor(...DOC_NAVY);
-  doc.setFontSize(34);
+  doc.setFontSize(22);
   doc.setFont(undefined, 'bold');
   doc.text('WARRANTY CERTIFICATE', pageWidth / 2, y, { align: 'center' });
-  y += 16;
+  y += 6;
   doc.setDrawColor(...DOC_GOLD);
-  doc.setLineWidth(4);
-  doc.line(pageWidth / 2 - 150, y, pageWidth / 2 + 150, y);
-  y += 52;
+  doc.setLineWidth(0.7);
+  doc.line(pageWidth / 2 - 38, y, pageWidth / 2 + 38, y);
+  y += 13;
 
-  doc.setFontSize(15);
+  doc.setFontSize(9);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_MUTED);
   doc.text('ISSUED TO', pageWidth / 2, y, { align: 'center' });
-  y += 38;
-  doc.setFontSize(30);
+  y += 9;
+  doc.setFontSize(18);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...DOC_NAVY);
   doc.text(job.customerName, pageWidth / 2, y, { align: 'center' });
-  y += 30;
+  y += 7;
   if (job.flatNo || job.address) {
-    doc.setFontSize(16);
+    doc.setFontSize(9.5);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(...DOC_MUTED);
-    const addr = doc.splitTextToSize([job.flatNo, job.address].filter(Boolean).join(', '), pageWidth - 240);
+    const addr = doc.splitTextToSize([job.flatNo, job.address].filter(Boolean).join(', '), pageWidth - 80);
     doc.text(addr.slice(0, 2), pageWidth / 2, y, { align: 'center' });
-    y += addr.slice(0, 2).length * 24;
+    y += addr.slice(0, 2).length * 5;
   }
-  y += 34;
+  y += 9;
 
-  // The warranty block sits at a fixed place so the item list always has
-  // a known amount of room above it - that is what keeps the card to one
-  // page whatever the job size.
-  const boxH = 190;
-  const footerRuleY = pageHeight - 250;
-  const maxBoxY = footerRuleY - boxH - 46;
-  const itemsBottom = maxBoxY - 40;
+  // The warranty block and the footer own the bottom of the page, so the
+  // item list is given exactly what is left above them and never has to
+  // spill onto a second sheet.
+  const boxH = 34;
+  const footerRuleY = pageHeight - 46;
+  const maxBoxY = footerRuleY - boxH - 9;
+  const itemsBottom = maxBoxY - 7;
 
   const items = job.items || [];
-  doc.setFontSize(16);
+  doc.setFontSize(9);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...DOC_NAVY);
-  doc.text('WORK COVERED', pad, y);
-  y += 12;
+  doc.text('WORK COVERED', blockX, y);
+  y += 2.6;
   doc.setDrawColor(...DOC_RULE);
-  doc.setLineWidth(2);
-  doc.line(pad, y, pageWidth - pad, y);
-  y += 32;
+  doc.setLineWidth(0.4);
+  doc.line(blockX, y, pageWidth - m - 6, y);
+  y += 7;
 
   let itemsEndY = y;
   if (items.length === 0) {
-    doc.setFontSize(17);
+    doc.setFontSize(10);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(...DOC_MUTED);
-    doc.text('As per the estimate.', pad, y);
-    itemsEndY = y + 10;
+    doc.text('As per the estimate.', blockX, y);
+    itemsEndY = y + 3;
   } else {
-    // One column, because a phone-shaped page is narrow and two columns
-    // of wrapped furniture names read badly on it. The line height
-    // tightens as the list grows so a longer job still fits.
-    const cfg = items.length <= 10 ? { size: 18, line: 26, gap: 12 }
-      : items.length <= 16 ? { size: 16, line: 23, gap: 8 }
-      : { size: 14, line: 20, gap: 5 };
-    // One line is always kept back for the "and N more" note, so the
-    // list can never run into the warranty block.
-    const noteRoom = 34;
-    let shown = 0;
-    let iy = y;
-    for (const it of items) {
-      const wrapped = doc.splitTextToSize(it.desc || '', pageWidth - 2 * pad - 46);
-      const h = wrapped.length * cfg.line + cfg.gap;
-      const needsNote = shown + 1 < items.length;
-      if (iy + h > itemsBottom - (needsNote ? noteRoom : 0)) break;
-      doc.setFont(undefined, 'normal');
-      doc.setFontSize(cfg.size);
-      doc.setTextColor(...DOC_INK);
-      doc.text(String(shown + 1) + '.', pad, iy);
-      doc.text(wrapped, pad + 34, iy);
-      iy += h;
-      shown += 1;
+    // One line is always held back for the "and N more" note, so the
+    // list can never grow into the warranty block.
+    const noteRoom = 7;
+    let cfg = CERT_ITEM_LAYOUTS[CERT_ITEM_LAYOUTS.length - 1];
+    for (const c of CERT_ITEM_LAYOUTS) {
+      if (layoutCertItems(doc, items, blockX, y, blockWidth, itemsBottom, c, false).placed >= items.length) {
+        cfg = c;
+        break;
+      }
     }
-    itemsEndY = iy;
-    if (shown < items.length) {
-      doc.setFontSize(15);
+    let res = layoutCertItems(doc, items, blockX, y, blockWidth, itemsBottom, cfg, false);
+    if (res.placed < items.length) {
+      res = layoutCertItems(doc, items, blockX, y, blockWidth, itemsBottom - noteRoom, cfg, false);
+    }
+    const limit = res.placed;
+    const drawn = layoutCertItems(doc, items.slice(0, limit), blockX, y, blockWidth,
+      itemsBottom, cfg, true);
+    itemsEndY = drawn.endY;
+    if (limit < items.length) {
+      doc.setFontSize(8.5);
       doc.setFont(undefined, 'italic');
       doc.setTextColor(...DOC_MUTED);
-      const rest = items.length - shown;
+      const rest = items.length - limit;
       doc.text('and ' + rest + ' more item' + (rest === 1 ? '' : 's')
-        + (job.quoteNo ? (' - full list in Quotation ' + job.quoteNo) : ' - see the estimate'), pad, iy + 6);
-      itemsEndY = iy + 20;
+        + (job.quoteNo ? (' - full list in Quotation ' + job.quoteNo) : ' - see the estimate'),
+        blockX, itemsEndY + 1.5);
+      itemsEndY += 5;
     }
   }
 
   // The warranty, centred in whatever space is left between the list and
-  // the footer. Pinned to the bottom it left a six-item card a third
-  // empty; pinned directly under the list it moved the same gap below
-  // the box instead. Splitting the leftover space in two reads as
-  // deliberate at both extremes - a short list and a long one.
+  // the footer. Pinned to the bottom it leaves a short list stranded at
+  // the top of the page; pinned under the list it moves the same gap
+  // below the box. Splitting the leftover space reads as deliberate at
+  // both extremes.
   const boxY = Math.max(
-    itemsEndY + 50,
+    itemsEndY + 9,
     Math.min(maxBoxY, itemsEndY + (footerRuleY - itemsEndY - boxH) / 2),
   );
   doc.setFillColor(...DOC_PAPER);
   doc.setDrawColor(...DOC_GOLD);
-  doc.setLineWidth(3);
-  doc.roundedRect(pad, boxY, pageWidth - 2 * pad, boxH, 10, 10, 'FD');
-  doc.setFontSize(52);
+  doc.setLineWidth(0.6);
+  doc.roundedRect(blockX, boxY, blockWidth, boxH, 2, 2, 'FD');
+  doc.setFontSize(26);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...DOC_GOLD);
-  doc.text('2 Years', pageWidth / 2, boxY + 74, { align: 'center' });
-  doc.setFontSize(21);
+  doc.text('2 Years', pageWidth / 2, boxY + 13, { align: 'center' });
+  doc.setFontSize(12);
   doc.setTextColor(...DOC_NAVY);
-  doc.text('Shree Krushn Maintenance Warranty', pageWidth / 2, boxY + 112, { align: 'center' });
-  doc.setFontSize(15);
+  doc.text('Shree Krushn Maintenance Warranty', pageWidth / 2, boxY + 20.5, { align: 'center' });
+  doc.setFontSize(8.5);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_MUTED);
-  doc.text('Free service visits for fitting / adjustment', pageWidth / 2, boxY + 145, { align: 'center' });
-  doc.text('issues on the work covered above', pageWidth / 2, boxY + 168, { align: 'center' });
+  doc.text('Free service visits for fitting / adjustment issues on the work covered above',
+    pageWidth / 2, boxY + 27, { align: 'center' });
 
   // Footer.
   doc.setDrawColor(...DOC_RULE);
-  doc.setLineWidth(2);
-  doc.line(pad, footerRuleY, pageWidth - pad, footerRuleY);
+  doc.setLineWidth(0.4);
+  doc.line(blockX, footerRuleY, pageWidth - m - 6, footerRuleY);
+  drawField(doc, blockX, footerRuleY + 6,
+    'Delivery Date', formatDate(jobDeliveredAt(job) || job.expectedCompletionDate || job.createdAt));
+  drawField(doc, pageWidth / 2, footerRuleY + 6, 'Certificate No', warrantyCertNo(job), { align: 'center' });
+  drawField(doc, blockX, footerRuleY + 17, 'Warranty Claims', BUSINESS.phone);
+  drawSignature(doc, pageWidth, footerRuleY + 14, m + 6, true);
 
-  const cell = (x, label, value, align) => {
-    doc.setFontSize(13);
-    doc.setFont(undefined, 'normal');
-    doc.setTextColor(...DOC_MUTED);
-    doc.text(label, x, footerRuleY + 34, align ? { align } : undefined);
-    doc.setFontSize(18);
-    doc.setFont(undefined, 'bold');
-    doc.setTextColor(...DOC_NAVY);
-    doc.text(String(value), x, footerRuleY + 60, align ? { align } : undefined);
-  };
-  cell(pad, 'DELIVERY DATE', formatDate(jobDeliveredAt(job) || job.expectedCompletionDate || job.createdAt));
-  cell(pageWidth - pad, 'CERTIFICATE NO', warrantyCertNo(job), 'right');
-  // Warranty claims goes on the second row, below - an earlier call put
-  // it on the first and it printed straight over the delivery date.
-  doc.setFontSize(13);
-  doc.setFont(undefined, 'normal');
-  doc.setTextColor(...DOC_MUTED);
-  doc.text('WARRANTY CLAIMS', pad, footerRuleY + 100);
-  doc.setFontSize(18);
-  doc.setFont(undefined, 'bold');
-  doc.setTextColor(...DOC_NAVY);
-  doc.text(BUSINESS.phone, pad, footerRuleY + 126);
-
-  doc.setDrawColor(...DOC_MUTED);
-  doc.setLineWidth(2);
-  doc.line(pageWidth - pad - 230, footerRuleY + 108, pageWidth - pad, footerRuleY + 108);
-  doc.setFontSize(13);
-  doc.setFont(undefined, 'normal');
-  doc.setTextColor(...DOC_MUTED);
-  doc.text('AUTHORISED SIGNATORY', pageWidth - pad, footerRuleY + 100, { align: 'right' });
-  doc.setFont(undefined, 'bold');
-  doc.setFontSize(18);
-  doc.setTextColor(...DOC_NAVY);
-  doc.text(BUSINESS.owner, pageWidth - pad, footerRuleY + 130, { align: 'right' });
-
-  doc.setFontSize(12);
+  doc.setFontSize(7.5);
   doc.setFont(undefined, 'italic');
   doc.setTextColor(...DOC_MUTED);
   doc.text('Excludes physical damage, misuse, water damage beyond normal use and normal wear and tear.',
-    pageWidth / 2, pageHeight - 34, { align: 'center', maxWidth: pageWidth - 2 * pad });
+    pageWidth / 2, pageHeight - 12, { align: 'center', maxWidth: pageWidth - 2 * m });
 
   return doc;
 }
