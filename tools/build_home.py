@@ -8,6 +8,7 @@ WA='https://wa.me/message/ZMRRGHFC4ZQTD1'
 SOCIAL={'instagram':'https://instagram.com/shree_krushn_pvc_furniture',
         'facebook':'https://www.facebook.com/ShreeKrushnFiberMart',
         'youtube':'https://youtube.com/@shreekrushnpvcfurniture'}
+SLUG=json.load(open('/tmp/slugs.json'))
 ALBUM={'all':'https://photos.app.goo.gl/XnQE8gph2gpxN6xb7',
  'Kitchen':'https://photos.app.goo.gl/5uhwAmxXyJupxHUj8',
  'Wardrobe':'https://photos.app.goo.gl/kz5x7b7q51BCcE978',
@@ -54,10 +55,10 @@ dots=''.join('<button class="dot%s" data-i="%d" aria-label="Slide %d"></button>'
 cards=''
 for k,t,s in CATS:
     if not man.get(k): continue
-    a=ALBUM.get(k)
-    if a:
-        open_tag='<a class="card" href="%s" target="_blank" rel="noopener">' % E(a); close='</a>'
-        more='%d designs &#183; view album' % len(g.get(k,[]))
+    slug=SLUG.get(k)
+    if slug:
+        open_tag='<a class="card" href="/%s">' % E(slug); close='</a>'
+        more='%d designs' % len(g.get(k,[]))
     else:
         open_tag='<div class="card">'; close='</div>'
         more='%d designs' % len(g.get(k,[]))
@@ -79,13 +80,13 @@ ICON={'instagram':'M12 2.2c3.2 0 3.6 0 4.9.07 3.3.15 4.8 1.7 5 5 .06 1.3.07 1.7.
 socs=''.join('<a href="%s" target="_blank" rel="noopener" aria-label="%s"><svg viewBox="0 0 24 24"><path d="%s"/></svg></a>'
              % (E(u), k, ICON[k]) for k,u in SOCIAL.items())
 
-css = open('/tmp/a.css').read()
-tpl = open('/tmp/a.tpl').read()
+css = open('tools/a.css').read()
+tpl = open('tools/a.tpl').read()
 # Plain replacement, not str.format - the stylesheet is full of braces.
 vals={'CSS':css,'N':str(N),'SLIDES':slide_html,'DOTS':dots,'CARDS':cards,'RAIL':rail,
       'WHY':why,'REVS':revs,'SOCS':socs,'TEL':TEL,'PHONE':PHONE,'PHONE2':PHONE2,
       'WA':E(WA),'VIDEO':E(ALBUM['video'])}
 doc=tpl
 for k,v in vals.items(): doc=doc.replace('{'+k+'}', v)
-open('site/home.html','w',encoding='utf-8').write(doc)
-print('site/home.html', len(doc)//1024,'KB | albums:', sum(1 for k,_,_ in CATS if ALBUM.get(k)), '| socials:', len(SOCIAL))
+open('site/index.html','w',encoding='utf-8').write(doc)
+print('site/index.html', len(doc)//1024,'KB | albums:', sum(1 for k,_,_ in CATS if ALBUM.get(k)), '| socials:', len(SOCIAL))

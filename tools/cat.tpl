@@ -22,15 +22,15 @@
 <body>
 
 <nav><div class="nv">
-  <a href="index.html" style="display:flex;align-items:center;gap:10px;min-width:0">
+  <a href="/" style="display:flex;align-items:center;gap:10px;min-width:0">
     <img src="/boot-mark.jpg" width="34" height="34" alt="" />
     <span class="nm">Shree Krushn<i>PVC FURNITURE</i></span></a>
-  <div class="nlinks"><a href="index.html#work">Our work</a><a href="index.html#how">How it works</a><a href="index.html#why">Why PVC</a><a href="index.html#reviews">Reviews</a></div>
+  <div class="nlinks"><a href="/#work">Our work</a><a href="/#how">How it works</a><a href="/#why">Why PVC</a><a href="/#reviews">Reviews</a></div>
   <div class="ngo"><a class="pill" href="/app">Open app</a><a class="pill on" href="/app">Free visit</a></div>
 </div></nav>
 
 <div class="w chead">
-  <div class="crumb"><a href="index.html">Home</a> &#8250; {H1}</div>
+  <div class="crumb"><a href="/">Home</a> &#8250; {H1}</div>
   <h1>{H1}</h1>
   <p class="intro">{INTRO}</p>
   <div class="cta">
