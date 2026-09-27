@@ -1,15 +1,15 @@
-// The warranty card: one card, phone-shaped, with the work on it.
+// The warranty certificate: one A4 page, with the work read across it.
 //
-// 1080 x 1920 - a phone screen, portrait. It is mostly read on a phone,
-// sent over WhatsApp, so the page is the shape of the screen it is
-// opened on.
+// A4 portrait is the size it started at and the size that was asked
+// for back. The strip and phone-screen shapes tried in between are
+// gone.
 //
-// The item list lives on the card. That was not always possible: an
-// earlier 210x74mm strip could not hold fifty lines, and trying made
-// the list run off the page with the footer and warranty box printed
-// over it. A tall page holds a real list - about thirty - and a job
-// longer than that gets what fits plus a note against the quotation,
-// so the card is still exactly one page.
+// What was actually wrong with the original was the single column: it
+// turned a short job into a thin ribbon down an empty page and a long
+// one into a second sheet. The list now reads left to right across
+// two or three columns, the column count and type size stepping down
+// together as the job grows, so the certificate is exactly one page
+// whether the job has one item or a hundred and twenty.
 //
 //   npm install --no-save playwright
 //   npm run build && npx vite preview --port 4173 --strictPort &
@@ -39,8 +39,10 @@ const listed = (raw) => {
   return n;
 };
 
-// Short and medium jobs: every item on the card, no note.
-for (const count of [1, 6, 20, 30]) {
+// Short and medium jobs: every item on the card, no note. Fifty is in
+// this group on purpose - it is the size the customer asked about, and
+// across three columns an A4 page holds all fifty.
+for (const count of [1, 6, 20, 30, 50]) {
   const { warranty } = build(count);
   ok(count + ' items: one card', pageCount(warranty) === 1, pageCount(warranty) + ' pages');
   ok(count + ' items: all of them are listed', listed(warranty) === count, 'listed ' + listed(warranty));
@@ -48,7 +50,7 @@ for (const count of [1, 6, 20, 30]) {
 }
 
 // Long jobs: still one card, as many as fit, and the rest accounted for.
-for (const count of [50, 120]) {
+for (const count of [120]) {
   const { warranty } = build(count);
   const shown = listed(warranty);
   const note = warranty.match(/and (\d+) more item/);
@@ -60,13 +62,37 @@ for (const count of [50, 120]) {
     /full list in Quotation/.test(warranty), 'no quotation reference');
 }
 
-// The shape is the request, so it is pinned.
+// The size is the request, so it is pinned.
 const { warranty, receipt } = build(6);
 const box = warranty.match(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)/);
-const ratio = box ? Number(box[1]) / Number(box[2]) : 0;
-ok('the card is a portrait phone screen (9:16)', Math.abs(ratio - 0.5625) < 0.005, ratio.toFixed(4));
-ok('it is taller than it is wide', box && Number(box[2]) > Number(box[1]), 'landscape');
+const w = box ? Number(box[1]) : 0;
+const h = box ? Number(box[2]) : 0;
+ok('the page is A4', Math.abs(w - 595.28) < 1 && Math.abs(h - 841.89) < 1, w + ' x ' + h);
+ok('A4 portrait, not landscape', h > w, 'landscape');
 ok('the warranty itself is on it', warranty.includes('2 Years'), 'no warranty block');
+
+// The one thing that was wrong with the original: the work covered ran
+// straight down in a single column. Item 2 must sit BESIDE item 1 - same
+// line, further right - not under it.
+const at = (raw, n) => {
+  const m = raw.match(new RegExp('([\\d.]+) ([\\d.]+) Td\\n\\(' + n + '\\.\\) Tj'));
+  return m ? { x: Number(m[1]), y: Number(m[2]) } : null;
+};
+const p1 = at(warranty, 1);
+const p2 = at(warranty, 2);
+const p3 = at(warranty, 3);
+ok('the work covered reads across, not down',
+  p1 && p2 && Math.abs(p1.y - p2.y) < 0.5 && p2.x > p1.x + 40,
+  p1 && p2 ? JSON.stringify([p1, p2]) : 'items not found');
+ok('the next row starts back at the left margin',
+  p1 && p3 && p3.y < p1.y - 1 && Math.abs(p3.x - p1.x) < 0.5,
+  p3 ? JSON.stringify(p3) : 'item 3 not found');
+
+// Thirty items is a real job, and it must not force a second sheet or
+// spill into a note - that is the whole point of the columns.
+const thirty = build(30).warranty;
+ok('thirty items fit on the one page', pageCount(thirty) === 1 && listed(thirty) === 30,
+  pageCount(thirty) + ' pages, ' + listed(thirty) + ' listed');
 
 // Regressions from the redesign that must stay fixed.
 ok('no fractional rupees on the receipt', !receipt.includes('.333'), 'decimals are back');
