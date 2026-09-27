@@ -283,7 +283,6 @@ const BUSINESS = {
   addressLine: 'Nikol, Ahmedabad - Head Office',
   branches: [
     { city: 'Ahmedabad', contact: 'Ravi Vasoya', phone: '+91 79902 83116' },
-    { city: 'Vadodara', contact: 'Sagar Patel', phone: '+91 97268 63451' },
   ],
   phone: '+91 79902 83116',
   altPhone: '+91 95123 18775',
@@ -615,420 +614,426 @@ async function loadImageAsDataUrl(url) {
   });
 }
 
+// Amount in words, the Indian way - lakh and crore, not million.
+//
+// A rupee figure spelled out is the convention on an Indian receipt and
+// the reason is practical: a digit added to "2,50,000" changes it
+// silently, a word cannot be inserted the same way.
+function amountInWords(n) {
+  const num = Math.round(Number(n) || 0);
+  if (num === 0) return 'Zero Rupees Only';
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+    'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const under1000 = (v) => {
+    const out = [];
+    if (v >= 100) { out.push(ones[Math.floor(v / 100)], 'Hundred'); v %= 100; }
+    if (v >= 20) { out.push(tens[Math.floor(v / 10)]); v %= 10; }
+    if (v > 0) out.push(ones[v]);
+    return out.filter(Boolean).join(' ');
+  };
+  const parts = [];
+  const crore = Math.floor(num / 10000000);
+  const lakh = Math.floor((num % 10000000) / 100000);
+  const thousand = Math.floor((num % 100000) / 1000);
+  const rest = num % 1000;
+  if (crore) parts.push(under1000(crore) + ' Crore');
+  if (lakh) parts.push(under1000(lakh) + ' Lakh');
+  if (thousand) parts.push(under1000(thousand) + ' Thousand');
+  if (rest) parts.push(under1000(rest));
+  return parts.join(' ') + ' Rupees Only';
+}
+
+// The number printed on a document.
+//
+// Both of these used to be a slice of an internal id - "WC-A2B3C4D5",
+// "#P1A2B3C4" - which is unique but means nothing to anybody and cannot
+// be read down a phone. They are now editable: the stored value wins,
+// and the old id-derived string is only the starting suggestion, so
+// every certificate and receipt already issued keeps the number it went
+// out with.
+function warrantyCertNo(job) {
+  return (job && job.warrantyCertNo) || ('WC-' + String((job && job.id) || '').slice(-8).toUpperCase());
+}
+function receiptNo(payment) {
+  return (payment && payment.receiptNo) || ('#' + String((payment && payment.id) || '').slice(-8).toUpperCase());
+}
+
+// Shared chrome for the documents the business hands a customer, so a
+// receipt and a certificate read as two pages from the same office
+// rather than two different templates.
+const DOC_NAVY = [15, 27, 61];
+const DOC_GOLD = [168, 151, 95];
+const DOC_INK = [58, 64, 78];
+const DOC_MUTED = [122, 130, 145];
+const DOC_PAPER = [249, 250, 252];
+const DOC_RULE = [225, 228, 235];
+
+// Header band. Returns the y to start the body at.
+async function drawDocHeader(doc, pageWidth, pageHeight, opts) {
+  const bandHeight = opts.bandHeight || 34;
+  doc.setFillColor(...DOC_NAVY);
+  doc.rect(0, 0, pageWidth, bandHeight, 'F');
+  // A thin gold rule under the band - the one detail that most cheaply
+  // separates "printed from an app" from "printed by a business".
+  doc.setFillColor(...DOC_GOLD);
+  doc.rect(0, bandHeight, pageWidth, 1.2, 'F');
+
+  const m = opts.margin;
+  try {
+    const logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
+    doc.addImage(logoDataUrl, 'PNG', m, 6, 22, 22);
+    // The watermark is deliberately fainter than it was. At 0.05 it cut
+    // through the body text and made the page harder to read, which is
+    // the opposite of what a watermark is for.
+    doc.saveGraphicsState();
+    doc.setGState(new doc.GState({ opacity: 0.025 }));
+    const w = Math.min(pageWidth, pageHeight) * 0.52;
+    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - w / 2, pageHeight / 2 - w / 2, w, w);
+    doc.restoreGraphicsState();
+  } catch (e) {
+    // No logo - every document below is still complete without it.
+  }
+
+  const textX = m + 27;
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(13.5);
+  doc.setFont(undefined, 'bold');
+  doc.text(BUSINESS.name, textX, 13);
+  doc.setFontSize(7.5);
+  doc.setFont(undefined, 'italic');
+  doc.setTextColor(...DOC_GOLD);
+  doc.text(BUSINESS.tagline.toUpperCase(), textX, 18);
+  doc.setFont(undefined, 'normal');
+  doc.setTextColor(214, 218, 228);
+  doc.setFontSize(7.5);
+  doc.text(BUSINESS.addressLine, textX, 24);
+  doc.text(BUSINESS.phone + '   |   ' + BUSINESS.website, textX, 28.5);
+  return bandHeight + 1.2;
+}
+
+// A label above its value, which reads better than a label/value grid
+// when the values are different lengths (a name, a long address, a
+// receipt number) - the old layout left ragged gaps between the two
+// columns wherever a value was short.
+function drawField(doc, x, y, label, value, opts) {
+  const o = opts || {};
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(...DOC_MUTED);
+  doc.text(String(label).toUpperCase(), x, y, o.align ? { align: o.align } : undefined);
+  doc.setFont(undefined, o.bold === false ? 'normal' : 'bold');
+  doc.setFontSize(o.size || 9.5);
+  doc.setTextColor(...DOC_NAVY);
+  const lines = doc.splitTextToSize(String(value == null ? '' : value), o.maxWidth || 80);
+  doc.text(lines, x, y + 4.8, o.align ? { align: o.align } : undefined);
+  return y + 4.8 + lines.length * 4.4;
+}
+
+// Signature block, bottom right on every document.
+function drawSignature(doc, pageWidth, y, margin, compact) {
+  const right = pageWidth - margin;
+  doc.setDrawColor(...DOC_MUTED);
+  doc.setLineWidth(0.3);
+  doc.line(right - 52, y, right, y);
+  doc.setFontSize(7.5);
+  doc.setFont(undefined, 'normal');
+  doc.setTextColor(...DOC_MUTED);
+  doc.text('Authorised Signatory', right, y + 4.5, { align: 'right' });
+  doc.setFont(undefined, 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(...DOC_NAVY);
+  doc.text(BUSINESS.owner, right, y + 9, { align: 'right' });
+  // The business name repeats the header, so the certificate leaves it
+  // off - it was the line that ran past the frame.
+  if (compact) return;
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(...DOC_MUTED);
+  doc.text(BUSINESS.name, right, y + 13, { align: 'right' });
+}
+
 async function buildReceiptPdfDoc(job, payment) {
   const jsPDF = await loadJsPDF();
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
+  const m = 16;
+  const right = pageWidth - m;
 
-  // Navy header band with the logo, business name, and tagline -
-  // matching the app's own brand colors throughout, and the tagline
-  // specifically because it's what turns "a company that sells
-  // furniture" into "Premium PVC Interior Solutions" in the reader's
-  // first glance - the same positioning cue used across the app's own
-  // branding, not something this PDF should be the one place missing.
-  const navy = [15, 27, 61];
-  const gold = [168, 151, 95];
-  doc.setFillColor(...navy);
-  doc.rect(0, 0, pageWidth, 40, 'F');
+  await drawDocHeader(doc, pageWidth, pageHeight, { margin: m, bandHeight: 34 });
 
-  try {
-    const logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
-    doc.addImage(logoDataUrl, 'PNG', 15, 8, 24, 24);
-    // A large, very faint version of the same logo in the page body -
-    // a watermark is what makes a document read as an official,
-    // branded original rather than something that could be a generic
-    // template with the business's name typed in.
-    doc.saveGraphicsState();
-    doc.setGState(new doc.GState({ opacity: 0.05 }));
-    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 45, pageHeight / 2 - 45, 90, 90);
-    doc.restoreGraphicsState();
-  } catch (e) {
-    // Logo fetch failed (offline, blocked, etc.) - the receipt is still
-    // fully valid and usable without it, just without the image.
-  }
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(15);
+  // Title on the left with the PAID mark opposite it, rather than a
+  // centred title with the mark floating beside it - the old layout
+  // read as two unrelated things sharing a line.
+  let y = 50;
+  doc.setTextColor(...DOC_NAVY);
+  doc.setFontSize(17);
   doc.setFont(undefined, 'bold');
-  doc.text(BUSINESS.name, 44, 16);
-  doc.setFontSize(8);
-  doc.setFont(undefined, 'italic');
-  doc.setTextColor(...gold);
-  doc.text(BUSINESS.tagline, 44, 21);
-  doc.setFont(undefined, 'normal');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(8.5);
-  doc.text(BUSINESS.addressLine, 44, 27);
-  doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, 44, 32);
+  doc.text('PAYMENT RECEIPT', m, y);
+  doc.setDrawColor(...DOC_GOLD);
+  doc.setLineWidth(0.9);
+  doc.line(m, y + 2.6, m + 47, y + 2.6);
 
-  // Thin formal border frame around the rest of the page, below the
-  // header band - the same "this is a document worth keeping, not
-  // just a chat message" cue the warranty certificate uses.
-  doc.setDrawColor(...gold);
-  doc.setLineWidth(0.6);
-  doc.rect(8, 46, pageWidth - 16, pageHeight - 62);
-
-  let y = 58;
-  doc.setTextColor(...navy);
-  doc.setFontSize(14);
+  doc.setDrawColor(...DOC_GOLD);
+  doc.setLineWidth(0.7);
+  doc.roundedRect(right - 30, y - 8, 30, 12, 1.5, 1.5, 'S');
+  doc.setFontSize(10);
   doc.setFont(undefined, 'bold');
-  doc.text('PAYMENT RECEIPT', pageWidth / 2, y, { align: 'center' });
-  y += 3;
-  doc.setDrawColor(...gold);
-  doc.setLineWidth(0.8);
-  doc.line(pageWidth / 2 - 22, y, pageWidth / 2 + 22, y);
+  doc.setTextColor(...DOC_GOLD);
+  doc.text('PAID', right - 15, y, { align: 'center' });
 
-  // PAID badge - a small stamp-like element in the corner, the kind
-  // of visual confirmation a formal receipt is expected to carry so
-  // it doesn't read as a plain itemized note.
-  doc.setDrawColor(...gold);
-  doc.setLineWidth(0.6);
-  doc.roundedRect(pageWidth - 42, 50, 24, 10, 2, 2, 'D');
-  doc.setFontSize(9);
-  doc.setFont(undefined, 'bold');
-  doc.setTextColor(...gold);
-  doc.text('PAID', pageWidth - 30, 56.5, { align: 'center' });
-
+  // Who it is for on the left, what it is on the right.
   y += 14;
-
-  // A neat two-column key/value block instead of a plain left-aligned
-  // list - the fixed label column width keeps every value lined up
-  // under the next, which is what makes it read as a proper receipt
-  // rather than a note.
-  const labelX = 18;
-  const valueX = 72;
-  doc.setTextColor(60, 60, 60);
-  doc.setFontSize(10.5);
-  doc.setFont(undefined, 'normal');
-  doc.text('Customer', labelX, y);
-  doc.setFont(undefined, 'bold');
-  doc.setTextColor(...navy);
-  doc.text(job.customerName, valueX, y);
-  doc.setFont(undefined, 'normal');
-  doc.setTextColor(60, 60, 60);
-  y += 7;
-  if (job.phone) {
-    doc.text('Phone', labelX, y);
-    doc.text(formatPhoneDisplay(job.phone), valueX, y);
-    y += 7;
-  }
+  const colR = m + (pageWidth - 2 * m) * 0.58;
+  let leftY = drawField(doc, m, y, 'Received From', job.customerName, { size: 11, maxWidth: 88 });
+  if (job.phone) leftY = drawField(doc, m, leftY + 3, 'Phone', formatPhoneDisplay(job.phone) || job.phone, { maxWidth: 88 });
   if (job.flatNo || job.address) {
-    doc.text('Address', labelX, y);
-    doc.text([job.flatNo, job.address].filter(Boolean).join(', '), valueX, y, { maxWidth: pageWidth - valueX - 15 });
-    y += 7;
+    leftY = drawField(doc, m, leftY + 3, 'Address', [job.flatNo, job.address].filter(Boolean).join(', '), { maxWidth: 88 });
   }
-  doc.text('Receipt Date', labelX, y);
-  doc.text(formatDate(payment.date), valueX, y);
-  y += 7;
-  doc.text('Payment Method', labelX, y);
-  doc.text(payment.method || 'Cash', valueX, y);
-  y += 7;
-  doc.text('Receipt No', labelX, y);
-  doc.setFont(undefined, 'bold');
-  doc.text('#' + payment.id.slice(-8).toUpperCase(), valueX, y);
+  let rightY = drawField(doc, colR, y, 'Receipt No', receiptNo(payment), { size: 11, maxWidth: 70 });
+  rightY = drawField(doc, colR, rightY + 3, 'Date', formatDate(payment.date), { maxWidth: 70 });
+  rightY = drawField(doc, colR, rightY + 3, 'Payment Method', payment.method || 'Cash', { maxWidth: 70 });
+  if (job.quoteNo) rightY = drawField(doc, colR, rightY + 3, 'Against Quotation', job.quoteNo, { maxWidth: 70 });
+
+  y = Math.max(leftY, rightY) + 9;
+
+  // The amount, with the figure spelled out beneath it.
+  doc.setFillColor(...DOC_PAPER);
+  doc.setDrawColor(...DOC_GOLD);
+  doc.setLineWidth(0.6);
+  doc.roundedRect(m, y, pageWidth - 2 * m, 25, 2, 2, 'FD');
+  doc.setFontSize(8);
   doc.setFont(undefined, 'normal');
-  y += 10;
-
-  doc.setDrawColor(...navy);
-  doc.setLineWidth(0.2);
-  doc.line(15, y, pageWidth - 15, y);
-  y += 10;
-
-  // Amount received in a highlighted gold-bordered box - the single
-  // most important number on the page, so it gets visual weight
-  // instead of blending in with the rest of the text.
-  doc.setFillColor(248, 250, 251);
-  doc.setDrawColor(...gold);
-  doc.setLineWidth(0.5);
-  doc.roundedRect(15, y, pageWidth - 30, 18, 2, 2, 'FD');
-  doc.setTextColor(...navy);
-  doc.setFontSize(12);
+  doc.setTextColor(...DOC_MUTED);
+  doc.text('AMOUNT RECEIVED', m + 6, y + 8);
+  doc.setFontSize(18);
   doc.setFont(undefined, 'bold');
-  doc.text('Amount Received', 20, y + 11);
-  doc.setFontSize(15);
-  doc.setTextColor(...navy);
-  doc.text('Rs. ' + Number(payment.amount).toLocaleString('en-IN'), pageWidth - 20, y + 11.5, { align: 'right' });
-  y += 26;
+  doc.setTextColor(...DOC_NAVY);
+  doc.text(currencyPlain(payment.amount), right - 6, y + 11, { align: 'right' });
+  doc.setFontSize(7.5);
+  doc.setFont(undefined, 'italic');
+  doc.setTextColor(...DOC_INK);
+  doc.text(amountInWords(payment.amount), m + 6, y + 19, { maxWidth: pageWidth - 2 * m - 12 });
+  y += 32;
 
   if (payment.note) {
-    doc.setFontSize(9.5);
+    doc.setFontSize(8.5);
     doc.setFont(undefined, 'italic');
-    doc.setTextColor(100, 100, 100);
-    doc.text('Note: ' + payment.note, 15, y);
-    y += 8;
+    doc.setTextColor(...DOC_INK);
+    doc.text('Note: ' + payment.note, m, y, { maxWidth: pageWidth - 2 * m });
+    y += 9;
   }
-  y += 2;
-  doc.setDrawColor(220, 220, 220);
-  doc.line(15, y, pageWidth - 15, y);
-  y += 10;
 
-  // Items this payment relates to - a receipt that only shows an
-  // amount, with no link back to what was actually being paid for,
-  // leaves the reader needing to cross-reference against the
-  // estimate separately.
+  // Work covered, as a table with a ruled header rather than a bullet
+  // list - it sits next to money, so it should look like a statement.
   const items = job.items || [];
   if (items.length > 0) {
-    doc.setFontSize(9);
+    doc.setFontSize(8);
     doc.setFont(undefined, 'bold');
-    doc.setTextColor(...navy);
-    doc.text('Work Covered', 15, y);
-    y += 5.5;
+    doc.setTextColor(...DOC_NAVY);
+    doc.text('WORK COVERED', m, y);
+    y += 3;
+    doc.setDrawColor(...DOC_RULE);
+    doc.setLineWidth(0.4);
+    doc.line(m, y, right, y);
+    y += 6;
     doc.setFont(undefined, 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(80, 80, 80);
-    items.forEach((it) => {
-      doc.text('-  ' + it.desc, 18, y);
-      y += 5;
+    doc.setFontSize(9);
+    doc.setTextColor(...DOC_INK);
+    items.forEach((it, i) => {
+      const lines = doc.splitTextToSize(it.desc || '', pageWidth - 2 * m - 30);
+      doc.text(String(i + 1) + '.', m + 1, y);
+      doc.text(lines, m + 8, y);
+      y += lines.length * 4.6 + 2.4;
     });
-    y += 5;
+    y += 3;
   }
 
-  const total = jobTotal(job);
-  const paidTillNow = jobPaid(job);
-  const dueNow = jobDue(job);
-  doc.setFontSize(10);
-  doc.setFont(undefined, 'normal');
-  doc.setTextColor(80, 80, 80);
-  doc.text('Project Total', 15, y);
-  doc.text('Rs. ' + total.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
-  y += 6;
-  doc.text('Total Paid Till Date', 15, y);
-  doc.text('Rs. ' + paidTillNow.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
-  y += 7;
-  doc.setDrawColor(220, 220, 220);
-  doc.setLineWidth(0.2);
-  doc.line(15, y - 4.5, pageWidth - 15, y - 4.5);
-  doc.setFont(undefined, 'bold');
-  doc.setTextColor(...navy);
-  doc.setFontSize(10.5);
-  doc.text('Balance Due', 15, y);
-  doc.text('Rs. ' + dueNow.toLocaleString('en-IN'), pageWidth - 15, y, { align: 'right' });
-  y += 24;
+  // Totals, right aligned as a money column.
+  doc.setDrawColor(...DOC_RULE);
+  doc.setLineWidth(0.4);
+  doc.line(colR, y, right, y);
+  y += 6.5;
+  const money = (label, value, strong) => {
+    doc.setFont(undefined, strong ? 'bold' : 'normal');
+    doc.setFontSize(strong ? 10.5 : 9.5);
+    doc.setTextColor(...(strong ? DOC_NAVY : DOC_INK));
+    doc.text(label, colR, y);
+    doc.text(currencyPlain(value), right, y, { align: 'right' });
+    y += strong ? 7 : 6;
+  };
+  money('Project Total', jobTotal(job));
+  money('Paid Till Date', jobPaid(job));
+  doc.setDrawColor(...DOC_RULE);
+  doc.line(colR, y - 3.5, right, y - 3.5);
+  money('Balance Due', jobDue(job), true);
 
-  // Signature line - the same formal, "this is a document worth
-  // keeping" touch the warranty certificate has, since a receipt is
-  // often the one paperwork a customer keeps as proof of payment.
-  doc.setDrawColor(180, 180, 180);
-  doc.line(pageWidth - 72, y, pageWidth - 20, y);
-  y += 5.5;
+  // Footer pinned to the bottom, so the page never ends in a ragged
+  // gap the way it did when everything simply stacked downwards.
+  const footY = pageHeight - 34;
+  drawSignature(doc, pageWidth, footY, m);
   doc.setFontSize(8.5);
-  doc.setTextColor(100, 100, 100);
-  doc.setFont(undefined, 'normal');
-  doc.text('Authorized Signatory', pageWidth - 46, y, { align: 'center' });
-  y += 4.5;
-  doc.setFont(undefined, 'bold');
-  doc.setTextColor(...navy);
-  doc.setFontSize(8);
-  doc.text(BUSINESS.owner, pageWidth - 46, y, { align: 'center' });
-
-  doc.setFontSize(9);
   doc.setFont(undefined, 'italic');
-  doc.setTextColor(120, 120, 120);
-  doc.text('Thank you for your business.', 20, y);
+  doc.setTextColor(...DOC_MUTED);
+  doc.text('Thank you for your business.', m, footY + 4.5);
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(7);
+  doc.text('This is a computer generated receipt.', m, footY + 9);
 
   return doc;
 }
+
 
 // A formal warranty certificate, issued once a job reaches delivered/
 // paid - separate from the receipt/estimate PDFs above, since this is
 // meant to be KEPT (a certificate a customer would file away and refer
 // back to if something needs a warranty claim years later), not a
-// transactional record of one payment. Warranty wording matches the
-// same terms shown in the app's own info cards (see the 'Warranty'
-// entry there) rather than restating them differently, so the two
-// never drift out of sync with each other.
+// transactional record of one payment.
+//
+// LANDSCAPE, because that is what a certificate looks like - and
+// because it is what the items need. Down a portrait page the covered
+// work ran as a single narrow column of long lines ("Modular Kitchen -
+// L shape with tandem baskets") against a centred document, leaving the
+// page lopsided and half empty. Across a landscape page the same list
+// sits in two balanced columns and the certificate fills its frame.
 async function buildWarrantyPdfDoc(job) {
   const jsPDF = await loadJsPDF();
-  const doc = new jsPDF();
+  const doc = new jsPDF('l', 'mm', 'a4');
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const navy = [15, 27, 61];
-  const gold = [168, 151, 95];
-  const paper = [248, 250, 251];
+  const m = 14;
 
-  // Navy header band with logo and tagline - matches the same
-  // professional header style the receipt/price list PDFs use, rather
-  // than the certificate looking like a visually different document
-  // from everything else the business hands a customer.
-  doc.setFillColor(...navy);
-  doc.rect(0, 0, pageWidth, 36, 'F');
-  let logoDataUrl = null;
-  try {
-    logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
-    doc.addImage(logoDataUrl, 'PNG', 15, 6, 22, 22);
-    // Large, very faint watermark version of the logo in the page
-    // body - the same "reads as an official original, not a generic
-    // template" cue the receipt now carries.
-    doc.saveGraphicsState();
-    doc.setGState(new doc.GState({ opacity: 0.05 }));
-    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 48, pageHeight / 2 - 48, 96, 96);
-    doc.restoreGraphicsState();
-  } catch (e) {
-    // Logo fetch failed - certificate is still fully valid without it.
-  }
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(14);
-  doc.setFont(undefined, 'bold');
-  doc.text(BUSINESS.name, 42, 14);
-  doc.setFontSize(7.5);
-  doc.setFont(undefined, 'italic');
-  doc.setTextColor(...gold);
-  doc.text(BUSINESS.tagline, 42, 19);
-  doc.setFont(undefined, 'normal');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(8);
-  doc.text(BUSINESS.addressLine, 42, 25);
-  doc.text(BUSINESS.phone + '  |  ' + BUSINESS.website, 42, 30);
+  await drawDocHeader(doc, pageWidth, pageHeight, { margin: m, bandHeight: 32 });
 
-  // Full-page border frame, since a certificate customarily reads as
-  // more formal/keepsake than an ordinary transactional document.
-  doc.setDrawColor(...gold);
-  doc.setLineWidth(0.8);
-  doc.rect(8, 42, pageWidth - 16, pageHeight - 50);
+  // Double frame - a hairline inside a heavier rule. One line reads as
+  // a box; two read as a certificate.
+  doc.setDrawColor(...DOC_GOLD);
+  doc.setLineWidth(0.9);
+  doc.rect(8, 38, pageWidth - 16, pageHeight - 46);
+  doc.setLineWidth(0.25);
+  doc.rect(10.5, 40.5, pageWidth - 21, pageHeight - 51);
 
-  let y = 56;
-  doc.setTextColor(...navy);
-  doc.setFontSize(19);
-  doc.setFont(undefined, 'bold');
-  doc.text('WARRANTY CERTIFICATE', pageWidth / 2, y, { align: 'center' });
-  y += 7;
-  doc.setDrawColor(...gold);
-  doc.setLineWidth(0.6);
-  doc.line(pageWidth / 2 - 32, y, pageWidth / 2 + 32, y);
-  y += 13;
-
-  doc.setFontSize(10.5);
-  doc.setFont(undefined, 'normal');
-  doc.setTextColor(90, 90, 90);
-  doc.text('This certifies that the work supplied to', pageWidth / 2, y, { align: 'center' });
-  y += 9;
-
-  doc.setFontSize(15);
-  doc.setFont(undefined, 'bold');
-  doc.setTextColor(...navy);
-  doc.text(job.customerName, pageWidth / 2, y, { align: 'center' });
-  y += 8;
-
-  if (job.flatNo || job.address) {
-    doc.setFontSize(9.5);
-    doc.setFont(undefined, 'normal');
-    doc.setTextColor(110, 110, 110);
-    doc.text([job.flatNo, job.address].filter(Boolean).join(', '), pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - 60 });
-    y += 9;
-  }
-  y += 3;
-
-  doc.setFontSize(10.5);
-  doc.setTextColor(90, 90, 90);
-  doc.text('is covered under the warranty terms below, by ' + BUSINESS.name + '.', pageWidth / 2, y, { align: 'center' });
-  y += 14;
-
-  // Items covered (from the actual estimate) - a plain list, not a
-  // priced table, since this document is about coverage, not billing.
-  const items = job.items || [];
-  if (items.length > 0) {
-    doc.setFontSize(9.5);
-    doc.setFont(undefined, 'bold');
-    doc.setTextColor(...navy);
-    doc.text('Items Covered', 20, y);
-    y += 6;
-    doc.setDrawColor(...gold);
-    doc.setLineWidth(0.3);
-    doc.line(20, y - 3.5, 20 + doc.getTextWidth('Items Covered'), y - 3.5);
-    doc.setFont(undefined, 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(70, 70, 70);
-    items.forEach((it) => {
-      doc.text('-  ' + it.desc, 23, y);
-      y += 5.5;
-    });
-    y += 5;
-  }
-
-  // A single, centered warranty box - Shree Krushn's own 2-year
-  // maintenance warranty (free service visits for fitting/adjustment
-  // issues). Previously showed this alongside a separate "5 Years
-  // Material Warranty" box, but that covered manufacturing defects on
-  // material/hardware supplied by third-party companies, not something
-  // Shree Krushn itself administers - keeping only the warranty the
-  // business actually stands behind avoids the certificate implying a
-  // guarantee on someone else's product.
-  const boxWidth = pageWidth - 80;
-  const boxHeight = 36;
-  const boxX = 40;
-  const boxTop = y;
-
-  doc.setFillColor(...paper);
-  doc.setDrawColor(...gold);
-  doc.setLineWidth(0.4);
-  doc.roundedRect(boxX, boxTop, boxWidth, boxHeight, 2, 2, 'FD');
-
+  let y = 52;
+  doc.setTextColor(...DOC_NAVY);
   doc.setFontSize(20);
   doc.setFont(undefined, 'bold');
-  doc.setTextColor(...gold);
-  doc.text('2 Years', pageWidth / 2, boxTop + 13, { align: 'center' });
+  doc.text('WARRANTY CERTIFICATE', pageWidth / 2, y, { align: 'center' });
+  y += 5.5;
+  doc.setDrawColor(...DOC_GOLD);
+  doc.setLineWidth(0.7);
+  doc.line(pageWidth / 2 - 34, y, pageWidth / 2 + 34, y);
+  y += 10;
 
-  doc.setFontSize(10);
+  doc.setFontSize(9.5);
+  doc.setFont(undefined, 'normal');
+  doc.setTextColor(...DOC_MUTED);
+  doc.text('This certifies that the work supplied to', pageWidth / 2, y, { align: 'center' });
+  y += 8.5;
+  doc.setFontSize(16);
   doc.setFont(undefined, 'bold');
-  doc.setTextColor(...navy);
-  doc.text('Shree Krushn Maintenance Warranty', pageWidth / 2, boxTop + 21, { align: 'center' });
+  doc.setTextColor(...DOC_NAVY);
+  doc.text(job.customerName, pageWidth / 2, y, { align: 'center' });
+  y += 6.5;
+  if (job.flatNo || job.address) {
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(...DOC_MUTED);
+    doc.text([job.flatNo, job.address].filter(Boolean).join(', '), pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - 90 });
+    y += 6;
+  }
+  doc.setFontSize(9.5);
+  doc.setTextColor(...DOC_MUTED);
+  doc.text('is covered under the warranty stated below.', pageWidth / 2, y, { align: 'center' });
+  y += 9;
 
-  doc.setFontSize(8);
-  doc.setFont(undefined, 'normal');
-  doc.setTextColor(100, 100, 100);
-  doc.text('Free service visits for fitting/adjustment issues', pageWidth / 2, boxTop + 27, { align: 'center' });
-  doc.text('on the work covered above', pageWidth / 2, boxTop + 32, { align: 'center' });
+  // Items across two columns. The page is wide now, so a single column
+  // would waste half of it and push the warranty box off the bottom.
+  const items = job.items || [];
+  if (items.length > 0) {
+    doc.setFontSize(8);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(...DOC_NAVY);
+    doc.text('WORK COVERED', m + 6, y);
+    y += 3;
+    doc.setDrawColor(...DOC_RULE);
+    doc.setLineWidth(0.4);
+    doc.line(m + 6, y, pageWidth - m - 6, y);
+    y += 6;
 
-  y = boxTop + boxHeight + 10;
+    const colWidth = (pageWidth - 2 * (m + 6) - 10) / 2;
+    const half = Math.ceil(items.length / 2);
+    const columns = [items.slice(0, half), items.slice(half)];
+    let deepest = y;
+    columns.forEach((col, ci) => {
+      const x = m + 6 + ci * (colWidth + 10);
+      let cy = y;
+      col.forEach((it, i) => {
+        const n = ci * half + i + 1;
+        const wrapped = doc.splitTextToSize(it.desc || '', colWidth - 8);
+        doc.setFont(undefined, 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(...DOC_INK);
+        doc.text(String(n) + '.', x, cy);
+        doc.text(wrapped, x + 6, cy);
+        cy += wrapped.length * 4.4 + 2.6;
+      });
+      if (cy > deepest) deepest = cy;
+    });
+    y = deepest + 4;
+  }
 
-  doc.setFontSize(8);
-  doc.setFont(undefined, 'italic');
-  doc.setTextColor(120, 120, 120);
-  doc.text('This warranty excludes physical damage, misuse, water damage beyond normal use, and normal wear and tear.', pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - 44 });
-  y += 12;
-
-  doc.setDrawColor(220, 220, 220);
-  doc.setLineWidth(0.2);
-  doc.line(20, y, pageWidth - 20, y);
-  y += 8;
-
-  doc.setFontSize(9);
-  doc.setFont(undefined, 'normal');
-  doc.setTextColor(90, 90, 90);
-  doc.text('Delivery Date: ' + formatDate(job.expectedCompletionDate || job.createdAt), 20, y);
-  doc.text('Certificate No: WC-' + job.id.slice(-8).toUpperCase(), pageWidth - 20, y, { align: 'right' });
-  y += 7;
-
-  // For a warranty specifically, "who do I actually call if something
-  // needs fixing years from now" is exactly the detail that goes
-  // missing without it - putting BOTH branch contacts here (not just
-  // the head office) matters since a customer may be closer to Vadodara
-  // than Ahmedabad by the time they need to use this.
-  doc.setFontSize(8);
-  doc.setTextColor(110, 110, 110);
-  const contactLine = BUSINESS.branches.map((b) => b.city + ': ' + b.phone).join('   |   ');
-  doc.text('Warranty Claims: ' + contactLine, 20, y, { maxWidth: pageWidth - 40 });
-  y += 15;
-
-  doc.setDrawColor(180, 180, 180);
-  doc.line(pageWidth - 72, y, pageWidth - 20, y);
-  y += 6;
-  doc.setFontSize(9);
-  doc.setTextColor(100, 100, 100);
-  doc.text('Authorized Signatory', pageWidth - 46, y, { align: 'center' });
-  y += 4.5;
+  // The warranty itself.
+  //
+  // The box follows the items and never moves up into them - an earlier
+  // attempt pinned it to the footer instead and, with six items, drew
+  // it straight over the last one. The footer gives way instead: it
+  // sits at its usual place, or lower if the content needs the room.
+  const boxWidth = Math.min(150, pageWidth - 2 * m - 40);
+  const boxX = (pageWidth - boxWidth) / 2;
+  const boxHeight = 30;
+  doc.setFillColor(...DOC_PAPER);
+  doc.setDrawColor(...DOC_GOLD);
+  doc.setLineWidth(0.5);
+  doc.roundedRect(boxX, y, boxWidth, boxHeight, 2, 2, 'FD');
+  doc.setFontSize(17);
   doc.setFont(undefined, 'bold');
-  doc.setTextColor(...navy);
-  doc.text(BUSINESS.owner, pageWidth - 46, y, { align: 'center' });
-  y += 4;
-  doc.setFont(undefined, 'normal');
+  doc.setTextColor(...DOC_GOLD);
+  doc.text('2 Years', pageWidth / 2, y + 11, { align: 'center' });
+  doc.setFontSize(9.5);
+  doc.setTextColor(...DOC_NAVY);
+  doc.text('Shree Krushn Maintenance Warranty', pageWidth / 2, y + 18, { align: 'center' });
   doc.setFontSize(7.5);
-  doc.setTextColor(120, 120, 120);
-  doc.text(BUSINESS.name, pageWidth - 46, y, { align: 'center' });
+  doc.setFont(undefined, 'normal');
+  doc.setTextColor(...DOC_MUTED);
+  doc.text('Free service visits for fitting / adjustment issues on the work covered above', pageWidth / 2, y + 24.5, { align: 'center' });
+  y += boxHeight + 6;
 
+  doc.setFontSize(7.5);
+  doc.setFont(undefined, 'italic');
+  doc.setTextColor(...DOC_MUTED);
+  doc.text('Excludes physical damage, misuse, water damage beyond normal use, and normal wear and tear.', pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - 60 });
+
+  // Normally at its usual height, so a short certificate still looks
+  // settled rather than top-heavy; pushed down only when the items need
+  // the space, and never past the frame.
+  // Never lower than this: the signature block below it needs 23mm, and
+  // the frame ends 8mm from the page edge.
+  const footRuleY = Math.min(pageHeight - 34, Math.max(pageHeight - 44, y + 7));
+  doc.setDrawColor(...DOC_RULE);
+  doc.setLineWidth(0.4);
+  doc.line(m + 6, footRuleY, pageWidth - m - 6, footRuleY);
+
+  const footY = footRuleY + 7;
+  drawField(doc, m + 6, footY, 'Delivery Date', formatDate(jobDeliveredAt(job) || job.expectedCompletionDate || job.createdAt), { maxWidth: 60 });
+  drawField(doc, m + 76, footY, 'Certificate No', warrantyCertNo(job), { maxWidth: 60 });
+  drawField(doc, m + 146, footY, 'Warranty Claims', BUSINESS.phone, { maxWidth: 60 });
+
+  // Signature sits on the same baseline as those fields' values.
+  drawSignature(doc, pageWidth, footY + 3, m + 6, true);
   return doc;
 }
+
 
 async function generateReceiptPdf(job, payment, showToast) {
   try {
@@ -9261,6 +9266,28 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     showToast('Reply bhej diya');
   };
 
+  // Lets the business set its own certificate / receipt numbers. Both
+  // defaulted to a slice of an internal id - unique, but meaningless to
+  // read out or file against. Saving only stores what was typed, so a
+  // document already issued keeps the number it went out with.
+  const editDocNumber = (which, payment) => {
+    const current = which === 'warranty' ? warrantyCertNo(jobRef.current) : receiptNo(payment);
+    const entered = window.prompt(
+      which === 'warranty' ? 'Certificate number:' : 'Receipt number:',
+      current,
+    );
+    if (entered === null) return;
+    const value = String(entered).trim();
+    if (!value) { showToast('Number khali nahi ho sakta', true); return; }
+    const base = jobRef.current;
+    if (which === 'warranty') {
+      saveJob({ ...base, warrantyCertNo: value });
+    } else {
+      saveJob({ ...base, payments: (base.payments || []).map((p) => (p.id === payment.id ? { ...p, receiptNo: value } : p)) });
+    }
+    showToast('Number save ho gaya');
+  };
+
   const updateStatus = (status) => {
     let next = { ...jobRef.current, status };
     // When the work was finished, recorded once. The whole service
@@ -9668,7 +9695,17 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
             )}
 
             {(job.status === 'delivered' || job.status === 'paid') && (
+              <>
               <button style={{ ...styles.addBtn, marginTop: 16 }} onClick={() => generateWarrantyCertificate(job, showToast)}><FileText size={14} /> Warranty Certificate Download Karein</button>
+              {/* The number printed on the certificate. It used to be a
+                  slice of the internal job id, which nobody can read out
+                  over a phone - now it is whatever the business wants to
+                  call it, and only suggests the old value. */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 8 }}>
+                <div style={styles.itemSub}>Certificate No: <b>{warrantyCertNo(job)}</b></div>
+                <button style={styles.previewLinkBtn} onClick={() => editDocNumber('warranty')}>Badlein</button>
+              </div>
+              </>
             )}
 
             <div style={{ marginTop: 16 }}>
@@ -9885,6 +9922,9 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                 <div style={{ flex: 1 }}>
                   <div style={styles.itemDesc}>{currency(p.amount)}</div>
                   <div style={styles.itemSub}>{formatDate(p.date)} {p.note && ('- ' + p.note)}</div>
+                  <button style={{ ...styles.itemSub, border: 'none', background: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }} onClick={() => editDocNumber('receipt', p)}>
+                    Receipt No: {receiptNo(p)}
+                  </button>
                 </div>
                 <button style={{ ...styles.iconBtnSmall, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => shareReceiptPdf(job, p, showToast)}><Send size={14} color='#25D366' /></button>
                 <button style={styles.iconBtnSmall} onClick={() => generateReceiptPdf(job, p, showToast)}><FileText size={14} color='#3D6B66' /></button>
