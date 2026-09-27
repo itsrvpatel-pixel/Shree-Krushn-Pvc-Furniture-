@@ -10,7 +10,11 @@
 //   node test/estimate-math.test.mjs
 
 import fs from 'node:fs/promises';
-const src = await fs.readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+// Both halves of the app. The admin panel lives in its own file now so
+// it is not shipped to customers, and a check that read only App.jsx
+// would quietly stop testing anything the moment a function moved.
+const src = (await Promise.all(['../src/App.jsx', '../src/AdminApp.jsx']
+  .map((f) => fs.readFile(new URL(f, import.meta.url), 'utf8')))).join('\n');
 
 // The formulas, lifted from App.jsx so the arithmetic is checked rather
 // than described. Kept in step with it by the source assertions below.
