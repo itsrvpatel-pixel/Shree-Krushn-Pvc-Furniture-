@@ -96,10 +96,17 @@ for key,slug,h1,title,intro,incl in PAGES:
                % (E(album), len(g.get(key,[]))) if album else
                '<a class="btn b3" href="%s" target="_blank" rel="noopener">Watch the work on video</a>' % E(VIDEO))
     ld={"@context":"https://schema.org","@type":"Service","serviceType":h1.replace(' in Ahmedabad',''),
-        "provider":{"@type":"HomeAndConstructionBusiness","name":"Shree Krushn PVC Furniture",
-          "telephone":"+91-79902-83116",
+        # Same @id as the business block on the home page, so Google reads
+        # eleven Service pages and one business rather than twelve
+        # unrelated mentions of the same name.
+        "provider":{"@type":"HomeAndConstructionBusiness",
+          "@id":"https://www.shreekrushnpvcfurniture.com/#business",
+          "name":"Shree Krushn PVC Furniture",
+          "url":"https://www.shreekrushnpvcfurniture.com/",
+          "telephone":["+91-79902-83116","+91-95123-18775"],
           "address":{"@type":"PostalAddress","streetAddress":"Nikol","addressLocality":"Ahmedabad",
-                     "addressRegion":"Gujarat","postalCode":"382350","addressCountry":"IN"}},
+                     "addressRegion":"Gujarat","postalCode":"382350","addressCountry":"IN"},
+          "areaServed":{"@type":"City","name":"Ahmedabad"}},
         "areaServed":{"@type":"City","name":"Ahmedabad"},
         "description":intro[:250]}
     vals={'CSS':css,'TITLE':E(title),'DESC':E(intro[:155]),'SLUG':slug,'H1':E(h1),'INTRO':E(intro),
