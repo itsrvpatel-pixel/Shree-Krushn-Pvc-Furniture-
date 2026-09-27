@@ -4643,6 +4643,92 @@ function QuickTile({ icon, label, onClick }) {
 }
 
 /* ---- Gallery browser ---- */
+// Categories kept out of the mixed "All Photos" showcase and out of the
+// cache warm-up: Color/POP and Electrical work belong to DH Home Decor's
+// own trade, not Shree Krushn's PVC furniture, so a customer browsing for
+// furniture should not have them mixed in - or spend bandwidth on them.
+// They stay fully browsable in their own category tile.
+//
+// Module scope, not a const inside the component: as a fresh array on
+// every render it re-ran the warm-up effect below on every render.
+const ALL_PHOTOS_EXCLUDED_CATEGORIES = ['Color/POP Work', 'Electrical Work'];
+
+/* --- Warming the gallery grid's images.
+
+   Switching into a category that has not been opened yet means its
+   <img> elements are created from scratch, and a fresh fetch+decode is
+   what the couple-of-seconds pause was actually waiting on. Warming the
+   browser cache ahead of time removes that pause.
+
+   Two things about how this used to be done made the gallery slow
+   rather than fast, and both are worth stating because the same code
+   existed in two places and drifted into the same bug twice - hence one
+   shared hook now.
+
+   IT WARMED THE WRONG FILE. The grid renders `thumbUrl || url`: a 400px,
+   ~40KB thumbnail. The warm-up asked for `url`, the full-quality ~650KB
+   photo that only the lightbox ever shows. Every byte it fetched was a
+   byte the grid could not use.
+
+   IT ASKED FOR EVERYTHING AT ONCE. Fifteen photos across twelve
+   categories is 180 requests fired the instant the gallery mounts -
+   about 117MB of full-size photos. A browser runs six at a time per
+   host, so the thumbnails the grid was actually trying to paint sat in
+   the queue behind them. The warm-up was starving the screen it was
+   supposed to be speeding up.
+
+   Now: thumbnails only, six per category rather than fifteen, four in
+   flight at a time, and not started until the browser is idle - so the
+   visible grid always gets the connection first. --- */
+function useGalleryThumbWarmup(gallery, categories, skip) {
+  const warmedRef = React.useRef(new Set());
+  useEffect(() => {
+    const PER_CATEGORY = 6;
+    const IN_FLIGHT = 4;
+    const urls = [];
+    for (const cat of categories || []) {
+      if (skip && skip.includes(cat)) continue;
+      for (const p of (gallery[cat] || []).slice(0, PER_CATEGORY)) {
+        const url = p.thumbUrl || p.url;
+        if (url && !warmedRef.current.has(url)) {
+          warmedRef.current.add(url);
+          urls.push(url);
+        }
+      }
+    }
+    if (urls.length === 0) return undefined;
+
+    // Speculation is a luxury. On a slow connection, or with Data Saver
+    // on, the six-per-category head start is not worth a couple of
+    // megabytes the person may never look at - the grid's own lazy
+    // loading still fetches whatever they actually scroll to.
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (conn && (conn.saveData || /^(slow-)?2g$|^3g$/.test(conn.effectiveType || ''))) return undefined;
+
+    let cancelled = false;
+    let next = 0;
+    const pull = () => {
+      if (cancelled || next >= urls.length) return;
+      const img = new Image();
+      const done = () => { if (!cancelled) pull(); };
+      img.onload = done;
+      img.onerror = done;
+      img.src = urls[next];
+      next += 1;
+    };
+    const start = () => { for (let i = 0; i < IN_FLIGHT; i += 1) pull(); };
+
+    // Idle, so this never competes with the grid's own first paint. The
+    // timeout is the backstop for a page that is never idle.
+    const idle = typeof window.requestIdleCallback === 'function';
+    const handle = idle ? window.requestIdleCallback(start, { timeout: 2500 }) : setTimeout(start, 1200);
+    return () => {
+      cancelled = true;
+      if (idle) window.cancelIdleCallback(handle); else clearTimeout(handle);
+    };
+  }, [gallery, categories, skip]);
+}
+
 function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, categories, testimonials, job, onSaveJob, showToast }) {
   const [activeCat, setActiveCat] = useState(null);
   const [lightbox, setLightbox] = useState(null);
@@ -4700,16 +4786,8 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
   // `gallery` each render (not memoized to skip work - the useMemo here
   // is only to keep this hook call itself unconditional), which is
   // fine at this photo count - no meaningful cost, and it stays
-  // trivially correct as photos get added/moved/removed.
-  // Categories excluded from the mixed "All Photos" showcase view -
-  // Color/POP and Electrical work belong to DH Home Decor's own trade
-  // (a partner business), not Shree Krushn's core PVC furniture work,
-  // so mixing them into the general browsing view would show a
-  // customer coming for furniture a category unrelated to what they're
-  // actually shopping for. These stay fully visible and browsable in
-  // their OWN category tile though - a customer specifically looking
-  // for that work can still find it there.
-  const ALL_PHOTOS_EXCLUDED_CATEGORIES = ['Color/POP Work', 'Electrical Work'];
+  // trivially correct as photos get added/moved/removed. Skips the
+  // categories in ALL_PHOTOS_EXCLUDED_CATEGORIES - see its own comment.
   const allPhotosFlat = useMemo(() => {
     const combined = [];
     for (const cat of galleryCategories) {
@@ -4719,47 +4797,7 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
     return combined.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   }, [gallery, galleryCategories]);
 
-  // Quietly warms the browser's own image cache for every category's
-  // first page of photos, right when the gallery data is ready - not
-  // just the one category currently being viewed. Switching between
-  // categories doesn't keep their DOM elements mounted (that would
-  // mean holding every category's whole photo grid in memory at
-  // once, which doesn't scale well once there are many categories),
-  // so a category being viewed for the first time in this session
-  // genuinely does need its <img> elements freshly created - but
-  // "freshly created DOM element" and "needs a fresh network+decode
-  // round-trip" are two different things: this preloads the actual
-  // image bytes into the browser's own cache ahead of time (using
-  // invisible Image() objects that render nothing), so by the time
-  // someone actually taps into a category, the browser can decode and
-  // paint from cache almost instantly instead of needing to fetch it
-  // for the first time right then - which is what the couple-seconds
-  // delay on first visiting a category was actually waiting on.
-  // preloadedUrlsRef prevents re-triggering this for URLs already
-  // warmed earlier in the session (e.g. when the poll refreshes
-  // gallery data periodically) - only genuinely new photos get a new
-  // Image() request.
-  const preloadedUrlsRef = React.useRef(new Set());
-  useEffect(() => {
-    const PRELOAD_COUNT = 15;
-    for (const cat of galleryCategories) {
-      // Same exclusion as allPhotosFlat above - preloading these too
-      // was adding unnecessary network activity right when Gallery
-      // opens, competing for bandwidth with the furniture categories
-      // a customer is actually there to browse. A customer who
-      // specifically taps into Color/POP or Electrical still gets
-      // those photos loaded normally, just not pre-warmed in advance.
-      if (ALL_PHOTOS_EXCLUDED_CATEGORIES.includes(cat)) continue;
-      const photos = (gallery[cat] || []).slice(0, PRELOAD_COUNT);
-      for (const p of photos) {
-        if (p.url && !preloadedUrlsRef.current.has(p.url)) {
-          preloadedUrlsRef.current.add(p.url);
-          const img = new Image();
-          img.src = p.url;
-        }
-      }
-    }
-  }, [galleryCategories, gallery]);
+  useGalleryThumbWarmup(gallery, galleryCategories, ALL_PHOTOS_EXCLUDED_CATEGORIES);
 
   if (galleryLoading && Object.keys(gallery || {}).length === 0) {
     return (
@@ -10468,25 +10506,9 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
     ? DH_PARTNER_CATEGORIES
     : [...new Set([...(categories || []), ...Object.keys(gallery || {})])];
 
-  // Same image-preloading fix as GalleryBrowser's matching comment -
-  // warms the browser's cache for every category's first page of
-  // photos, so switching between them in Settings' management view
-  // feels instant after the first pass, instead of each category
-  // needing its own fresh fetch+decode the first time it's opened.
-  const preloadedUrlsRef = React.useRef(new Set());
-  useEffect(() => {
-    const PRELOAD_COUNT = 15;
-    for (const cat of galleryCategories) {
-      const photos = (gallery[cat] || []).slice(0, PRELOAD_COUNT);
-      for (const p of photos) {
-        if (p.url && !preloadedUrlsRef.current.has(p.url)) {
-          preloadedUrlsRef.current.add(p.url);
-          const img = new Image();
-          img.src = p.url;
-        }
-      }
-    }
-  }, [galleryCategories, gallery]);
+  // The same warm-up the customer's gallery uses. It was a second copy
+  // of the code here, and it carried the same two faults.
+  useGalleryThumbWarmup(gallery, galleryCategories);
 
   if (galleryLoading && Object.keys(gallery || {}).length === 0) {
     return (

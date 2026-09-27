@@ -37,13 +37,29 @@ import {
   getDocs,
   onSnapshot,
 } from "firebase/firestore";
-import {
-  getStorage,
-  ref,
-  uploadString,
-  getDownloadURL,
-  deleteObject,
-} from "firebase/storage";
+// firebase/storage and firebase/messaging are NOT imported here.
+//
+// Both are needed only for things a person has to ask for - uploading a
+// photo or a brochure, turning push notifications on - and neither is
+// touched on the path that gets the app onto the screen. Imported at the
+// top they still shipped in the first bundle every visitor downloads
+// before seeing anything, which on a slow phone connection is time spent
+// waiting for code that visit will probably never run. They are loaded
+// at the moment they are first used instead; see loadStorageSdk and the
+// messaging functions below.
+let storageSdkPromise = null;
+function loadStorageSdk() {
+  if (!storageSdkPromise) {
+    storageSdkPromise = import("firebase/storage").then((m) => ({
+      ref: m.ref,
+      uploadString: m.uploadString,
+      getDownloadURL: m.getDownloadURL,
+      deleteObject: m.deleteObject,
+      storage: m.getStorage(app),
+    }));
+  }
+  return storageSdkPromise;
+}
 import {
   getAuth,
   RecaptchaVerifier,
@@ -52,13 +68,6 @@ import {
   signInAnonymously,
   onAuthStateChanged,
 } from "firebase/auth";
-import {
-  getMessaging,
-  getToken,
-  onMessage,
-  isSupported as isMessagingSupported,
-} from "firebase/messaging";
-
 // Your actual Firebase project config (Shree Krushn PVC Furniture)
 const firebaseConfig = {
   apiKey: "AIzaSyBOlInlieBdYitFR9VYpkqyO7OkzPCLtGY",
@@ -98,7 +107,6 @@ try {
 } catch (e) {
   db = getFirestore(app);
 }
-const storage = getStorage(app);
 const auth = getAuth(app);
 
 // All data lives in a single Firestore collection called "app_data".
@@ -190,6 +198,7 @@ async function del(key) {
 // metadata (name, category, etc).
 async function uploadDataUri(key, dataUri) {
   try {
+    const { ref, uploadString, getDownloadURL, storage } = await loadStorageSdk();
     const storageRef = ref(storage, "files/" + key);
     // Cache-Control set explicitly to a full year, public - without this,
     // Firebase Storage's default caching behavior isn't tuned for "this
@@ -222,8 +231,8 @@ async function uploadDataUri(key, dataUri) {
 
 async function deleteFile(key) {
   try {
+    const { ref, deleteObject, storage } = await loadStorageSdk();
     const storageRef = ref(storage, "files/" + key);
-    await deleteObject(storageRef);
     return { key, deleted: true };
   } catch (e) {
     // A missing file (already deleted, or never uploaded) shouldn't block
@@ -618,7 +627,8 @@ async function requestPermissionAndGetToken() {
       console.warn('Push notifications: VAPID_KEY not configured yet in firebaseStorage.js');
       return null;
     }
-    const supported = await isMessagingSupported();
+    const { getMessaging, getToken, isSupported } = await import("firebase/messaging");
+    const supported = await isSupported();
     if (!supported) return null;
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') return null;
@@ -638,13 +648,26 @@ async function requestPermissionAndGetToken() {
 // someone is actively looking at the app is usually better shown as an
 // in-app toast/banner than a system notification popping over what
 // they're already doing.
+// Stays synchronous and still returns an unsubscribe function, because
+// that is the contract callers already rely on - the SDK is fetched in
+// the background and the real subscription is swapped in when it lands.
+// Unsubscribing before then cancels it rather than leaking a listener.
 function onForegroundMessage(callback) {
-  try {
-    const messaging = getMessaging(app);
-    return onMessage(messaging, (payload) => callback(payload));
-  } catch (e) {
-    return () => {};
-  }
+  let stopped = false;
+  let inner = null;
+  import("firebase/messaging").then(({ getMessaging, onMessage }) => {
+    if (stopped) return;
+    try {
+      const messaging = getMessaging(app);
+      inner = onMessage(messaging, (payload) => callback(payload));
+    } catch (e) {
+      // Messaging unavailable - nothing to listen to.
+    }
+  }).catch(() => {});
+  return () => {
+    stopped = true;
+    if (inner) inner();
+  };
 }
 
 // Calls the Vercel serverless function (api/send-push.js) that
