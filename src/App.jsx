@@ -885,253 +885,167 @@ async function buildReceiptPdfDoc(job, payment) {
 }
 
 
-// A formal warranty certificate, issued once a job reaches delivered/
-// paid - separate from the receipt/estimate PDFs above, since this is
-// meant to be KEPT (a certificate a customer would file away and refer
-// back to if something needs a warranty claim years later), not a
-// transactional record of one payment.
+// The warranty card.
 //
-// LANDSCAPE, because that is what a certificate looks like - and
-// because it is what the items need. Down a portrait page the covered
-// work ran as a single narrow column of long lines, leaving the page
-// lopsided and half empty.
+// A quarter of an A4 sheet, cut the long way: 210mm x 74mm. Four to a
+// page, and the shape is deliberate - it is a card to hand over and
+// keep, not a certificate to frame.
 //
-// HOW MANY ITEMS IT SURVIVES
+// WHAT IS AND IS NOT ON IT
 //
-// A kitchen job might list six things; a full-home job can list fifty.
-// A fixed two-column block handled the first and fell apart on the
-// second - the list ran off the bottom of the page and the footer and
-// warranty box printed straight over it. So the list is measured before
-// it is drawn: the layout below tries progressively denser settings
-// until the items fit the space available, and only when even the
-// densest will not fit does it continue onto another page. A short
-// certificate keeps its generous type; a fifty-item one tightens up
-// rather than spilling.
-
-// Column layouts to try, roomiest first.
-const CERT_ITEM_LAYOUTS = [
-  { cols: 2, size: 9, line: 4.4, gap: 2.6 },
-  { cols: 2, size: 8.5, line: 4.0, gap: 2.0 },
-  { cols: 3, size: 8, line: 3.8, gap: 1.8 },
-  { cols: 3, size: 7.5, line: 3.5, gap: 1.4 },
-  { cols: 4, size: 7, line: 3.3, gap: 1.2 },
-  { cols: 4, size: 6.5, line: 3.1, gap: 1.0 },
-];
-
-// Places items into columns, top to bottom then left to right, stopping
-// when the column block is full. Returns what was drawn and what did
-// not fit, so the caller can decide between trying a denser layout and
-// starting another page. Pass draw=false to measure without marking the
-// page - that is what makes "try until it fits" possible at all.
-function layoutCertItems(doc, items, startIndex, x0, y0, blockWidth, blockHeight, cfg, draw) {
-  const colWidth = (blockWidth - (cfg.cols - 1) * 8) / cfg.cols;
-  let i = startIndex;
-  for (let c = 0; c < cfg.cols; c += 1) {
-    const x = x0 + c * (colWidth + 8);
-    let y = y0;
-    while (i < items.length) {
-      const text = (items[i] && items[i].desc) || '';
-      const wrapped = doc.splitTextToSize(text, colWidth - 8);
-      const height = wrapped.length * cfg.line + cfg.gap;
-      if (y - y0 + height > blockHeight) break;
-      if (draw) {
-        doc.setFont(undefined, 'normal');
-        doc.setFontSize(cfg.size);
-        doc.setTextColor(...DOC_INK);
-        doc.text(String(i + 1) + '.', x, y);
-        doc.text(wrapped, x + (items.length > 99 ? 8 : 6.5), y);
-      }
-      y += height;
-      i += 1;
-    }
-  }
-  return { nextIndex: i, done: i >= items.length };
-}
-
+// Not the item list. A full-home job can run to fifty lines, and on a
+// card that size any attempt to show them either spills onto extra
+// cards or shrinks to something nobody can read. So the card states how
+// many items are covered and points at the quotation, which already
+// carries every line and now has a number to refer to. The card stays
+// one page, always.
+//
+// The width is used rather than fought: customer and coverage on the
+// left, the warranty itself boxed on the right, and a single footer
+// strip underneath.
 async function buildWarrantyPdfDoc(job) {
   const jsPDF = await loadJsPDF();
-  const doc = new jsPDF('l', 'mm', 'a4');
+  const doc = new jsPDF({ unit: 'mm', format: [210, 74], orientation: 'landscape' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const m = 14;
-  const blockX = m + 6;
-  const blockWidth = pageWidth - 2 * (m + 6);
 
-  const drawFrame = () => {
-    doc.setDrawColor(...DOC_GOLD);
-    doc.setLineWidth(0.9);
-    doc.rect(8, 38, pageWidth - 16, pageHeight - 46);
-    doc.setLineWidth(0.25);
-    doc.rect(10.5, 40.5, pageWidth - 21, pageHeight - 51);
-  };
-
-  await drawDocHeader(doc, pageWidth, pageHeight, { margin: m, bandHeight: 32 });
-  drawFrame();
-
-  let y = 52;
-  doc.setTextColor(...DOC_NAVY);
-  doc.setFontSize(20);
+  // Header band, slimmer than the A4 documents - 15mm of 74 is already
+  // a fifth of the card.
+  const band = 15;
+  doc.setFillColor(...DOC_NAVY);
+  doc.rect(0, 0, pageWidth, band, 'F');
+  doc.setFillColor(...DOC_GOLD);
+  doc.rect(0, band, pageWidth, 0.8, 'F');
+  try {
+    const logoDataUrl = await loadImageAsDataUrl('/icon-512.png');
+    doc.addImage(logoDataUrl, 'PNG', 5, 2, 11, 11);
+    doc.saveGraphicsState();
+    doc.setGState(new doc.GState({ opacity: 0.03 }));
+    doc.addImage(logoDataUrl, 'PNG', pageWidth / 2 - 22, pageHeight / 2 - 18, 44, 44);
+    doc.restoreGraphicsState();
+  } catch (e) {
+    // No logo - the card is still complete.
+  }
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(10);
   doc.setFont(undefined, 'bold');
-  doc.text('WARRANTY CERTIFICATE', pageWidth / 2, y, { align: 'center' });
-  y += 5.5;
-  doc.setDrawColor(...DOC_GOLD);
-  doc.setLineWidth(0.7);
-  doc.line(pageWidth / 2 - 34, y, pageWidth / 2 + 34, y);
-  y += 10;
+  doc.text(BUSINESS.name, 19, 7);
+  doc.setFontSize(5.8);
+  doc.setFont(undefined, 'normal');
+  doc.setTextColor(...DOC_GOLD);
+  doc.text(BUSINESS.tagline.toUpperCase(), 19, 10.6);
+  doc.setTextColor(214, 218, 228);
+  doc.text(BUSINESS.addressLine + '   |   ' + BUSINESS.phone, 19, 13.6);
 
-  doc.setFontSize(9.5);
+  doc.setDrawColor(...DOC_GOLD);
+  doc.setLineWidth(0.5);
+  doc.rect(3, band + 3, pageWidth - 6, pageHeight - band - 6);
+
+  // Left: who it is for, and what it covers.
+  const leftX = 9;
+  let y = band + 10;
+  doc.setTextColor(...DOC_NAVY);
+  doc.setFontSize(11);
+  doc.setFont(undefined, 'bold');
+  doc.text('WARRANTY CERTIFICATE', leftX, y);
+  doc.setDrawColor(...DOC_GOLD);
+  doc.setLineWidth(0.5);
+  doc.line(leftX, y + 1.8, leftX + 40, y + 1.8);
+  y += 7.5;
+
+  doc.setFontSize(6);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_MUTED);
-  doc.text('This certifies that the work supplied to', pageWidth / 2, y, { align: 'center' });
-  y += 8.5;
-  doc.setFontSize(16);
+  doc.text('ISSUED TO', leftX, y);
+  y += 4.4;
+  doc.setFontSize(10);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...DOC_NAVY);
-  doc.text(job.customerName, pageWidth / 2, y, { align: 'center' });
-  y += 6.5;
+  doc.text(job.customerName, leftX, y);
+  y += 4.4;
   if (job.flatNo || job.address) {
-    doc.setFontSize(9);
+    doc.setFontSize(6.5);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(...DOC_MUTED);
-    doc.text([job.flatNo, job.address].filter(Boolean).join(', '), pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - 90 });
-    y += 6;
+    const addr = doc.splitTextToSize([job.flatNo, job.address].filter(Boolean).join(', '), 108);
+    doc.text(addr.slice(0, 2), leftX, y);
+    y += addr.slice(0, 2).length * 3.4;
   }
-  doc.setFontSize(9.5);
-  doc.setTextColor(...DOC_MUTED);
-  doc.text('is covered under the warranty stated below.', pageWidth / 2, y, { align: 'center' });
-  y += 9;
+  y += 2.6;
 
-  // The warranty block and footer are a fixed 74mm at the bottom of
-  // whichever page they land on, so the item block is whatever is left.
-  const TAIL_HEIGHT = 74;
-  const footerTop = pageHeight - TAIL_HEIGHT;
+  // The coverage line, in place of the list.
+  const count = (job.items || []).length;
+  doc.setFontSize(7);
+  doc.setFont(undefined, 'bold');
+  doc.setTextColor(...DOC_NAVY);
+  const covered = count === 0
+    ? 'Work covered as per the estimate'
+    : ('Covers ' + count + ' item' + (count === 1 ? '' : 's') + (job.quoteNo ? (' as per Quotation ' + job.quoteNo) : ' as per the estimate'));
+  doc.text(doc.splitTextToSize(covered, 112), leftX, y);
 
-  const items = job.items || [];
-  let chosen = CERT_ITEM_LAYOUTS[CERT_ITEM_LAYOUTS.length - 1];
-  if (items.length > 0) {
-    doc.setFontSize(8);
-    doc.setFont(undefined, 'bold');
-    doc.setTextColor(...DOC_NAVY);
-    doc.text('WORK COVERED', blockX, y);
-    y += 3;
-    doc.setDrawColor(...DOC_RULE);
-    doc.setLineWidth(0.4);
-    doc.line(blockX, y, pageWidth - m - 6, y);
-    y += 6;
-
-    // Measure first. The roomiest layout that fits the whole list on
-    // this one page wins; if none does, settle on a readable middle
-    // setting and let it run onto further pages rather than shrinking
-    // fifty items into something nobody can read.
-    const singlePageRoom = footerTop - y;
-    chosen = null;
-    for (const cfg of CERT_ITEM_LAYOUTS) {
-      if (layoutCertItems(doc, items, 0, blockX, y, blockWidth, singlePageRoom, cfg, false).done) { chosen = cfg; break; }
-    }
-    const multiPage = !chosen;
-    if (!chosen) chosen = CERT_ITEM_LAYOUTS[2];
-
-    // On a page that is not the last one there is no warranty block to
-    // leave room for, so the items take the full height. Reserving it
-    // anyway is what left a fifty-item certificate with a third of its
-    // first page blank.
-    //
-    // The loop only finishes on a page where the REMAINDER fits above
-    // the warranty block. Filling a page to its bottom and then drawing
-    // the block on the same page is what printed the box straight over
-    // items 22 to 35 - so in that case a further page is started even
-    // when every item has already been placed, and it carries the
-    // warranty block alone.
-    const pageBottom = pageHeight - 16;
-    let index = 0;
-    let top = y;
-    for (;;) {
-      if (layoutCertItems(doc, items, index, blockX, top, blockWidth, footerTop - top, chosen, false).done) {
-        layoutCertItems(doc, items, index, blockX, top, blockWidth, footerTop - top, chosen, true);
-        break;
-      }
-      const before = index;
-      index = layoutCertItems(doc, items, index, blockX, top, blockWidth, pageBottom - top, chosen, true).nextIndex;
-      // A layout that cannot place a single item on an empty page would
-      // loop forever.
-      if (index === before) {
-        const densest = CERT_ITEM_LAYOUTS[CERT_ITEM_LAYOUTS.length - 1];
-        if (chosen !== densest) { chosen = densest; continue; }
-        break;
-      }
-      doc.addPage();
-      // Every page carries the header. Without it a continuation page is
-      // a framed list with no indication of whose certificate it belongs
-      // to - which matters more here than on a one-page document,
-      // because these pages get separated.
-      await drawDocHeader(doc, pageWidth, pageHeight, { margin: m, bandHeight: 32 });
-      drawFrame();
-      top = 52;
-      if (index < items.length) {
-        doc.setFontSize(8);
-        doc.setFont(undefined, 'bold');
-        doc.setTextColor(...DOC_NAVY);
-        doc.text('WORK COVERED (CONTINUED)', blockX, top);
-        top += 3;
-        doc.setDrawColor(...DOC_RULE);
-        doc.setLineWidth(0.4);
-        doc.line(blockX, top, pageWidth - m - 6, top);
-        top += 6;
-      } else {
-        break;
-      }
-    }
-  }
-
-  // The warranty, always at the foot of the last page.
-  let boxTop = footerTop + 2;
-  const boxWidth = Math.min(150, pageWidth - 2 * m - 40);
-  const boxX = (pageWidth - boxWidth) / 2;
-  const boxHeight = 30;
+  // Right: the warranty.
+  const boxW = 74;
+  const boxX = pageWidth - boxW - 9;
+  const boxY = band + 9;
+  const boxH = 30;
   doc.setFillColor(...DOC_PAPER);
   doc.setDrawColor(...DOC_GOLD);
   doc.setLineWidth(0.5);
-  doc.roundedRect(boxX, boxTop, boxWidth, boxHeight, 2, 2, 'FD');
-  doc.setFontSize(17);
+  doc.roundedRect(boxX, boxY, boxW, boxH, 1.5, 1.5, 'FD');
+  doc.setFontSize(15);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(...DOC_GOLD);
-  doc.text('2 Years', pageWidth / 2, boxTop + 11, { align: 'center' });
-  doc.setFontSize(9.5);
+  doc.text('2 Years', boxX + boxW / 2, boxY + 11, { align: 'center' });
+  doc.setFontSize(7);
   doc.setTextColor(...DOC_NAVY);
-  doc.text('Shree Krushn Maintenance Warranty', pageWidth / 2, boxTop + 18, { align: 'center' });
-  doc.setFontSize(7.5);
+  doc.text('Shree Krushn Maintenance Warranty', boxX + boxW / 2, boxY + 17, { align: 'center' });
+  doc.setFontSize(5.8);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(...DOC_MUTED);
-  doc.text('Free service visits for fitting / adjustment issues on the work covered above', pageWidth / 2, boxTop + 24.5, { align: 'center' });
+  doc.text('Free service visits for fitting /', boxX + boxW / 2, boxY + 22, { align: 'center' });
+  doc.text('adjustment issues on the work covered', boxX + boxW / 2, boxY + 25.5, { align: 'center' });
 
-  let ty = boxTop + boxHeight + 6;
-  doc.setFontSize(7.5);
+  // One footer strip across the bottom. Everything below the rule has
+  // to clear the frame, which ends 3mm from the page edge - on a 74mm
+  // card that is a few millimetres of room, and the first attempt put
+  // the signature and the exclusions line straight through it.
+  const ruleY = pageHeight - 17;
+  doc.setDrawColor(...DOC_RULE);
+  doc.setLineWidth(0.3);
+  doc.line(9, ruleY, pageWidth - 9, ruleY);
+
+  const small = (x, label, value) => {
+    doc.setFontSize(5.4);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(...DOC_MUTED);
+    doc.text(label, x, ruleY + 3.5);
+    doc.setFontSize(7);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(...DOC_NAVY);
+    doc.text(String(value), x, ruleY + 7.5);
+  };
+  small(9, 'DELIVERY DATE', formatDate(jobDeliveredAt(job) || job.expectedCompletionDate || job.createdAt));
+  small(52, 'CERTIFICATE NO', warrantyCertNo(job));
+  small(100, 'WARRANTY CLAIMS', BUSINESS.phone);
+
+  // Signatory and name on one line - two stacked lines did not fit.
+  doc.setDrawColor(...DOC_MUTED);
+  doc.setLineWidth(0.25);
+  doc.line(pageWidth - 52, ruleY + 4, pageWidth - 9, ruleY + 4);
+  doc.setFontSize(5.4);
+  doc.setFont(undefined, 'normal');
+  doc.setTextColor(...DOC_MUTED);
+  doc.text('AUTHORISED SIGNATORY', pageWidth - 9, ruleY + 3.2, { align: 'right' });
+  doc.setFont(undefined, 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(...DOC_NAVY);
+  doc.text(BUSINESS.owner, pageWidth - 9, ruleY + 7.5, { align: 'right' });
+
+  doc.setFontSize(4.8);
   doc.setFont(undefined, 'italic');
   doc.setTextColor(...DOC_MUTED);
-  doc.text('Excludes physical damage, misuse, water damage beyond normal use, and normal wear and tear.', pageWidth / 2, ty, { align: 'center', maxWidth: pageWidth - 60 });
+  doc.text('Excludes physical damage, misuse, water damage beyond normal use and normal wear and tear.', 9, pageHeight - 4.5);
 
-  const footRuleY = ty + 6;
-  doc.setDrawColor(...DOC_RULE);
-  doc.setLineWidth(0.4);
-  doc.line(blockX, footRuleY, pageWidth - m - 6, footRuleY);
-
-  const footY = footRuleY + 7;
-  drawField(doc, blockX, footY, 'Delivery Date', formatDate(jobDeliveredAt(job) || job.expectedCompletionDate || job.createdAt), { maxWidth: 60 });
-  drawField(doc, blockX + 70, footY, 'Certificate No', warrantyCertNo(job), { maxWidth: 60 });
-  drawField(doc, blockX + 140, footY, 'Warranty Claims', BUSINESS.phone, { maxWidth: 60 });
-  drawSignature(doc, pageWidth, footY + 3, m + 6, true);
-
-  // Page numbers, only once there is more than one page to number.
-  const pages = doc.internal.getNumberOfPages();
-  if (pages > 1) {
-    for (let i = 1; i <= pages; i += 1) {
-      doc.setPage(i);
-      doc.setFontSize(7);
-      doc.setFont(undefined, 'normal');
-      doc.setTextColor(...DOC_MUTED);
-      doc.text('Page ' + i + ' of ' + pages, pageWidth / 2, pageHeight - 4, { align: 'center' });
-    }
-  }
   return doc;
 }
 
