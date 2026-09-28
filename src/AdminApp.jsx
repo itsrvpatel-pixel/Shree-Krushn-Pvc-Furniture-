@@ -4489,10 +4489,18 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       let doneCount = 0;
       const failures = [];
       setBackfillProgress({ done: 0, total: totalNeedingThumb });
+      // Save every 40 photos rather than once per category. Kitchen alone
+      // holds 477: the old shape uploaded all 477 thumbnails and only then
+      // recorded them, so closing the app at 400 threw away all 400 and
+      // the next run did them again. This whole job is 1506 photos on a
+      // phone, where being interrupted is the normal case, not the odd one.
+      const BATCH = 40;
       for (const cat of Object.keys(perCategoryNeeding)) {
         const needing = perCategoryNeeding[cat];
+        for (let start = 0; start < needing.length; start += BATCH) {
+        const slice = needing.slice(start, start + BATCH);
         const thumbUrlById = {};
-        await mapWithConcurrencyLimit(needing, 3, async (p) => {
+        await mapWithConcurrencyLimit(slice, 3, async (p) => {
           try {
             // A photo whose url never made it to Storage is still sitting
             // inline as a data: URI. If that inline copy was cut short by
@@ -4520,11 +4528,12 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         // Re-fetch this specific category fresh right before writing,
         // so a slow-running backfill never clobbers a caption edit,
         // delete, or move that happened on this category while it was
-        // still processing other categories.
+        // still processing other photos.
         const freshRaw = await window.storage.get('gallery_cat_' + cat);
         const freshPhotos = freshRaw ? JSON.parse(freshRaw.value) : (gallery[cat] || []);
         const updatedPhotos = freshPhotos.map((p) => (thumbUrlById[p.id] ? { ...p, thumbUrl: thumbUrlById[p.id] } : p));
         await window.storage.set('gallery_cat_' + cat, JSON.stringify(updatedPhotos));
+        }
       }
       const made = totalNeedingThumb - failures.length;
       setBackfillReport({ made, total: totalNeedingThumb, failures });
