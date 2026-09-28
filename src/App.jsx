@@ -480,8 +480,30 @@ function buildEstimateWhatsAppText(job) {
 // corruption problems before - see Logo component's history) by
 // loading it fresh from the same small PNG file the rest of the app
 // already uses for its icon.
+// Firebase Storage serves a photo to <img src> without complaint but
+// sends no Access-Control-Allow-Origin on the GET, so fetch cannot read
+// the bytes and Safari throws "TypeError: Load failed". That is what
+// failed all 1506 photos in the thumbnail backfill while the gallery
+// itself looked perfectly fine.
+//
+// /api/img is our own origin, so there is no CORS to fail; it does the
+// cross-origin fetch server-side. Direct is tried first, so the moment a
+// CORS rule is put on the bucket (see cors.json) this stops going
+// through us and costs nothing.
+const STORAGE_HOST = 'firebasestorage.googleapis.com';
+async function fetchImage(url) {
+  try {
+    const direct = await fetch(url);
+    if (direct.ok) return direct;
+    if (!url.includes(STORAGE_HOST)) return direct;
+  } catch (e) {
+    if (!url.includes(STORAGE_HOST)) throw e;
+  }
+  return fetch('/api/img?u=' + encodeURIComponent(url));
+}
+
 export async function loadImageAsDataUrl(url) {
-  const res = await fetch(url);
+  const res = await fetchImage(url);
   // Without this a 404 or 403 sails straight through: the error page's
   // own body becomes the "image", FileReader happily encodes it, and the
   // failure only surfaces later as an undecodable image with nothing
