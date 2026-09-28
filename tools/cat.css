@@ -6,7 +6,7 @@
 .chead h1{font-size:32px}
 .chead .intro{margin:14px 0 20px;font-size:16px;max-width:36em}
 .ggrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:8px}
-.ggrid img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:16px;background:var(--bg2)}
+.ggrid img{width:100%;aspect-ratio:4/5;object-fit:cover;border-radius:16px;background:var(--bg2)}
 .incl{list-style:none;margin:16px 0 0;padding:0;display:grid;grid-template-columns:1fr;gap:10px}
 .incl li{position:relative;padding-left:26px;font-size:14.5px;color:var(--ink);font-weight:600}
 .incl li::before{content:'';position:absolute;left:0;top:7px;width:14px;height:14px;border-radius:50%;
@@ -15,7 +15,7 @@ background:var(--navy);opacity:.15}
 .others{display:flex;gap:10px;overflow-x:auto;padding-left:18px;padding-right:18px;padding-bottom:6px;scrollbar-width:none}
 .others::-webkit-scrollbar{display:none}
 .oc{flex:0 0 132px;text-align:center}
-.oc img{width:132px;height:96px;object-fit:cover;border-radius:14px;background:var(--bg2)}
+.oc img{width:132px;height:165px;object-fit:cover;border-radius:14px;background:var(--bg2)}
 .oc span{display:block;margin-top:7px;font-size:12.5px;font-weight:800;color:var(--ink)}
 @media(min-width:820px){
  .chead{padding-top:44px}
