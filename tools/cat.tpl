@@ -10,6 +10,11 @@
 <meta property="og:title" content="{TITLE}" />
 <meta property="og:description" content="{DESC}" />
 <meta property="og:url" content="https://www.shreekrushnpvcfurniture.com/{SLUG}" />
+<meta property="og:image" content="https://www.shreekrushnpvcfurniture.com/og/{SLUG}.jpg" />
+<meta property="og:image:width" content="640" />
+<meta property="og:image:height" content="336" />
+<meta property="og:image:alt" content="{H1} by Shree Krushn PVC Furniture, Nikol Ahmedabad" />
+<meta name="twitter:card" content="summary_large_image" />
 <link rel="icon" type="image/png" href="/icon-192.png" />
 <link rel="preload" href="/fonts/manrope.woff2" as="font" type="font/woff2" crossorigin />
 <script type="application/ld+json">{LD}</script>
