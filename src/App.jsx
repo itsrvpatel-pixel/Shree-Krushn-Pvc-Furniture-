@@ -2845,8 +2845,18 @@ export default function App() {
   // for the same device are skipped rather than piling up.
   const enableAdminPushNotifications = useCallback(async () => {
     if (!window.pushMessaging) { showToast('Push notifications is browser mein supported nahi hai', true); return false; }
-    const token = await window.pushMessaging.requestPermissionAndGetToken();
-    if (!token) { showToast('Notification permission nahi mili', true); return false; }
+    const { token, reason } = await window.pushMessaging.requestPermissionAndGetToken();
+    if (!token) {
+      // Each of these used to read "Notification permission nahi mili",
+      // including the one case where nobody was ever asked.
+      showToast({
+        not_configured: 'Notifications abhi setup nahi hui - Firebase Console se Web Push key chahiye',
+        unsupported: 'Ye browser notifications support nahi karta',
+        denied: 'Notification permission nahi mili - phone ki settings se allow karein',
+        no_token: 'Notification token nahi mila - dobara koshish karein',
+      }[reason] || 'Notifications on nahi ho payi', true);
+      return false;
+    }
     if (adminPushTokens.some((t) => t.token === token)) { showToast('Notifications pehle se on hain'); return true; }
     const next = [...adminPushTokens, { token, addedAt: new Date().toISOString() }];
     setAdminPushTokensRaw(next);

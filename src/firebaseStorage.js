@@ -117,9 +117,28 @@ const auth = getAuth(app);
 // 1MiB by Firestore itself, so large binary files never belong here.
 const COLLECTION = "app_data";
 
+// A Firestore document id may not contain a slash - a slash is the path
+// separator, so doc(db, "app_data", "gallery_cat_Color/POP Work") is
+// read as a four-segment path, which is a collection, and the call
+// throws "Invalid document reference". The app ships 'Color/POP Work'
+// in DEFAULT_CATEGORIES, so that category threw on every start-up, and
+// any category the owner named with a slash - "Kitchen/Modular" - would
+// have accepted photos into a document that could never be written.
+//
+// Slashes become %2F, which is what encodeURIComponent would give them,
+// and nothing else is touched. A key that is legal today therefore maps
+// to itself, so every document already in Firestore keeps its name and
+// none of them are orphaned by this.
+function docKey(key) {
+  return String(key).replace(/\//g, '%2F');
+}
+function unDocKey(id) {
+  return String(id).replace(/%2F/g, '/');
+}
+
 async function get(key) {
   try {
-    const snap = await getDoc(doc(db, COLLECTION, key));
+    const snap = await getDoc(doc(db, COLLECTION, docKey(key)));
     if (!snap.exists()) return null;
     return { key, value: snap.data().value };
   } catch (e) {
@@ -139,7 +158,7 @@ async function get(key) {
 // value.
 async function getStatus(key) {
   try {
-    const snap = await getDoc(doc(db, COLLECTION, key));
+    const snap = await getDoc(doc(db, COLLECTION, docKey(key)));
     if (!snap.exists()) return { ok: true, missing: true, value: null };
     return { ok: true, missing: false, value: snap.data().value };
   } catch (e) {
@@ -150,7 +169,7 @@ async function getStatus(key) {
 
 async function set(key, value) {
   try {
-    await setDoc(doc(db, COLLECTION, key), { value });
+    await setDoc(doc(db, COLLECTION, docKey(key)), { value });
     return { key, value };
   } catch (e) {
     console.error("storage.set failed:", key, e);
@@ -172,7 +191,7 @@ async function set(key, value) {
 async function listAllKeys() {
   try {
     const snap = await getDocs(collection(db, COLLECTION));
-    return snap.docs.map((d) => d.id);
+    return snap.docs.map((d) => unDocKey(d.id));
   } catch (e) {
     console.error("storage.listAllKeys failed:", e);
     return [];
@@ -181,7 +200,7 @@ async function listAllKeys() {
 
 async function del(key) {
   try {
-    await deleteDoc(doc(db, COLLECTION, key));
+    await deleteDoc(doc(db, COLLECTION, docKey(key)));
     return { key, deleted: true };
   } catch (e) {
     console.error("storage.delete failed:", key, e);
@@ -478,7 +497,7 @@ async function signOutStaff() {
 // Returns an unsubscribe function.
 function subscribeKey(key, onValue) {
   return onSnapshot(
-    doc(db, COLLECTION, key),
+    doc(db, COLLECTION, docKey(key)),
     (snap) => onValue(snap.exists() ? snap.data().value : null),
     (err) => console.error("storage.subscribe failed:", key, err),
   );
@@ -618,27 +637,32 @@ const VAPID_KEY = "REPLACE_WITH_YOUR_VAPID_KEY_FROM_FIREBASE_CONSOLE";
 // unique token - the address api/send-push.js uses to actually deliver
 // a notification to THIS device later. Returns null (not an error) if
 // permission is denied, the browser doesn't support push (older
-// Safari, etc.), or the VAPID key hasn't been configured yet - callers
-// should treat a null return as "push just isn't available right now"
-// rather than a failure.
+// Safari, etc.), or the VAPID key hasn't been configured yet.
+//
+// Returns { token, reason }. It used to return a bare null for all of
+// these, and the one caller reported every one of them as "Notification
+// permission nahi mili" - so with the VAPID key still unset, pressing
+// the button told the owner he had refused a permission he was never
+// asked for. He would deny it, check his settings, and press it again.
+// The reason now comes back with the result so the message can be true.
 async function requestPermissionAndGetToken() {
   try {
     if (VAPID_KEY.startsWith('REPLACE_WITH')) {
       console.warn('Push notifications: VAPID_KEY not configured yet in firebaseStorage.js');
-      return null;
+      return { token: null, reason: 'not_configured' };
     }
     const { getMessaging, getToken, isSupported } = await import("firebase/messaging");
     const supported = await isSupported();
-    if (!supported) return null;
+    if (!supported) return { token: null, reason: 'unsupported' };
     const permission = await Notification.requestPermission();
-    if (permission !== 'granted') return null;
+    if (permission !== 'granted') return { token: null, reason: 'denied' };
     const messaging = getMessaging(app);
     const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
     const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: registration });
-    return token || null;
+    return { token: token || null, reason: token ? 'ok' : 'no_token' };
   } catch (e) {
     console.error('requestPermissionAndGetToken failed:', e);
-    return null;
+    return { token: null, reason: 'error' };
   }
 }
 
