@@ -1739,6 +1739,14 @@ export function BrochureList({ brochures, showToast, canManage, onDelete }) {
 /* ===================== ROOT ===================== */
 export default function App() {
   const [loaded, setLoaded] = useState(false);
+  // Offline, Firestore does not reject - it retries for as long as you
+  // let it. The start-up load therefore never settles, its `finally`
+  // never runs, `loaded` stays false, and the app sits on "Loading..."
+  // with nothing to say for itself. A phone that has walked into a lift
+  // gets a blank-looking app rather than a reason. These two track
+  // enough to tell the customer what is happening and let them retry.
+  const [startupStalled, setStartupStalled] = useState(false);
+  const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine !== false));
   const [gallery, setGallery] = useState({});
   // Gallery data (photos across every category) is lazy-loaded - see
   // loadGalleryData below - rather than fetched during the app's
@@ -2147,6 +2155,22 @@ export default function App() {
         setLoaded(true);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    if (loaded) return undefined;
+    // Long enough that an ordinary slow load never trips it, short
+    // enough that nobody is left staring.
+    const t = setTimeout(() => setStartupStalled(true), 8000);
+    return () => clearTimeout(t);
+  }, [loaded]);
+
+  useEffect(() => {
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', down);
+    return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down); };
   }, []);
 
   // Customers are one document each, keyed by phone (see jobsStore.js).
@@ -2923,6 +2947,16 @@ export default function App() {
         <div style={styles.loadingScreen}>
           <Logo size={52} />
           <div style={{ marginTop: 10, fontWeight: 700, fontSize: 12.5, color: BRAND.textMuted }}>Loading...</div>
+          {(!online || startupStalled) && (
+            <div style={styles.startupStall}>
+              <div style={styles.startupStallText}>
+                {!online
+                  ? 'Internet connection nahi mil raha. Wi-Fi ya mobile data on karke dobara koshish karein.'
+                  : 'Net dheema lag raha hai. Thoda ruk jaayein, ya dobara koshish karein.'}
+              </div>
+              <button style={styles.startupStallBtn} onClick={() => window.location.reload()}>Dobara koshish karein</button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -7555,7 +7589,10 @@ const fontImport = "@import url('https://fonts.googleapis.com/css2?family=Manrop
 
 export const styles = {
   app: { fontFamily: "'Manrope', system-ui, sans-serif", background: BRAND.cream, minHeight: '100vh', color: BRAND.navy, maxWidth: 480, margin: '0 auto', position: 'relative' },
-  loadingScreen: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh' },
+  loadingScreen: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', padding: '0 28px' },
+  startupStall: { marginTop: 18, maxWidth: 300, textAlign: 'center' },
+  startupStallText: { fontSize: 12.5, lineHeight: 1.6, color: BRAND.textMuted },
+  startupStallBtn: { marginTop: 12, background: BRAND.navy, color: '#FFF', border: 'none', borderRadius: 10, padding: '11px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer' },
 
   loginWrap: { minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, position: 'relative', overflow: 'hidden' },
   loginBgAccent: { position: 'absolute', top: -80, right: -80, width: 220, height: 220, borderRadius: '50%', background: 'radial-gradient(circle, rgba(15,27,61,0.06), transparent 70%)' },
