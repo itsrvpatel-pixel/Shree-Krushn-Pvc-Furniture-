@@ -499,7 +499,16 @@ async function fetchImage(url) {
   } catch (e) {
     if (!url.includes(STORAGE_HOST)) throw e;
   }
-  return fetch('/api/img?u=' + encodeURIComponent(url));
+  const proxied = '/api/img?u=' + encodeURIComponent(url);
+  // One retry. The backfill pulls about a gigabyte over a phone
+  // connection in a single run, so a moment's drop mid-way is ordinary
+  // rather than exceptional, and losing a photo to it is not worth it.
+  try {
+    const first = await fetch(proxied);
+    if (first.ok) return first;
+  } catch { /* fall through to the retry */ }
+  await new Promise((r) => setTimeout(r, 700));
+  return fetch(proxied);
 }
 
 export async function loadImageAsDataUrl(url) {
