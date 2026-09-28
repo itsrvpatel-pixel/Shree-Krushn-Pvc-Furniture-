@@ -36,6 +36,14 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
+  // Never come between the page and an API call. There is nothing here
+  // worth caching, and standing in the path turns any hiccup into
+  // "FetchEvent.respondWith received an error: Load failed" - which is
+  // what killed 31 photos of a 1506-photo thumbnail run that was
+  // pulling roughly a gigabyte through /api/img over mobile. Left to
+  // itself the browser would simply have retried.
+  if (url.pathname.startsWith('/api/')) return;
+
   // Navigation requests (the page itself - '/', any route) and the
   // JS/CSS bundle Vite builds are ALWAYS fetched from the network
   // first, falling back to a cached copy only when genuinely offline -
@@ -61,7 +69,12 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
-      return fetch(event.request);
+      // A rejected promise handed to respondWith becomes a failed
+      // request the page cannot tell apart from a 500. Hand back a
+      // real response instead, so the caller sees a status it can act on.
+      return fetch(event.request).catch(
+        () => new Response('', { status: 504, statusText: 'offline' })
+      );
     })
   );
 });
