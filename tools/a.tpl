@@ -75,6 +75,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
   <div class="nlinks"><a href="#work">Our work</a><a href="#how">How it works</a><a href="#why">Why PVC</a><a href="#reviews">Reviews</a></div>
   <div class="ngo"><a class="pill" href="/app">Open app</a><a class="pill on" href="/app">Free visit</a></div>
 </div></nav>
+<main>
 
 <div class="w hero">
   <h1>Full home PVC furniture in <em>10 days</em></h1>
@@ -85,7 +86,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
     <a class="btn b2" href="/app">Instant estimate</a>
     <a class="btn b3" href="/app">Open my app</a>
   </div>
-  <div class="chips">
+  <div class="chips" tabindex="0" role="group" aria-label="Key facts">
     <span class="chip"><b>{N}</b> designs done</span>
     <span class="chip">2 year warranty</span>
     <span class="chip">100% virgin PVC</span>
@@ -94,7 +95,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
 </div>
 
 <div class="shell">
-  <div class="track" id="track">{SLIDES}</div>
+  <div class="track" tabindex="0" role="group" aria-label="Photos of finished work" id="track">{SLIDES}</div>
   <div class="dots" id="dots">{DOTS}</div>
 </div>
 
@@ -115,7 +116,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
 <section>
   <div class="w"><div class="eyebrow">From the workshop</div><h2>Recently delivered</h2>
   <p class="lede">Swipe through a few.</p></div>
-  <div class="rail">{RAIL}</div>
+  <div class="rail" tabindex="0" role="group" aria-label="More photos">{RAIL}</div>
   <div class="w" style="margin-top:18px"><a class="btn b3" style="display:inline-block" href="{VIDEO}" target="_blank" rel="noopener">Watch the work on video</a></div>
 </section>
 
@@ -167,9 +168,10 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
   <div class="soc">{SOCS}</div>
 </section>
 
+</main>
 <footer class="w"><b>Shree Krushn PVC Furniture</b> &#183; Nava Naroda, Ahmedabad &#183; We furnish the dreams</footer>
 
-<div class="bar">
+<div class="bar" role="navigation" aria-label="Contact Shree Krushn">
   <a class="btn b1" href="/app">Free visit</a>
   <a class="btn bw" href="{WA}">WhatsApp</a>
   <a class="btn b3" href="tel:{TEL}">Call</a>

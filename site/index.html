@@ -23,8 +23,8 @@
 <style>
 @font-face{font-family:Manrope;font-style:normal;font-weight:500 800;
 font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
-:root{--ink:#10151F;--mut:#6B7280;--soft:#9AA2AF;--line:#ECEEF2;--bg2:#F7F8FA;
---acc:#D2552B;--navy:#0E1A38;--navy-s:#EEF1F7;--ok:#1FA855}
+:root{--ink:#10151F;--mut:#6B7280;--soft:#646E80;--line:#ECEEF2;--bg2:#F7F8FA;
+--acc:#D2552B;--acc-d:#B8461F;--navy:#0E1A38;--navy-s:#EEF1F7;--ok:#17803F}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{margin:0;background:#fff;color:var(--mut);font:16px/1.65 Manrope,system-ui,-apple-system,sans-serif;
@@ -66,7 +66,7 @@ transition:transform .12s,box-shadow .18s}
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:0 0 auto;background:var(--bg2);border-radius:999px;padding:9px 15px;font-size:13px;
 font-weight:700;color:var(--ink)}
-.chip b{color:var(--acc)}
+.chip b{color:var(--acc-d)}
 
 /* hero slider */
 .shell{margin-top:22px;position:relative}
@@ -189,6 +189,7 @@ backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;gap:9px
   <div class="nlinks"><a href="#work">Our work</a><a href="#how">How it works</a><a href="#why">Why PVC</a><a href="#reviews">Reviews</a></div>
   <div class="ngo"><a class="pill" href="/app">Open app</a><a class="pill on" href="/app">Free visit</a></div>
 </div></nav>
+<main>
 
 <div class="w hero">
   <h1>Full home PVC furniture in <em>10 days</em></h1>
@@ -199,7 +200,7 @@ backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;gap:9px
     <a class="btn b2" href="/app">Instant estimate</a>
     <a class="btn b3" href="/app">Open my app</a>
   </div>
-  <div class="chips">
+  <div class="chips" tabindex="0" role="group" aria-label="Key facts">
     <span class="chip"><b>1629</b> designs done</span>
     <span class="chip">2 year warranty</span>
     <span class="chip">100% virgin PVC</span>
@@ -208,7 +209,7 @@ backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;gap:9px
 </div>
 
 <div class="shell">
-  <div class="track" id="track"><div class="sld"><img src="img/slide/9e100f82a2.jpg" fetchpriority="high" alt="Modular Kitchen by Shree Krushn PVC Furniture, Ahmedabad" /><span>Modular Kitchen</span></div><div class="sld"><img src="img/slide/8222ffcfd9.jpg" alt="Wardrobe by Shree Krushn PVC Furniture, Ahmedabad" loading="lazy" fetchpriority="low" /><span>Wardrobe</span></div><div class="sld"><img src="img/slide/368d53e4c4.jpg" alt="TV Unit by Shree Krushn PVC Furniture, Ahmedabad" loading="lazy" fetchpriority="low" /><span>TV Unit</span></div><div class="sld"><img src="img/slide/e30423efad.jpg" alt="Pooja Mandir by Shree Krushn PVC Furniture, Ahmedabad" loading="lazy" fetchpriority="low" /><span>Pooja Mandir</span></div></div>
+  <div class="track" tabindex="0" role="group" aria-label="Photos of finished work" id="track"><div class="sld"><img src="img/slide/9e100f82a2.jpg" fetchpriority="high" alt="Modular Kitchen by Shree Krushn PVC Furniture, Ahmedabad" /><span>Modular Kitchen</span></div><div class="sld"><img src="img/slide/8222ffcfd9.jpg" alt="Wardrobe by Shree Krushn PVC Furniture, Ahmedabad" loading="lazy" fetchpriority="low" /><span>Wardrobe</span></div><div class="sld"><img src="img/slide/368d53e4c4.jpg" alt="TV Unit by Shree Krushn PVC Furniture, Ahmedabad" loading="lazy" fetchpriority="low" /><span>TV Unit</span></div><div class="sld"><img src="img/slide/e30423efad.jpg" alt="Pooja Mandir by Shree Krushn PVC Furniture, Ahmedabad" loading="lazy" fetchpriority="low" /><span>Pooja Mandir</span></div></div>
   <div class="dots" id="dots"><button class="dot on" data-i="0" aria-label="Slide 1"></button><button class="dot" data-i="1" aria-label="Slide 2"></button><button class="dot" data-i="2" aria-label="Slide 3"></button><button class="dot" data-i="3" aria-label="Slide 4"></button></div>
 </div>
 
@@ -229,7 +230,7 @@ backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;gap:9px
 <section>
   <div class="w"><div class="eyebrow">From the workshop</div><h2>Recently delivered</h2>
   <p class="lede">Swipe through a few.</p></div>
-  <div class="rail"><img src="img/rail/9e100f82a2.jpg" alt="Modular Kitchen PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/11c1436fbe.jpg" alt="Modular Kitchen PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/8222ffcfd9.jpg" alt="Wardrobe PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/fa10687c37.jpg" alt="Wardrobe PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/368d53e4c4.jpg" alt="TV Unit PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/647f49435f.jpg" alt="TV Unit PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/e30423efad.jpg" alt="Pooja Mandir PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/aaf9a0f4d2.jpg" alt="Pooja Mandir PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/d272b9f76f.jpg" alt="Dressing Table PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/88ce722806.jpg" alt="Dressing Table PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/5f49ec9943.jpg" alt="Study Table PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/5e704acb38.jpg" alt="Study Table PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/524645fa7b.jpg" alt="Partition &amp; Elevation PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/9b8f846e3f.jpg" alt="Partition &amp; Elevation PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/9f897b264b.jpg" alt="Shoe Rack PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/e1a6e76131.jpg" alt="Shoe Rack PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/788e1311dd.jpg" alt="Washbasin Unit PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/f7b727faf4.jpg" alt="Washbasin Unit PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/59f190bdad.jpg" alt="Colour &amp; POP PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/baa731d0e5.jpg" alt="Colour &amp; POP PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/7603e411f2.jpg" alt="Electrical PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/25bdd52921.jpg" alt="Electrical PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /></div>
+  <div class="rail" tabindex="0" role="group" aria-label="More photos"><img src="img/rail/9e100f82a2.jpg" alt="Modular Kitchen PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/11c1436fbe.jpg" alt="Modular Kitchen PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/8222ffcfd9.jpg" alt="Wardrobe PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/fa10687c37.jpg" alt="Wardrobe PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/368d53e4c4.jpg" alt="TV Unit PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/647f49435f.jpg" alt="TV Unit PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/e30423efad.jpg" alt="Pooja Mandir PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/aaf9a0f4d2.jpg" alt="Pooja Mandir PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/d272b9f76f.jpg" alt="Dressing Table PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/88ce722806.jpg" alt="Dressing Table PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/5f49ec9943.jpg" alt="Study Table PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/5e704acb38.jpg" alt="Study Table PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/524645fa7b.jpg" alt="Partition &amp; Elevation PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/9b8f846e3f.jpg" alt="Partition &amp; Elevation PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/9f897b264b.jpg" alt="Shoe Rack PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/e1a6e76131.jpg" alt="Shoe Rack PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/788e1311dd.jpg" alt="Washbasin Unit PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/f7b727faf4.jpg" alt="Washbasin Unit PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/59f190bdad.jpg" alt="Colour &amp; POP PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/baa731d0e5.jpg" alt="Colour &amp; POP PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/7603e411f2.jpg" alt="Electrical PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /><img src="img/rail/25bdd52921.jpg" alt="Electrical PVC design, Ahmedabad" loading="lazy" fetchpriority="low" /></div>
   <div class="w" style="margin-top:18px"><a class="btn b3" style="display:inline-block" href="https://photos.app.goo.gl/VjCAgj15E6opigDSA" target="_blank" rel="noopener">Watch the work on video</a></div>
 </section>
 
@@ -281,9 +282,10 @@ backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;gap:9px
   <div class="soc"><a href="https://instagram.com/shree_krushn_pvc_furniture" target="_blank" rel="noopener" aria-label="instagram"><svg viewBox="0 0 24 24"><path d="M12 2.2c3.2 0 3.6 0 4.9.07 3.3.15 4.8 1.7 5 5 .06 1.3.07 1.7.07 4.9s0 3.6-.07 4.9c-.2 3.3-1.7 4.8-5 5-1.3.06-1.7.07-4.9.07s-3.6 0-4.9-.07c-3.3-.2-4.8-1.7-5-5C2.2 15.6 2.2 15.2 2.2 12s0-3.6.07-4.9c.2-3.3 1.7-4.8 5-5C8.4 2.2 8.8 2.2 12 2.2zm0 3.4a6.4 6.4 0 100 12.8 6.4 6.4 0 000-12.8zm0 10.6a4.2 4.2 0 110-8.4 4.2 4.2 0 010 8.4zm6.6-10.9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/></svg></a><a href="https://www.facebook.com/ShreeKrushnFiberMart" target="_blank" rel="noopener" aria-label="facebook"><svg viewBox="0 0 24 24"><path d="M22 12a10 10 0 10-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0022 12z"/></svg></a><a href="https://youtube.com/@shreekrushnpvcfurniture" target="_blank" rel="noopener" aria-label="youtube"><svg viewBox="0 0 24 24"><path d="M23 12s0-3.9-.5-5.7a3 3 0 00-2.1-2.1C18.6 3.7 12 3.7 12 3.7s-6.6 0-8.4.5A3 3 0 001.5 6.3C1 8.1 1 12 1 12s0 3.9.5 5.7a3 3 0 002.1 2.1c1.8.5 8.4.5 8.4.5s6.6 0 8.4-.5a3 3 0 002.1-2.1c.5-1.8.5-5.7.5-5.7zM9.8 15.5v-7l6.2 3.5-6.2 3.5z"/></svg></a></div>
 </section>
 
+</main>
 <footer class="w"><b>Shree Krushn PVC Furniture</b> &#183; Nava Naroda, Ahmedabad &#183; We furnish the dreams</footer>
 
-<div class="bar">
+<div class="bar" role="navigation" aria-label="Contact Shree Krushn">
   <a class="btn b1" href="/app">Free visit</a>
   <a class="btn bw" href="https://wa.me/message/ZMRRGHFC4ZQTD1">WhatsApp</a>
   <a class="btn b3" href="tel:+917990283116">Call</a>
