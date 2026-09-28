@@ -43,7 +43,7 @@ const copy = (from, to) => {
 copy(site, dist);
 
 // 3. say plainly whether the result is what it should be
-const must = ['index.html', 'app/index.html', 'robots.txt', 'sitemap.xml',
+const must = ['index.html', 'app/index.html', 'robots.txt', 'sitemap.xml', '404.html',
   'pvc-modular-kitchen-ahmedabad.html', 'assets', 'icon-192.png', 'manifest.json', 'sw.js'];
 const missing = must.filter((f) => !fs.existsSync(path.join(dist, f)));
 if (missing.length) fail('missing from dist after assembly: ' + missing.join(', '));
@@ -53,5 +53,10 @@ if (!/assets\/index-.*\.js/.test(app)) fail('dist/app/index.html does not refere
 const home = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
 if (/assets\/index-.*\.js/.test(home)) fail('dist/index.html is the app, not the website');
 
-const rooms = fs.readdirSync(dist).filter((f) => f.endsWith('.html') && f !== 'index.html').length;
+// Not every html here is a room: index is the home page, 404 is the
+// not-found page, and privacy comes from the app's public folder. This
+// said twelve when there were eleven rooms, which is the sort of number
+// you stop reading.
+const notRooms = new Set(['index.html', '404.html', 'privacy.html']);
+const rooms = fs.readdirSync(dist).filter((f) => f.endsWith('.html') && !notRooms.has(f)).length;
 console.log('assemble-site: app at /app, website at /, ' + rooms + ' room pages, ' + files + ' files copied');

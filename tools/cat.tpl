@@ -33,6 +33,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
   <div class="nlinks"><a href="/#work">Our work</a><a href="/#how">How it works</a><a href="/#why">Why PVC</a><a href="/#reviews">Reviews</a></div>
   <div class="ngo"><a class="pill" href="/app">Open app</a><a class="pill on" href="/app">Free visit</a></div>
 </div></nav>
+<main>
 
 <div class="w chead">
   <div class="crumb"><a href="/">Home</a> &#8250; {H1}</div>
@@ -42,7 +43,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
     <a class="btn b1" href="/app">Book a free visit</a>
     <a class="btn b2" href="/app">Instant estimate</a>
   </div>
-  <div class="chips">
+  <div class="chips" tabindex="0" role="group" aria-label="Key facts">
     <span class="chip"><b>{COUNT}</b> designs made</span>
     <span class="chip">2 year warranty</span>
     <span class="chip">100% virgin PVC</span>
@@ -102,7 +103,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
 
 <section>
   <div class="w"><div class="eyebrow">Also made by us</div><h2>Other rooms</h2></div>
-  <div class="others" style="margin-top:18px">{OTHERS}</div>
+  <div class="others" tabindex="0" role="group" aria-label="Other rooms" style="margin-top:18px">{OTHERS}</div>
 </section>
 
 <section id="contact" class="w">
@@ -117,9 +118,10 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
   <div class="soc">{SOCS}</div>
 </section>
 
+</main>
 <footer class="w"><b>Shree Krushn PVC Furniture</b> &#183; Nava Naroda, Ahmedabad &#183; We furnish the dreams</footer>
 
-<div class="bar">
+<div class="bar" role="navigation" aria-label="Contact Shree Krushn">
   <a class="btn b1" href="/app">Free visit</a>
   <a class="btn bw" href="{WA}">WhatsApp</a>
   <a class="btn b3" href="tel:{TEL}">Call</a>
