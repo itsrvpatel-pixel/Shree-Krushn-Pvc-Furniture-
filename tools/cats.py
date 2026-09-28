@@ -103,6 +103,7 @@ for key,slug,h1,title,intro,incl in PAGES:
           "@id":"https://www.shreekrushnpvcfurniture.com/#business",
           "name":"Shree Krushn PVC Furniture",
           "url":"https://www.shreekrushnpvcfurniture.com/",
+          "priceRange":"From ₹600 per sq ft",
           "telephone":["+91-79902-83116","+91-95123-18775"],
           "address":{"@type":"PostalAddress","streetAddress":"Mahavir Complex, Hari Villa Road, near Honda Showroom, Bapa Sitaram Chowk, Nava Naroda","addressLocality":"Ahmedabad",
                      "addressRegion":"Gujarat","postalCode":"380038","addressCountry":"IN"},
