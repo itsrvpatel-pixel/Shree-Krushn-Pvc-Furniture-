@@ -13,7 +13,7 @@
 <meta property="og:image" content="https://www.shreekrushnpvcfurniture.com/og/{SLUG}.jpg" />
 <meta property="og:image:width" content="640" />
 <meta property="og:image:height" content="336" />
-<meta property="og:image:alt" content="{H1} by Shree Krushn PVC Furniture, Nikol Ahmedabad" />
+<meta property="og:image:alt" content="{H1} by Shree Krushn PVC Furniture, Nava Naroda, Ahmedabad" />
 <meta name="twitter:card" content="summary_large_image" />
 <link rel="icon" type="image/png" href="/icon-192.png" />
 <link rel="preload" href="/fonts/manrope.woff2" as="font" type="font/woff2" crossorigin />
@@ -46,7 +46,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
     <span class="chip"><b>{COUNT}</b> designs made</span>
     <span class="chip">2 year warranty</span>
     <span class="chip">100% virgin PVC</span>
-    <span class="chip">Nikol, Ahmedabad</span>
+    <span class="chip">Nava Naroda, Ahmedabad</span>
   </div>
 </div>
 
@@ -107,9 +107,9 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
 
 <section id="contact" class="w">
   <div class="eyebrow">Get in touch</div>
-  <h2>Nikol, Ahmedabad</h2>
+  <h2>Nava Naroda, Ahmedabad</h2>
   <div class="cg">
-    <div><b>Workshop</b><p>Nikol, Ahmedabad<br />Gujarat 382350</p></div>
+    <div><b>Workshop</b><p>Mahavir Complex, Hari Villa Road<br />near Honda Showroom, Bapa Sitaram Chowk<br />Nava Naroda, Ahmedabad<br />Gujarat 380038</p></div>
     <div><b>Owner</b><p>Ravi Vasoya</p></div>
     <div><b>Phone</b><a href="tel:{TEL}">{PHONE}</a><br /><a href="tel:+919512318775">{PHONE2}</a></div>
     <div><b>Already a customer?</b><a href="/app">Open your app &rarr;</a></div>
@@ -117,7 +117,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
   <div class="soc">{SOCS}</div>
 </section>
 
-<footer class="w"><b>Shree Krushn PVC Furniture</b> &#183; Nikol, Ahmedabad &#183; We furnish the dreams</footer>
+<footer class="w"><b>Shree Krushn PVC Furniture</b> &#183; Nava Naroda, Ahmedabad &#183; We furnish the dreams</footer>
 
 <div class="bar">
   <a class="btn b1" href="/app">Free visit</a>

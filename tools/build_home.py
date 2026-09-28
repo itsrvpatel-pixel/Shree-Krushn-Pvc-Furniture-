@@ -65,7 +65,7 @@ for k,t,s in CATS:
     else:
         open_tag='<div class="card">'; close='</div>'
         more='%d designs' % len(g.get(k,[]))
-    cards+=('%s<img src="img/card/%s" alt="%s PVC furniture, Nikol Ahmedabad" loading="lazy" fetchpriority="low" />'
+    cards+=('%s<img src="img/card/%s" alt="%s PVC furniture, Nava Naroda, Ahmedabad" loading="lazy" fetchpriority="low" />'
             '<span class="t"><b>%s</b><i>%s</i></span>%s'
             % (open_tag, man[k][0], E(t), E(t), more, close))
 
