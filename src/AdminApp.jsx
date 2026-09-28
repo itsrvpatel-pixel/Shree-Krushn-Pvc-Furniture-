@@ -72,7 +72,7 @@ import {
   MoneyBit,
   NEWLINE,
   NotificationBell,
-  PARTNER_CATEGORIES,
+  partnerCategories,
   PhotoAddPanel,
   ProjectNotesPanel,
   QuickTile,
@@ -3158,9 +3158,17 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
   // DH Home Decor only ever does Color/POP and Electrical work - their
   // panel can only add photos into those two categories, never any of
   // Shree Krushn's own (Kitchen, Wardrobe, etc.) or create new ones.
-  // Shared with the customer gallery, which keeps the same two out of
-  // "All Photos" - see PARTNER_CATEGORIES.
-  const DH_PARTNER_CATEGORIES = PARTNER_CATEGORIES;
+  //
+  // Picked out of the gallery's real categories rather than written out
+  // here, so this cannot drift from what the gallery contains. It used
+  // to name 'Color/POP Work' and 'Electrical Work', which this gallery
+  // does not have - they are 'Color pop' and 'electric'. DH's panel was
+  // therefore offering two categories that did not exist, and a photo
+  // added to one would have created a duplicate beside the real one.
+  const DH_PARTNER_CATEGORIES = useMemo(
+    () => partnerCategories([...new Set([...(categories || []), ...Object.keys(gallery || {})])]),
+    [categories, gallery]
+  );
   const [activeCat, setActiveCat] = useState(isDhPartner ? DH_PARTNER_CATEGORIES[0] : categories[0]);
   const [bulkText, setBulkText] = useState('');
   const [showBulk, setShowBulk] = useState(false);

@@ -26,13 +26,15 @@ export const BRAND = {
 
 const DEFAULT_CATEGORIES = ['Kitchen', 'Wardrobe', 'Dressing Table', 'Bathroom Cabinet', 'TV Unit', 'Bed', 'Color/POP Work', 'Electrical Work', 'Other'];
 
-// The two categories that are DH Home Decor's trade, not Shree Krushn's
-// PVC furniture. One list, because two places need to agree about it and
-// used to keep their own copies: the admin panel restricts DH's login to
-// exactly these, and the customer gallery keeps them out of "All Photos"
-// and out of the cache warm-up. If those two ever disagreed, a colour or
-// wiring photo would quietly turn up in the middle of the furniture.
-export const PARTNER_CATEGORIES = ['Color/POP Work', 'Electrical Work'];
+// Colour/POP and electrical work are DH Home Decor's trade. See
+// src/partnerCategories.js - it is a separate module so the rule can be
+// tested against the gallery's real category names.
+// Imported as well as re-exported: a bare `export ... from` forwards the
+// names without binding them in this file, so every call below would
+// have been an undefined global.
+import { isPartnerCategory, partnerCategories } from './partnerCategories.js';
+
+export { isPartnerCategory, partnerCategories };
 
 const BHK_OPTIONS = ['1 BHK', '2 BHK', '3 BHK', '4 BHK', '4+ BHK', 'Individual Room', 'Shop/Office'];
 
@@ -4372,8 +4374,8 @@ export function QuickTile({ icon, label, onClick }) {
 // electrical work are another firm's trade, so a customer browsing for
 // furniture should not find them mixed in - or spend bandwidth on them
 // before asking. Both categories stay fully browsable in their own tile;
-// they are simply not folded into the combined view.
-const ALL_PHOTOS_EXCLUDED_CATEGORIES = PARTNER_CATEGORIES;
+// they are simply not folded into the combined view. See
+// isPartnerCategory for why this is a test rather than a fixed list.
 
 /* --- Warming the gallery grid's images.
 
@@ -4509,17 +4511,20 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
   // is only to keep this hook call itself unconditional), which is
   // fine at this photo count - no meaningful cost, and it stays
   // trivially correct as photos get added/moved/removed. Skips the
-  // categories in ALL_PHOTOS_EXCLUDED_CATEGORIES - see its own comment.
+  // partner categories - see isPartnerCategory for why.
   const allPhotosFlat = useMemo(() => {
     const combined = [];
     for (const cat of galleryCategories) {
-      if (ALL_PHOTOS_EXCLUDED_CATEGORIES.includes(cat)) continue;
+      if (isPartnerCategory(cat)) continue;
       for (const p of (gallery[cat] || [])) combined.push({ ...p, category: cat });
     }
     return combined.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   }, [gallery, galleryCategories]);
 
-  useGalleryThumbWarmup(gallery, galleryCategories, ALL_PHOTOS_EXCLUDED_CATEGORIES);
+  // Memoised because the warm-up effect keys on this array: a fresh one
+  // each render re-ran the whole warm-up each render.
+  const warmupSkip = useMemo(() => partnerCategories(galleryCategories), [galleryCategories]);
+  useGalleryThumbWarmup(gallery, galleryCategories, warmupSkip);
 
   if (galleryLoading && Object.keys(gallery || {}).length === 0) {
     return (
