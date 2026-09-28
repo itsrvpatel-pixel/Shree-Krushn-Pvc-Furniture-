@@ -4110,8 +4110,8 @@ function FaqEditForm({ faq, onSave, onCancel }) {
 
 // Same shape as FaqEditForm above, just generic title/desc field names -
 // used for both Material Specs ("100% Virgin PVC" / "no warping,
-// termite or water damage") and Company Benefits ("5+ Years
-// Experience" / "500+ happy families across Ahmedabad & Vadodara"),
+// termite or water damage") and Company Benefits ("10+ Years
+// Experience" / "500+ happy families across Ahmedabad"),
 // which share this exact title+description structure even though
 // they answer different questions for the customer.
 function TitleDescEditForm({ item, onSave, onCancel }) {
@@ -5150,7 +5150,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         <div style={{ ...styles.formCard, marginTop: 10, background: '#FFF9EE', borderColor: BRAND.gold }}>
           <div style={styles.fieldLabel}>Naya Benefit Add Karein</div>
           <input style={{ ...styles.input, marginTop: 6 }} placeholder='Title (jaise: 5+ Years Experience)' value={newBenefitTitle} onChange={(e) => setNewBenefitTitle(e.target.value)} />
-          <textarea style={{ ...styles.input, marginTop: 8, minHeight: 60, resize: 'vertical' }} placeholder='Detail (jaise: 500+ khush customers Ahmedabad aur Vadodara mein)' value={newBenefitDesc} onChange={(e) => setNewBenefitDesc(e.target.value)} />
+          <textarea style={{ ...styles.input, marginTop: 8, minHeight: 60, resize: 'vertical' }} placeholder='Detail (jaise: 500+ khush customers poore Ahmedabad mein)' value={newBenefitDesc} onChange={(e) => setNewBenefitDesc(e.target.value)} />
           <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addCompanyBenefit}><Plus size={14} /> Benefit Add Karein</button>
         </div>
       </div>
