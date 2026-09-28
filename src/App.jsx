@@ -26,6 +26,14 @@ export const BRAND = {
 
 const DEFAULT_CATEGORIES = ['Kitchen', 'Wardrobe', 'Dressing Table', 'Bathroom Cabinet', 'TV Unit', 'Bed', 'Color/POP Work', 'Electrical Work', 'Other'];
 
+// The two categories that are DH Home Decor's trade, not Shree Krushn's
+// PVC furniture. One list, because two places need to agree about it and
+// used to keep their own copies: the admin panel restricts DH's login to
+// exactly these, and the customer gallery keeps them out of "All Photos"
+// and out of the cache warm-up. If those two ever disagreed, a colour or
+// wiring photo would quietly turn up in the middle of the furniture.
+export const PARTNER_CATEGORIES = ['Color/POP Work', 'Electrical Work'];
+
 const BHK_OPTIONS = ['1 BHK', '2 BHK', '3 BHK', '4 BHK', '4+ BHK', 'Individual Room', 'Shop/Office'];
 
 
@@ -4360,15 +4368,12 @@ export function QuickTile({ icon, label, onClick }) {
 }
 
 /* ---- Gallery browser ---- */
-// Categories kept out of the cache warm-up: Color/POP and Electrical
-// work belong to DH Home Decor's own trade, not Shree Krushn's PVC
-// furniture, so a customer browsing for furniture should not spend
-// bandwidth on them before asking. They stay fully browsable in their
-// own album.
-//
-// Module scope, not a const inside the component: as a fresh array on
-// every render it re-ran the warm-up effect below on every render.
-const WARMUP_EXCLUDED_CATEGORIES = ['Color/POP Work', 'Electrical Work'];
+// "All Photos" is the furniture, and only the furniture. Colour/POP and
+// electrical work are another firm's trade, so a customer browsing for
+// furniture should not find them mixed in - or spend bandwidth on them
+// before asking. Both categories stay fully browsable in their own tile;
+// they are simply not folded into the combined view.
+const ALL_PHOTOS_EXCLUDED_CATEGORIES = PARTNER_CATEGORIES;
 
 /* --- Warming the gallery grid's images.
 
@@ -4452,6 +4457,7 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
   const [showBrochures, setShowBrochures] = useState(false);
   const [showTestimonials, setShowTestimonials] = useState(false);
   const [query, setQuery] = useState('');
+  const [showAllPhotos, setShowAllPhotos] = useState(false);
   // Safety-net retry: loadGalleryData's own internal guard (see its
   // definition) makes this a safe no-op if the gallery already loaded
   // successfully at app startup - but if that FIRST attempt failed
@@ -4495,13 +4501,25 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
     return [...new Set([...(categories || []), ...Object.keys(gallery || {})])];
   }, [categories, gallery]);
 
-  // The gallery is albums, and only albums. There used to be a mixed
-  // "All Photos" grid alongside them; the owner asked for it gone. A
-  // kitchen photo next to a mandir photo next to a wardrobe photo reads
-  // as a pile rather than as work, and it gave every album's cover a
-  // second, worse way to be seen. One photo now lives in exactly one
-  // place.
-  useGalleryThumbWarmup(gallery, galleryCategories, WARMUP_EXCLUDED_CATEGORIES);
+  // All photos across every category, newest first - lets a customer
+  // browse everything in one flat grid instead of having to know (or
+  // guess) which category something was filed under, or click into each
+  // category one at a time just to see what's new. Recomputed from
+  // `gallery` each render (not memoized to skip work - the useMemo here
+  // is only to keep this hook call itself unconditional), which is
+  // fine at this photo count - no meaningful cost, and it stays
+  // trivially correct as photos get added/moved/removed. Skips the
+  // categories in ALL_PHOTOS_EXCLUDED_CATEGORIES - see its own comment.
+  const allPhotosFlat = useMemo(() => {
+    const combined = [];
+    for (const cat of galleryCategories) {
+      if (ALL_PHOTOS_EXCLUDED_CATEGORIES.includes(cat)) continue;
+      for (const p of (gallery[cat] || [])) combined.push({ ...p, category: cat });
+    }
+    return combined.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }, [gallery, galleryCategories]);
+
+  useGalleryThumbWarmup(gallery, galleryCategories, ALL_PHOTOS_EXCLUDED_CATEGORIES);
 
   if (galleryLoading && Object.keys(gallery || {}).length === 0) {
     return (
@@ -4513,17 +4531,19 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
   }
 
 
-  if (activeCat) {
-    const basePhotos = [...(gallery[activeCat] || [])].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  if (showAllPhotos || activeCat) {
+    const inAllPhotosMode = showAllPhotos && !activeCat;
+    const basePhotos = inAllPhotosMode ? allPhotosFlat : [...(gallery[activeCat] || [])].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
     // Caption search only makes sense once there's enough to search
-    // through - filters the album being looked at, not a global search.
+    // through - filters the CURRENT view (whichever category, or all
+    // photos), not a separate global search.
     const photos = basePhotos.filter((p) => !query.trim() || (p.caption || '').toLowerCase().includes(query.toLowerCase()));
     const visiblePhotos = photos.slice(0, visibleCount);
     const hasMore = photos.length > visibleCount;
     return (
       <div style={{ padding: '12px 16px' }}>
-        <button style={styles.backLink} onClick={() => { setActiveCat(null); setQuery(''); setVisibleCount(PHOTO_PAGE_SIZE); }}><ArrowLeft size={13} /> All categories</button>
-        <div style={styles.catTitle}>{activeCat} <span style={styles.catCount}>({photos.length})</span></div>
+        <button style={styles.backLink} onClick={() => { setActiveCat(null); setShowAllPhotos(false); setQuery(''); setVisibleCount(PHOTO_PAGE_SIZE); }}><ArrowLeft size={13} /> All categories</button>
+        <div style={styles.catTitle}>{inAllPhotosMode ? 'All Photos' : activeCat} <span style={styles.catCount}>({photos.length})</span></div>
 
         {/* Quick category switcher - lets the customer jump straight to
             another album without going back to the category grid first,
@@ -4532,8 +4552,9 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
             the extra round trip through "All categories" each time was
             unnecessary friction. */}
         <div style={styles.chipRow}>
+          <button onClick={() => { setActiveCat(null); setShowAllPhotos(true); setQuery(''); setVisibleCount(PHOTO_PAGE_SIZE); }} style={{ ...styles.chip, ...(inAllPhotosMode ? styles.chipActive : {}) }}>All Photos</button>
           {galleryCategories.map((c) => (
-            <button key={c} onClick={() => { setActiveCat(c); setQuery(''); setVisibleCount(PHOTO_PAGE_SIZE); }} style={{ ...styles.chip, ...(activeCat === c ? styles.chipActive : {}) }}>{c}</button>
+            <button key={c} onClick={() => { setActiveCat(c); setShowAllPhotos(false); setQuery(''); setVisibleCount(PHOTO_PAGE_SIZE); }} style={{ ...styles.chip, ...(!inAllPhotosMode && activeCat === c ? styles.chipActive : {}) }}>{c}</button>
           ))}
         </div>
 
@@ -4552,6 +4573,7 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
               {visiblePhotos.map((p, i) => ({ p, i })).filter(({ i }) => i % 3 === colIdx).map(({ p, i }) => (
                 <button key={p.id} style={styles.galleryMasonryItem} onClick={() => setLightbox({ photos, index: i })}>
                   <SmartImg src={p.thumbUrl || p.url} origUrl={p.origUrl} alt={p.caption || activeCat} style={styles.galleryMasonryImg} />
+                  {inAllPhotosMode && <div style={styles.photoThumbCatTag}>{p.category}</div>}
                 </button>
               ))}
             </div>
@@ -4573,6 +4595,10 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Design Gallery</div>
       <div style={styles.plainTextMuted}>{totalPhotos} designs across {categories.length} categories</div>
+
+      {totalPhotos > 0 && (
+        <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => setShowAllPhotos(true)}><Grid3x3 size={14} /> View All Photos ({totalPhotos})</button>
+      )}
 
       {brochures && brochures.length > 0 && (
         <div style={styles.brochureSection}>
@@ -7588,6 +7614,7 @@ export const styles = {
 
   photoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 8 },
   photoThumb: { border: 'none', padding: 0, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: '#EEF0F5', aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  photoThumbCatTag: { position: 'absolute', bottom: 4, left: 4, right: 4, background: 'rgba(15,27,61,0.75)', color: '#FFF', fontSize: 9, fontWeight: 700, padding: '2px 5px', borderRadius: 5, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   // Google Photos-style masonry grid for the actual design gallery
   // (browsing/inspiration photos) specifically - NOT used for progress
   // photo logs elsewhere, which stay in the fixed-square grid above,

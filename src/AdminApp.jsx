@@ -72,6 +72,7 @@ import {
   MoneyBit,
   NEWLINE,
   NotificationBell,
+  PARTNER_CATEGORIES,
   PhotoAddPanel,
   ProjectNotesPanel,
   QuickTile,
@@ -3157,7 +3158,9 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
   // DH Home Decor only ever does Color/POP and Electrical work - their
   // panel can only add photos into those two categories, never any of
   // Shree Krushn's own (Kitchen, Wardrobe, etc.) or create new ones.
-  const DH_PARTNER_CATEGORIES = ['Color/POP Work', 'Electrical Work'];
+  // Shared with the customer gallery, which keeps the same two out of
+  // "All Photos" - see PARTNER_CATEGORIES.
+  const DH_PARTNER_CATEGORIES = PARTNER_CATEGORIES;
   const [activeCat, setActiveCat] = useState(isDhPartner ? DH_PARTNER_CATEGORIES[0] : categories[0]);
   const [bulkText, setBulkText] = useState('');
   const [showBulk, setShowBulk] = useState(false);
