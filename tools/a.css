@@ -95,6 +95,8 @@ color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;justif
 .step h3{font-size:15.5px;margin-bottom:3px}
 .step p{margin:0;font-size:13.5px;color:var(--soft)}
 
+.note{margin:16px 0 0;font-size:13.5px;color:var(--soft);max-width:46em}
+
 /* why */
 .why{background:var(--bg2);margin-top:46px;padding-top:46px;padding-bottom:36px}
 .wgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:22px 26px}

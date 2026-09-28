@@ -119,7 +119,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
   <div class="w" style="margin-top:18px"><a class="btn b3" style="display:inline-block" href="{VIDEO}" target="_blank" rel="noopener">Watch the work on video</a></div>
 </section>
 
-<section id="how" class="w">
+<section id="rates" class="w"><div class="eyebrow">What it costs</div><h2>Starting rates</h2><div class="cg" style="margin-top:22px"><div><b>Framing</b><p>From ₹600 per sq ft</p></div><div><b>Box work</b><p>From ₹1,000 per sq ft</p></div><div><b>Warranty</b><p>2 years, with a certificate</p></div></div><p class="note">These are starting rates. What you actually pay depends on the material, the laminate and the design you choose. You get an itemised written estimate after the free site visit — room by room, rate by rate — before any work begins.</p></section><section id="how" class="w">
   <div class="eyebrow">How it works</div>
   <h2>Four steps, no surprises</h2>
   <div class="steps" style="margin-top:22px">
