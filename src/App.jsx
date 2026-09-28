@@ -326,7 +326,21 @@ const ESTIMATE_TERMS = [
     points: ['Design providing', 'Manufacturing & fixing of units', 'Material + labour + transportation charges included'],
   },
   { title: 'Extra Work', points: ['Any extra work or changes after confirmation will be charged separately'] },
-  { title: 'Warranty', points: ['5 years warranty on material (manufacturing defects only - varies by item & company)'] },
+  // Worded to match the warranty certificate exactly (WARRANTY_TERMS
+  // above), because the same customer receives both. This used to
+  // promise "5 years warranty on material" while the certificate they
+  // are handed on delivery says two - a gap the customer finds at
+  // precisely the wrong moment. Two years is what the business gives.
+  // The manufacturer's own cover on hardware is a real and separate
+  // thing, so that part stays.
+  {
+    title: 'Warranty',
+    points: [
+      '2 years warranty from the delivery date, covering manufacturing and fitting defects',
+      'Free service visits for fitting, alignment and adjustment within those 2 years',
+      'Hardware (channels, hinges, handles, fittings) carries its own manufacturer warranty',
+    ],
+  },
   { title: 'GST', points: ['Prices are exclusive of GST', 'No GST added'] },
   {
     title: 'Price Variation',
