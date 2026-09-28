@@ -106,8 +106,8 @@ for key,slug,h1,title,intro,incl in PAGES:
           "telephone":["+91-79902-83116","+91-95123-18775"],
           "address":{"@type":"PostalAddress","streetAddress":"Mahavir Complex, Hari Villa Road, near Honda Showroom, Bapa Sitaram Chowk, Nava Naroda","addressLocality":"Ahmedabad",
                      "addressRegion":"Gujarat","postalCode":"380038","addressCountry":"IN"},
-          "areaServed":{"@type":"City","name":"Ahmedabad"}},
-        "areaServed":{"@type":"City","name":"Ahmedabad"},
+          "areaServed":[{"@type":"City","name":"Ahmedabad"},{"@type":"Place","name":"Nikol, Ahmedabad"},{"@type":"Place","name":"Nava Naroda, Ahmedabad"}]},
+        "areaServed":[{"@type":"City","name":"Ahmedabad"},{"@type":"Place","name":"Nikol, Ahmedabad"},{"@type":"Place","name":"Nava Naroda, Ahmedabad"}],
         "description":intro[:250]}
     # Mirrors the visible "Home > <H1>" crumb exactly - Google wants the
     # markup to match what the reader sees. Both objects go in one @graph

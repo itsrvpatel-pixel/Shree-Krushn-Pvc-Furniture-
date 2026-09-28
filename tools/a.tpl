@@ -162,7 +162,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
     <div><b>Workshop</b><p>Mahavir Complex, Hari Villa Road<br />near Honda Showroom, Bapa Sitaram Chowk<br />Nava Naroda, Ahmedabad<br />Gujarat 380038</p></div>
     <div><b>Owner</b><p>Ravi Vasoya</p></div>
     <div><b>Phone</b><a href="tel:{TEL}">{PHONE}</a><br /><a href="tel:+919512318775">{PHONE2}</a></div>
-    <div><b>Already a customer?</b><a href="/app">Open your app &rarr;</a></div>
+    <div><b>Areas we serve</b><p>Nikol, Nava Naroda and across Ahmedabad</p></div><div><b>Already a customer?</b><a href="/app">Open your app &rarr;</a></div>
   </div>
   <div class="soc">{SOCS}</div>
 </section>
