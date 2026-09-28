@@ -128,39 +128,36 @@
                    color: #A8975F; font-weight: 700; margin: -6px 0 2px; }
       #boot .dot { width: 26px; height: 26px; border: 3px solid #E1E4EB; border-top-color: #A8975F;
                    border-radius: 50%; animation: spin 0.8s linear infinite; margin-top: 6px; }
-      #boot p { font-size: 12px; line-height: 1.6; color: #7A8291; margin: 0; max-width: 34em; }
+      #boot p { font-size: 13px; line-height: 1.6; color: #7A8291; margin: 0; }
     </style>
   </head>
   <body>
     <!--
-      This app is a single-page React app: everything below normally
-      renders via JavaScript after the page loads, which means a search
-      engine that doesn't run JavaScript sees an almost-empty page - only
-      the <head> tags above, none of the actual gallery/design content.
-      This block is real, visible text (not hidden, not keyword-stuffed
-      nonsense - Google penalizes that) that renders immediately, so
-      search engines always have solid on-page content to index even
-      before React takes over. It's replaced the instant the app mounts,
-      so a real visitor never sees it flash.
+      What the customer looks at while the bundle downloads - a few
+      seconds on a phone on mobile data. The app is a single-page React
+      app, so without this the page is blank until the JavaScript
+      arrives.
+
+      This used to carry two paragraphs of search copy, written when
+      this app's URL was the whole of the business's web presence. It
+      has not been read by a search engine since the website went up:
+      that same change put "Disallow: /app" in robots.txt and the whole
+      .site domain answers with "X-Robots-Tag: noindex, nofollow",
+      because the app is behind a login and there is nothing in it for a
+      crawler. The words were reaching nobody but customers, as the
+      first thing they saw. Logo, name, spinner and one line of plain
+      status now - the website does the search work.
     -->
     <div id="root">
       <main id="boot">
         <img src="/boot-mark.jpg" alt="Shree Krushn PVC Furniture logo" width="64" height="64" />
         <div class="tag">Premium PVC Interior Solutions</div>
-        <h1>Shree Krushn PVC Furniture - PVC Furniture Design, Nikol, Ahmedabad</h1>
-        <div class="dot" role="status" aria-label="Loading"></div>
-        <p>
-          Shree Krushn PVC Furniture, run by Ravi Vasoya, designs and builds PVC furniture
-          for the full home across Ahmedabad. We are known among the top PVC
-          furniture makers in the area for modular kitchen PVC furniture, wardrobe PVC
-          furniture, TV units, dressing tables, and complete full-home PVC furniture
-          design using Kaka PVC laminate sheets - waterproof, termite-proof, with a
-          2-year warranty.
-        </p>
-        <p>
-          Searching for PVC furniture near me, PVC furniture design ideas, or PVC
-          furniture Ahmedabad? Contact Shree Krushn PVC Furniture, Nikol, Ahmedabad.
-        </p>
+        <h1>Shree Krushn PVC Furniture</h1>
+        <!-- The spinner is decoration; the line below it is what a
+             screen reader should read out, so the status role lives
+             there rather than on the circle. -->
+        <div class="dot" aria-hidden="true"></div>
+        <p role="status">Aapka account load ho raha hai...</p>
       </main>
     </div>
     <script type="module" src="/src/main.jsx"></script>
