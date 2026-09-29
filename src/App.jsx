@@ -31,9 +31,9 @@ import { takeArrivalTab } from './arrivalIntent.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair } from './jobCore.js';
 
-export { uid, logActivity, finalizeEstimateDraft };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair };
 
 const DEFAULT_CATEGORIES = ['Kitchen', 'Wardrobe', 'Dressing Table', 'Bathroom Cabinet', 'TV Unit', 'Bed', 'Color/POP Work', 'Electrical Work', 'Other'];
 

@@ -23,6 +23,44 @@ export function logActivity(job, text) {
 // payment milestones, the PDF and the WhatsApp summary all read
 // job.items and know nothing about options. The other options are
 // cleared, since the decision is made.
+// One row of the two-option builder, tidied. Most items cost the same
+// in both options and only a few differ, so an empty second rate means
+// "same as the first" rather than free - which is what leaving it blank
+// in a hurry means.
+export function normalizeOptionRow(row, id) {
+  return {
+    id: id || row.id || uid(),
+    desc: String(row.desc || '').trim(),
+    length: row.length || '',
+    height: row.height || '',
+    qty: row.qty || '1',
+    rateA: row.rateA || '0',
+    rateB: (row.rateB === '' || row.rateB == null) ? (row.rateA || '0') : row.rateB,
+  };
+}
+
+// The builder's single item list, split back into the two estimates the
+// rest of the app understands: same items in both, each carrying its own
+// option's rate. Everything downstream - the customer's comparison, the
+// totals, the PDF - reads these, and knows nothing about the builder.
+export function buildOptionPair(form) {
+  const side = (which, id, meta) => ({
+    id: id || uid(),
+    label: String(meta.label || '').trim(),
+    materialCompany: meta.materialCompany || '',
+    sheetWeightKg: meta.sheetWeightKg || '',
+    items: form.items.map((it) => ({
+      id: uid(),
+      desc: it.desc,
+      length: it.length,
+      height: it.height,
+      qty: it.qty,
+      rate: (which === 'a' ? it.rateA : it.rateB) || '0',
+    })),
+  });
+  return [side('a', form.aId, form.a), side('b', form.bId, form.b)];
+}
+
 export function finalizeEstimateDraft(job, draft, by, byName) {
   const next = {
     ...job,

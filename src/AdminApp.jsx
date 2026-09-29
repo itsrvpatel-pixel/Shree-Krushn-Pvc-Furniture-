@@ -89,6 +89,7 @@ import {
   emptyJob,
   EstimateChoiceNote,
   estimateItemAmount,
+  buildOptionPair,
   finalizeEstimateDraft,
   estimateItemSqft,
   fileToDataUri,
@@ -101,6 +102,7 @@ import {
   jobDeliveredAt,
   jobDue,
   jobPaid,
+  normalizeOptionRow,
   jobTotal,
   loadImageAsDataUrl,
   loadJsPDF,
@@ -2072,16 +2074,10 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
    estimate logic untouched by this feature. ---- */
 function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
   const drafts = job.estimateDrafts || [];
-  const [editingDraftId, setEditingDraftId] = useState(null);
-  const [draftForm, setDraftForm] = useState(null);
-  const [newDraftItem, setNewDraftItem] = useState({ desc: '', length: '', height: '', qty: '1', rate: '' });
-  // Same stale-prop fix as AdminJobDetail (see its matching comment) -
-  // protects rapid successive draft saves (e.g. saving "Laminate" then
-  // immediately "Without Laminate") from overwriting each other.
+  // Same stale-prop fix as AdminJobDetail (see its matching comment).
   const jobRef = useRef(job);
   useEffect(() => { jobRef.current = job; }, [job]);
 
-  const draftTotal = (d) => (d.items || []).reduce((s, it) => s + estimateItemAmount(it), 0);
   // The panel used to be hidden entirely once an estimate existed, which
   // meant the one moment the owner most often needs it - the customer
   // ringing back to ask what a cheaper sheet would cost - was the one
@@ -2089,70 +2085,101 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
   // change what the wording and the confirm have to warn about.
   const hasEstimate = (job.items || []).length > 0;
   const paidSoFar = jobPaid(job);
+  const draftTotal = (d) => (d.items || []).reduce((s, it) => s + estimateItemAmount(it), 0);
 
-  const startNewDraft = () => {
-    setEditingDraftId('new');
-    setDraftForm({ label: '', materialCompany: '', sheetWeightKg: '', items: [] });
-    setNewDraftItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
+  /* Both options are built on one screen, from one item list, with a
+     rate per option on each row.
+
+     They used to be built one at a time, each its own full estimate,
+     with a button to copy the items across. On a twenty-five item job
+     that meant typing everything twice, or copying and then hunting
+     through the list changing rates one by one - and editing an item
+     dropped it to the bottom of the list, so after a few edits the
+     order was gone. The items are the same in both options. Only the
+     rate differs. So there is one list, and two rate boxes on each
+     row. */
+  const [form, setForm] = useState(null);
+  const [row, setRow] = useState({ desc: '', length: '', height: '', qty: '1', rateA: '', rateB: '' });
+  const [editingRowId, setEditingRowId] = useState(null);
+
+  const blankRow = { desc: '', length: '', height: '', qty: '1', rateA: '', rateB: '' };
+
+  const openBuilder = () => {
+    const a = drafts[0];
+    const b = drafts[1];
+    // Start from whatever already exists: the saved options if there are
+    // any, otherwise the job's own estimate, which is exactly the item
+    // list the second option is meant to re-price.
+    const base = (a && a.items) || (hasEstimate ? job.items : []) || [];
+    setForm({
+      aId: a ? a.id : null,
+      bId: b ? b.id : null,
+      a: {
+        label: (a && a.label) || 'Option 1',
+        materialCompany: (a && a.materialCompany) || job.materialCompany || '',
+        sheetWeightKg: (a && a.sheetWeightKg) || job.sheetWeightKg || '',
+      },
+      b: {
+        label: (b && b.label) || 'Option 2',
+        materialCompany: (b && b.materialCompany) || '',
+        sheetWeightKg: (b && b.sheetWeightKg) || '',
+      },
+      items: base.map((it, i) => ({
+        id: uid(),
+        desc: it.desc,
+        length: it.length || '',
+        height: it.height || '',
+        qty: it.qty || '1',
+        rateA: String(it.rate == null ? '' : it.rate),
+        rateB: String((b && b.items && b.items[i] && b.items[i].rate) != null
+          ? b.items[i].rate
+          : (it.rate == null ? '' : it.rate)),
+      })),
+    });
+    setEditingRowId(null);
+    setRow(blankRow);
   };
-  const startEditDraft = (d) => {
-    setEditingDraftId(d.id);
-    setDraftForm({ ...d });
-    setNewDraftItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
+
+  const sideOf = (it, side) => ({ ...it, rate: side === 'a' ? it.rateA : it.rateB });
+  const sideTotal = (side) => (form ? form.items.reduce((s, it) => s + estimateItemAmount(sideOf(it, side)), 0) : 0);
+
+  const commitRow = () => {
+    if (!row.desc.trim()) { showToast('Item ka naam bharein', true); return; }
+    const saved = normalizeOptionRow(row, editingRowId);
+    setForm((f) => ({
+      ...f,
+      // Edited in place. The old panel removed the item and re-added it,
+      // which sent it to the end of the list every time.
+      items: editingRowId ? f.items.map((it) => (it.id === editingRowId ? saved : it)) : [...f.items, saved],
+    }));
+    setEditingRowId(null);
+    setRow(blankRow);
   };
-  // Copies another option's full item list (fresh ids, same desc/
-  // dimensions/qty/rate) into the draft currently being built - for a
-  // large estimate (20-30 items isn't unusual), re-typing every item a
-  // second time for each material variant would be a lot of repetitive
-  // work, when usually only the RATE differs between "Laminate" and
-  // "Without Laminate" versions of the same job. Admin copies once, then
-  // only adjusts the rates that actually change.
-  const copyItemsFromDraft = (sourceId) => {
-    const source = drafts.find((d) => d.id === sourceId);
-    if (!source) return;
-    const copiedItems = source.items.map((it) => ({ ...it, id: uid() }));
-    setDraftForm((f) => ({ ...f, items: copiedItems }));
-    showToast(copiedItems.length + ' items copy ho gaye - ab rates adjust karein');
+
+  const editRow = (it) => {
+    setEditingRowId(it.id);
+    setRow({ desc: it.desc, length: it.length || '', height: it.height || '', qty: it.qty || '1', rateA: it.rateA, rateB: it.rateB });
   };
-  const addItemToDraft = () => {
-    if (!newDraftItem.desc.trim()) return;
-    const item = { id: uid(), desc: newDraftItem.desc.trim(), length: newDraftItem.length || '', height: newDraftItem.height || '', qty: newDraftItem.qty || '1', rate: newDraftItem.rate || '0' };
-    setDraftForm((f) => ({ ...f, items: [...f.items, item] }));
-    setNewDraftItem({ desc: '', length: '', height: '', qty: '1', rate: '' });
-  };
-  // Editing an item re-loads it into the same add-item mini-form (with
-  // its existing id preserved) rather than opening a separate edit UI -
-  // simplest way to let admin tweak just the rate on a copied item
-  // without needing a whole second form. Saving via addItemToDraft
-  // would normally create a new id, so editItemInDraft removes the old
-  // entry first and addItemToDraft is given the preserved id to put
-  // back in the same spot conceptually (a new id is fine here since
-  // list order, not identity, is what the customer sees).
-  const editItemInDraft = (item) => {
-    setNewDraftItem({ desc: item.desc, length: item.length || '', height: item.height || '', qty: item.qty || '1', rate: item.rate || '' });
-    setDraftForm((f) => ({ ...f, items: f.items.filter((it) => it.id !== item.id) }));
-  };
-  const removeItemFromDraft = (id) => setDraftForm((f) => ({ ...f, items: f.items.filter((it) => it.id !== id) }));
-  const saveDraft = () => {
-    if (!draftForm.label.trim()) { showToast('Option ka naam bharein (jaise Laminate)', true); return; }
-    if (draftForm.items.length === 0) { showToast('Kam se kam ek item add karein', true); return; }
-    const savedDraft = { ...draftForm, label: draftForm.label.trim(), id: editingDraftId === 'new' ? uid() : editingDraftId };
+  const removeRow = (id) => setForm((f) => ({ ...f, items: f.items.filter((it) => it.id !== id) }));
+
+  const saveBoth = () => {
+    if (!form.a.label.trim() || !form.b.label.trim()) { showToast('Dono option ka naam bharein', true); return; }
+    if (form.items.length === 0) { showToast('Kam se kam ek item add karein', true); return; }
     const base = jobRef.current;
-    const baseDrafts = base.estimateDrafts || [];
-    const nextDrafts = editingDraftId === 'new' ? [...baseDrafts, savedDraft] : baseDrafts.map((d) => (d.id === editingDraftId ? savedDraft : d));
-    const nextJob = { ...base, estimateDrafts: nextDrafts };
-    jobRef.current = nextJob;
-    onSave(nextJob);
-    setEditingDraftId(null);
-    setDraftForm(null);
-    showToast('Estimate option save ho gaya');
+    // Anything beyond the two this screen edits is left alone rather
+    // than quietly dropped.
+    const extras = (base.estimateDrafts || []).slice(2);
+    const next = { ...base, estimateDrafts: [...buildOptionPair(form), ...extras] };
+    jobRef.current = next;
+    onSave(next);
+    setForm(null);
+    showToast('Dono option save ho gaye');
   };
+
   // The customer can pick an option from their own app. So can the
   // owner, from here, which is what actually happens when the choice is
-  // made on the phone - before this, the only way to finish that call
-  // was to ask the customer to open the app and press the button
-  // themselves. Same code path as the customer's, so both produce the
-  // same estimate, and both leave a record of who decided.
+  // made on the phone. Same code path as the customer's, so both
+  // produce the same estimate, and both record who decided.
   const finalizeDraft = (d) => {
     const lines = ['"' + d.label + '" ko final estimate banayein?'];
     if (hasEstimate) lines.push('\nAbhi ka estimate (' + currency(jobTotal(jobRef.current)) + ') iski jagah hat jayega.');
@@ -2165,73 +2192,94 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
     showToast(d.label + ' final estimate ban gaya');
   };
 
-  const deleteDraft = (id) => {
-    const nextJob = { ...jobRef.current, estimateDrafts: (jobRef.current.estimateDrafts || []).filter((d) => d.id !== id) };
-    jobRef.current = nextJob;
-    onSave(nextJob);
+  const deleteAll = () => {
+    if (!window.confirm('Dono option hata dein?')) return;
+    const next = { ...jobRef.current, estimateDrafts: [] };
+    jobRef.current = next;
+    onSave(next);
+    showToast('Options hat gaye');
   };
 
-  if (editingDraftId) {
-    // Copy-from picker only makes sense while building a NEW, empty
-    // draft and only if at least one other option already has items to
-    // copy from - once items exist in this draft (either typed or
-    // already copied), copying again would just silently overwrite
-    // work in progress, so it's hidden past that point.
-    const copyableSources = drafts.filter((d) => d.id !== editingDraftId && (d.items || []).length > 0);
+  if (form) {
+    const tA = sideTotal('a');
+    const tB = sideTotal('b');
+    const diff = Math.abs(tA - tB);
+    const cheaper = tA === tB ? null : (tA < tB ? form.a.label : form.b.label);
+    const meta = (side, n) => (
+      <div style={{ marginTop: 10 }}>
+        <div style={styles.hintText}>Option {n}</div>
+        <input
+          style={styles.input}
+          placeholder={n === 1 ? "Naam (jaise 'Kaka 7kg')" : "Naam (jaise 'Economy')"}
+          value={form[side].label}
+          onChange={(e) => setForm((f) => ({ ...f, [side]: { ...f[side], label: e.target.value } }))}
+        />
+        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+          <input style={styles.input} placeholder='Company (jaise Kaka)' value={form[side].materialCompany}
+            onChange={(e) => setForm((f) => ({ ...f, [side]: { ...f[side], materialCompany: e.target.value } }))} />
+          <input style={{ ...styles.input, maxWidth: 96 }} placeholder='Sheet kg' inputMode='decimal' value={form[side].sheetWeightKg}
+            onChange={(e) => setForm((f) => ({ ...f, [side]: { ...f[side], sheetWeightKg: e.target.value } }))} />
+        </div>
+      </div>
+    );
+
     return (
       <div style={styles.formCard}>
-        <div style={styles.fieldLabel}>{editingDraftId === 'new' ? 'Naya Estimate Option' : 'Option Edit Karein'}</div>
-        {editingDraftId === 'new' && draftForm.items.length === 0 && copyableSources.length > 0 && (
-          <div style={{ marginBottom: 10 }}>
-            <div style={styles.hintText}>Kisi doosre option se items copy karein (rates baad mein badal sakte hain):</div>
-            <div style={styles.chipRow}>
-              {copyableSources.map((d) => (
-                <button key={d.id} onClick={() => copyItemsFromDraft(d.id)} style={styles.chip}>{d.label} se copy ({d.items.length} items)</button>
-              ))}
-            </div>
-          </div>
-        )}
-        <input style={styles.input} placeholder="Option ka naam (jaise 'Laminate')" value={draftForm.label} onChange={(e) => setDraftForm((f) => ({ ...f, label: e.target.value }))} />
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <input style={styles.input} placeholder='Company (jaise Kaka)' value={draftForm.materialCompany} onChange={(e) => setDraftForm((f) => ({ ...f, materialCompany: e.target.value }))} />
-          <input style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={draftForm.sheetWeightKg} onChange={(e) => setDraftForm((f) => ({ ...f, sheetWeightKg: e.target.value }))} />
-        </div>
+        <div style={styles.fieldLabel}>Dono Option Ek Saath</div>
+        <div style={styles.hintText}>Item ek hi baar likhein. Har item par dono ka rate bharein - doosra khaali chhoda to pehle wala hi lag jayega.</div>
 
-        <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Items ({draftForm.items.length})</div>
-        {draftForm.items.map((it, i) => {
+        {meta('a', 1)}
+        {meta('b', 2)}
+
+        <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Items ({form.items.length})</div>
+        {form.items.map((it, i) => {
           const sqft = estimateItemSqft(it);
           return (
-            <div key={it.id} style={styles.estItemRow}>
+            <div key={it.id} style={{ ...styles.estItemRow, alignItems: 'flex-start', flexWrap: 'wrap' }}>
               <div style={styles.estItemNo}>{i + 1}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={styles.itemDesc}>{it.desc}</div>
-                <div style={styles.itemSub}>{sqft !== null ? (it.length + "' x " + it.height + "' = " + sqft.toFixed(2) + ' sq ft x ' + currency(it.rate)) : ((it.qty || 1) + ' x ' + currency(it.rate))}</div>
+                <div style={styles.itemSub}>
+                  {sqft !== null ? (it.length + "' x " + it.height + "' = " + sqft.toFixed(2) + ' sq ft') : ((it.qty || 1) + ' nos')}
+                </div>
+                <div style={{ display: 'flex', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
+                  <div style={styles.itemSub}>{form.a.label || 'Option 1'}: <b>{currency(estimateItemAmount(sideOf(it, 'a')))}</b> <span style={{ opacity: 0.7 }}>({currency(it.rateA)})</span></div>
+                  <div style={styles.itemSub}>{form.b.label || 'Option 2'}: <b>{currency(estimateItemAmount(sideOf(it, 'b')))}</b> <span style={{ opacity: 0.7 }}>({currency(it.rateB)})</span></div>
+                </div>
               </div>
-              <div style={styles.itemAmount}>{currency(estimateItemAmount(it))}</div>
-              <button style={styles.iconBtnSmall} onClick={() => editItemInDraft(it)}><Edit3 size={13} color='#B3B8C6' /></button>
-              <button style={styles.iconBtnSmall} onClick={() => removeItemFromDraft(it.id)}><Trash2 size={14} color='#C7CCDC' /></button>
+              <button style={styles.iconBtnSmall} onClick={() => editRow(it)}><Edit3 size={13} color='#B3B8C6' /></button>
+              <button style={styles.iconBtnSmall} onClick={() => removeRow(it.id)}><Trash2 size={14} color='#C7CCDC' /></button>
             </div>
           );
         })}
 
         <div style={{ marginTop: 10 }}>
-          <input style={styles.input} placeholder='Item description' value={newDraftItem.desc} onChange={(e) => setNewDraftItem((n) => ({ ...n, desc: e.target.value }))} />
+          <div style={styles.hintText}>{editingRowId ? 'Item edit ho raha hai' : 'Naya item'}</div>
+          <input style={styles.input} placeholder='Item description' value={row.desc} onChange={(e) => setRow((n) => ({ ...n, desc: e.target.value }))} />
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <input style={styles.input} placeholder='Length (inch)' inputMode='decimal' value={newDraftItem.length} onChange={(e) => setNewDraftItem((n) => ({ ...n, length: e.target.value }))} />
-            <input style={styles.input} placeholder='Height (inch)' inputMode='decimal' value={newDraftItem.height} onChange={(e) => setNewDraftItem((n) => ({ ...n, height: e.target.value }))} />
+            <input style={styles.input} placeholder='Length (inch)' inputMode='decimal' value={row.length} onChange={(e) => setRow((n) => ({ ...n, length: e.target.value }))} />
+            <input style={styles.input} placeholder='Height (inch)' inputMode='decimal' value={row.height} onChange={(e) => setRow((n) => ({ ...n, height: e.target.value }))} />
+            <input style={{ ...styles.input, maxWidth: 88 }} placeholder='Qty' inputMode='numeric' value={row.qty} onChange={(e) => setRow((n) => ({ ...n, qty: e.target.value }))} />
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <input style={styles.input} placeholder='Qty (agar naap nahi)' inputMode='numeric' value={newDraftItem.qty} onChange={(e) => setNewDraftItem((n) => ({ ...n, qty: e.target.value }))} />
-            <input style={styles.input} placeholder='Rate ₹' inputMode='decimal' value={newDraftItem.rate} onChange={(e) => setNewDraftItem((n) => ({ ...n, rate: e.target.value }))} />
+            <input style={styles.input} placeholder={(form.a.label || 'Option 1') + ' rate'} inputMode='decimal' value={row.rateA} onChange={(e) => setRow((n) => ({ ...n, rateA: e.target.value }))} />
+            <input style={styles.input} placeholder={(form.b.label || 'Option 2') + ' rate'} inputMode='decimal' value={row.rateB} onChange={(e) => setRow((n) => ({ ...n, rateB: e.target.value }))} />
           </div>
-          <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={addItemToDraft}><Plus size={13} /> Item add karein</button>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={{ ...styles.cardActionBtn, flex: 1 }} onClick={commitRow}>
+              {editingRowId ? <><Check size={13} /> Item update karein</> : <><Plus size={13} /> Item add karein</>}
+            </button>
+            {editingRowId && <button style={styles.cancelBtn} onClick={() => { setEditingRowId(null); setRow(blankRow); }}>Cancel</button>}
+          </div>
         </div>
 
-        <div style={styles.totalBar}><span>Option Total</span><span style={styles.totalAmt}>{currency(draftTotal(draftForm))}</span></div>
+        <div style={styles.totalBar}><span>{form.a.label || 'Option 1'}</span><span style={styles.totalAmt}>{currency(tA)}</span></div>
+        <div style={styles.totalBar}><span>{form.b.label || 'Option 2'}</span><span style={styles.totalAmt}>{currency(tB)}</span></div>
+        {cheaper && <div style={styles.hintText}>{cheaper} {currency(diff)} sasta padta hai.</div>}
 
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={saveDraft}><Check size={14} /> Option Save Karein</button>
-          <button style={styles.cancelBtn} onClick={() => { setEditingDraftId(null); setDraftForm(null); }}>Cancel</button>
+          <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={saveBoth}><Check size={14} /> Dono Option Save Karein</button>
+          <button style={styles.cancelBtn} onClick={() => { setForm(null); setEditingRowId(null); }}>Cancel</button>
         </div>
       </div>
     );
@@ -2241,15 +2289,15 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={styles.fieldLabel}>Compare Materials (optional)</div>
-        <button style={styles.linkBtn2} onClick={startNewDraft}>+ Add Option</button>
+        <button style={styles.linkBtn2} onClick={openBuilder}>{drafts.length > 0 ? 'Edit karein' : '+ Do Option Banayein'}</button>
       </div>
       <div style={styles.plainTextMuted}>
         {hasEstimate
-          ? 'Estimate ban chuka hai. Customer doosre material ka rate poochhe to yahan option banayein - final karne par ye mojuda estimate ki jagah le lega.'
-          : 'Customer ko 2+ material options dikha ke compare karwayein - jo pasand aaye wahi final estimate ban jayega.'}
+          ? 'Estimate ban chuka hai. Customer doosre material ka rate poochhe to yahan do option banayein - wahi item, alag rate. Final karne par ye mojuda estimate ki jagah le lega.'
+          : 'Wahi item, do alag rate - customer ko dono total dikhenge aur jo pasand aaye wahi final estimate ban jayega.'}
       </div>
 
-      {drafts.length === 0 && <div style={styles.emptySmall}>Abhi koi option nahi bana. Customer ko sirf ek hi estimate ban ke dikhega jab tak options na banayein.</div>}
+      {drafts.length === 0 && <div style={styles.emptySmall}>Abhi koi option nahi bana. Customer ko sirf ek hi estimate dikhega jab tak options na banayein.</div>}
       {drafts.map((d) => (
         <div key={d.id} style={styles.extraWorkCard}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -2262,12 +2310,13 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
             {d.items.length} item{d.items.length !== 1 ? 's' : ''}
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-            <button style={styles.cardActionBtn} onClick={() => startEditDraft(d)}><Edit3 size={12} /> Edit</button>
-            <button style={{ ...styles.cardActionBtn, color: '#C62828' }} onClick={() => deleteDraft(d.id)}><Trash2 size={12} /> Delete</button>
             <button style={{ ...styles.cardActionBtn, color: '#2E7D32', fontWeight: 800 }} onClick={() => finalizeDraft(d)}><Check size={12} /> Ye Final Karein</button>
           </div>
         </div>
       ))}
+      {drafts.length > 0 && (
+        <button style={{ ...styles.cardActionBtn, color: '#C62828', marginTop: 8 }} onClick={deleteAll}><Trash2 size={12} /> Options hata dein</button>
+      )}
     </div>
   );
 }
