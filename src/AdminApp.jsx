@@ -87,7 +87,9 @@ import {
   currency,
   dataUriByteSize,
   emptyJob,
+  EstimateChoiceNote,
   estimateItemAmount,
+  finalizeEstimateDraft,
   estimateItemSqft,
   fileToDataUri,
   formatDate,
@@ -1881,7 +1883,7 @@ function SavedInput({ value, onCommit, delay = 600, ...rest }) {
   return <input {...rest} value={draft} onChange={handleChange} onBlur={flush} />;
 }
 
-function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateItem, removeItem, total, itemTemplates, setItemTemplates, showToast, approveSuggestedItem, rejectSuggestedItem }) {
+function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateItem, removeItem, total, itemTemplates, setItemTemplates, showToast, approveSuggestedItem, rejectSuggestedItem, staffName }) {
   const [showPreview, setShowPreview] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
@@ -1898,7 +1900,8 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
 
   return (
     <div>
-      {(job.items || []).length === 0 && <AdminEstimateDraftsPanel job={job} onSave={onSave} showToast={showToast} />}
+      {(job.items || []).length === 0 && <AdminEstimateDraftsPanel job={job} onSave={onSave} showToast={showToast} staffName={staffName} />}
+      <EstimateChoiceNote job={job} />
 
       <div style={styles.fieldLabel}>Flat Name / Number</div>
       <SavedInput style={styles.input} placeholder='Jaise Flat 402, Sun City' value={job.flatNo || ''} onCommit={(v) => onSave({ ...job, flatNo: v })} />
@@ -2067,7 +2070,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
    unchanged, since they only ever look at job.items/materialCompany/
    etc, never at estimateDrafts. This keeps the whole rest of the app's
    estimate logic untouched by this feature. ---- */
-function AdminEstimateDraftsPanel({ job, onSave, showToast }) {
+function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
   const drafts = job.estimateDrafts || [];
   const [editingDraftId, setEditingDraftId] = useState(null);
   const [draftForm, setDraftForm] = useState(null);
@@ -2137,6 +2140,20 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast }) {
     setDraftForm(null);
     showToast('Estimate option save ho gaya');
   };
+  // The customer can pick an option from their own app. So can the
+  // owner, from here, which is what actually happens when the choice is
+  // made on the phone - before this, the only way to finish that call
+  // was to ask the customer to open the app and press the button
+  // themselves. Same code path as the customer's, so both produce the
+  // same estimate, and both leave a record of who decided.
+  const finalizeDraft = (d) => {
+    if (!window.confirm('"' + d.label + '" ko final estimate banayein?\n\nBaaki options hat jayenge.')) return;
+    const nextJob = finalizeEstimateDraft(jobRef.current, d, 'admin', staffName);
+    jobRef.current = nextJob;
+    onSave(nextJob);
+    showToast(d.label + ' final estimate ban gaya');
+  };
+
   const deleteDraft = (id) => {
     const nextJob = { ...jobRef.current, estimateDrafts: (jobRef.current.estimateDrafts || []).filter((d) => d.id !== id) };
     jobRef.current = nextJob;
@@ -2229,9 +2246,10 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast }) {
             {(d.materialCompany || d.sheetWeightKg) && ' - '}
             {d.items.length} item{d.items.length !== 1 ? 's' : ''}
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
             <button style={styles.cardActionBtn} onClick={() => startEditDraft(d)}><Edit3 size={12} /> Edit</button>
             <button style={{ ...styles.cardActionBtn, color: '#C62828' }} onClick={() => deleteDraft(d.id)}><Trash2 size={12} /> Delete</button>
+            <button style={{ ...styles.cardActionBtn, color: '#2E7D32', fontWeight: 800 }} onClick={() => finalizeDraft(d)}><Check size={12} /> Ye Final Karein</button>
           </div>
         </div>
       ))}
@@ -2820,7 +2838,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
         )}
 
         {tab === 'estimate' && (
-          <AdminEstimateTab job={job} onSave={saveJob} newItem={newItem} setNewItem={setNewItem} addItem={addItem} updateItem={updateItem} removeItem={removeItem} total={total} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} showToast={showToast} approveSuggestedItem={approveSuggestedItem} rejectSuggestedItem={rejectSuggestedItem} />
+          <AdminEstimateTab job={job} onSave={saveJob} newItem={newItem} setNewItem={setNewItem} addItem={addItem} updateItem={updateItem} removeItem={removeItem} total={total} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} showToast={showToast} approveSuggestedItem={approveSuggestedItem} rejectSuggestedItem={rejectSuggestedItem} staffName={staffName} />
         )}
 
         {tab === 'extrawork' && (
