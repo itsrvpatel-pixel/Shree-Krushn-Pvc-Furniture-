@@ -88,6 +88,7 @@ import {
   dataUriByteSize,
   emptyJob,
   EstimateChoiceNote,
+  EstimateOptionItems,
   estimateItemAmount,
   buildOptionPair,
   finalizeEstimateDraft,
@@ -2101,6 +2102,7 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
   const [form, setForm] = useState(null);
   const [row, setRow] = useState({ desc: '', length: '', height: '', qty: '1', rateA: '', rateB: '' });
   const [editingRowId, setEditingRowId] = useState(null);
+  const [openDraftId, setOpenDraftId] = useState(null);
 
   const blankRow = { desc: '', length: '', height: '', qty: '1', rateA: '', rateB: '' };
 
@@ -2309,6 +2311,13 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
             {(d.materialCompany || d.sheetWeightKg) && ' - '}
             {d.items.length} item{d.items.length !== 1 ? 's' : ''}
           </div>
+          <button
+            style={styles.linkBtn2}
+            onClick={() => setOpenDraftId((cur) => (cur === d.id ? null : d.id))}
+          >
+            {openDraftId === d.id ? 'Item list band karein' : 'Item-wise dekhein (' + d.items.length + ')'}
+          </button>
+          {openDraftId === d.id && <EstimateOptionItems items={d.items} />}
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
             <button style={{ ...styles.cardActionBtn, color: '#2E7D32', fontWeight: 800 }} onClick={() => finalizeDraft(d)}><Check size={12} /> Ye Final Karein</button>
           </div>
