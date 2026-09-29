@@ -24,6 +24,10 @@ export const BRAND = {
   textMuted: '#7C8399',
 };
 
+// Landing on the screen the website's button promised. See
+// src/arrivalIntent.js.
+import { takeArrivalTab } from './arrivalIntent.js';
+
 const DEFAULT_CATEGORIES = ['Kitchen', 'Wardrobe', 'Dressing Table', 'Bathroom Cabinet', 'TV Unit', 'Bed', 'Color/POP Work', 'Electrical Work', 'Other'];
 
 // Colour/POP and electrical work are DH Home Decor's trade. See
@@ -4173,7 +4177,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
   // itself has a clear "Book Visit" prompt for anyone who hasn't
   // booked yet, so booking is still one tap away, just not the ONLY
   // thing a new customer can reach.
-  const [tab, setTab] = useState('home');
+  const [tab, setTab] = useState(() => takeArrivalTab() || 'home');
   const [showProfile, setShowProfile] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showSpecs, setShowSpecs] = useState(false);
