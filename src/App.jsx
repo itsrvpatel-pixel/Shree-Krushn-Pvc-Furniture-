@@ -28,6 +28,13 @@ export const BRAND = {
 // src/arrivalIntent.js.
 import { takeArrivalTab } from './arrivalIntent.js';
 
+// uid, logActivity and finalizeEstimateDraft live in their own module so
+// they can be tested without React. Imported and re-exported, not
+// forwarded: `export ... from` alone would not bind them in this file.
+import { uid, logActivity, finalizeEstimateDraft } from './jobCore.js';
+
+export { uid, logActivity, finalizeEstimateDraft };
+
 const DEFAULT_CATEGORIES = ['Kitchen', 'Wardrobe', 'Dressing Table', 'Bathroom Cabinet', 'TV Unit', 'Bed', 'Color/POP Work', 'Electrical Work', 'Other'];
 
 // Colour/POP and electrical work are DH Home Decor's trade. See
@@ -64,7 +71,6 @@ const COMPLAINT_STAGES = {
 };
 const COMPLAINT_STAGE_ORDER = ['open', 'in_progress', 'resolved'];
 
-export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 // Built via fromCharCode rather than a newline escape sequence inside a
 // string literal: backslash escapes inside string literals have been observed to get silently stripped when
 // this file is edited/pasted through certain mobile text editors.
@@ -351,6 +357,18 @@ const ESTIMATE_TERMS = [
     points: ['Given prices are tentative', 'Final quotation may change after design confirmation', 'Any high-end / expensive item is not included'],
   },
 ];
+
+export function EstimateChoiceNote({ job }) {
+  const c = job.estimateChoice;
+  if (!c) return null;
+  const who = c.by === 'customer' ? 'aapne' : ((c.byName || 'Admin') + ' ne');
+  return (
+    <div style={{ ...styles.estimateStatusBanner, background: '#EEF1F7', color: '#33405E' }}>
+      <FileText size={14} />
+      <span>"{c.label}" option se bana - {who} chuna, {formatDate(c.at)}</span>
+    </div>
+  );
+}
 
 export function jobTotal(job) {
   const itemsTotal = (job.items || []).reduce((s, it) => s + estimateItemAmount(it), 0);
@@ -1577,9 +1595,6 @@ function normalizeNotifications(list) {
   return (Array.isArray(list) ? list : []).map((n) => ({ ...n, readBy: Array.isArray(n.readBy) ? n.readBy : [] }));
 }
 
-export function logActivity(job, text) {
-  return { ...job, activity: [{ id: uid(), text, date: new Date().toISOString() }, ...(job.activity || [])].slice(0, 40) };
-}
 
 /* --- SmartImg: tries the stored URL, then falls back through alternate
    Drive host formats derived from the ORIGINAL pasted link if one is stored
@@ -5816,14 +5831,7 @@ function EstimateView({ job, onSave, showToast }) {
   // can be active per job - keeping a stale comparison around after the
   // decision is made would just be confusing leftover state.
   const chooseDraft = (d) => {
-    let next = {
-      ...jobRef.current,
-      items: d.items,
-      materialCompany: d.materialCompany || '',
-      sheetWeightKg: d.sheetWeightKg || '',
-      estimateDrafts: [],
-    };
-    next = logActivity(next, 'Customer ne "' + d.label + '" option choose kiya - final estimate ban gaya');
+    const next = finalizeEstimateDraft(jobRef.current, d, 'customer');
     jobRef.current = next;
     onSave(next);
     showToast(d.label + ' option select ho gaya');
@@ -5869,6 +5877,8 @@ function EstimateView({ job, onSave, showToast }) {
           ))}
         </div>
       )}
+
+      <EstimateChoiceNote job={job} />
 
       {Number(job.discount) > 0 && (
         <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 10 }}>
