@@ -82,5 +82,24 @@ check('the earlier history is kept, newest first', () => {
   assert.equal(out.activity[1].text, 'Job created');
 });
 
+check('an estimate that already exists is replaced, with payments intact', () => {
+  // The options panel used to be hidden once an estimate existed, so
+  // this path never ran. It runs now - the customer rings back to ask
+  // what a cheaper sheet would cost - and it must not disturb money
+  // already taken.
+  const priced = {
+    ...job,
+    items: [{ id: 'old', desc: 'Wardrobe', length: '6', height: '7', rate: '1200' }],
+    estimateStatus: 'approved',
+    payments: [{ id: 'p1', amount: 5000 }, { id: 'p2', amount: 7000 }],
+  };
+  const out = finalizeEstimateDraft(priced, priced.estimateDrafts[1], 'admin', 'Ravi');
+  assert.equal(out.items.length, 1);
+  assert.equal(out.items[0].rate, '600', 'the old estimate was not replaced');
+  assert.equal(out.items[0].id, 'i2');
+  assert.deepEqual(out.payments, priced.payments, 'payments were disturbed');
+  assert.equal(out.estimateChoice.by, 'admin');
+});
+
 console.log(failed === 0 ? '\nall passed' : '\n' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
