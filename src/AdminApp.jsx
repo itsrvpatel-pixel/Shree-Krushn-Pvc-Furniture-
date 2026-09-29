@@ -61,6 +61,7 @@ import {
   Calculator,
   HelpCircle,
 } from 'lucide-react';
+import { useBackToClose } from './useBackToClose.js';
 import {
   APPT_STATUS,
   BRAND,
@@ -490,6 +491,8 @@ function StatCard({ icon, label, value, accent, onClick }) {
 function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, archivedReviews, setArchivedReviews, pendingGalleryPhotos, setPendingGalleryPhotos, staffName, isPartner, isDhPartner, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
+  // Back returns to the job list instead of shutting the panel.
+  useBackToClose(!!activeJobId, () => setActiveJobId(null));
   const activeJob = jobs.find((j) => j.id === activeJobId);
   // Once the Gallery tab has been visited, it stays MOUNTED (just
   // hidden via CSS when a different tab is active) instead of being

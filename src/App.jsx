@@ -27,6 +27,7 @@ export const BRAND = {
 // Landing on the screen the website's button promised. See
 // src/arrivalIntent.js.
 import { takeArrivalTab } from './arrivalIntent.js';
+import { useBackToClose } from './useBackToClose.js';
 
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
@@ -4636,6 +4637,8 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
   // Memoised because the warm-up effect keys on this array: a fresh one
   // each render re-ran the whole warm-up each render.
   const warmupSkip = useMemo(() => partnerCategories(galleryCategories), [galleryCategories]);
+  // Inside an album or the combined view, Back returns to the albums.
+  useBackToClose(!!activeCat || showAllPhotos, () => { setActiveCat(null); setShowAllPhotos(false); });
   useGalleryThumbWarmup(gallery, galleryCategories, warmupSkip);
 
   if (galleryLoading && Object.keys(gallery || {}).length === 0) {
@@ -4778,6 +4781,8 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
 }
 
 export function Lightbox({ data, onClose, setLightbox, job, onSaveDesign, showToast }) {
+  // Back closes the photo instead of the app.
+  useBackToClose(true, onClose);
   const { photos, index } = data;
   const photo = photos[index];
   const go = (dir) => setLightbox({ photos, index: (index + dir + photos.length) % photos.length });
