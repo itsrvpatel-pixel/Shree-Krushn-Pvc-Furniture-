@@ -358,6 +358,41 @@ const ESTIMATE_TERMS = [
   },
 ];
 
+// A material option opened up, item by item.
+//
+// Not the seven-column quotation table the finished estimate uses: on a
+// 390px phone that table pushes Rate and Amount off the right edge, and
+// those are the two columns the whole comparison is about. A row per
+// item instead, with the size and rate on one line and the amount on
+// the right, which fits without scrolling sideways.
+export function EstimateOptionItems({ items }) {
+  const list = items || [];
+  if (list.length === 0) return null;
+  const total = list.reduce((s, it) => s + estimateItemAmount(it), 0);
+  return (
+    <div style={{ marginTop: 6 }}>
+      {list.map((it, i) => {
+        const sqft = estimateItemSqft(it);
+        return (
+          <div key={it.id || i} style={styles.estItemRow}>
+            <div style={styles.estItemNo}>{i + 1}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={styles.itemDesc}>{it.desc}</div>
+              <div style={styles.itemSub}>
+                {sqft !== null
+                  ? (it.length + "' x " + it.height + "' = " + sqft.toFixed(2) + ' sq ft x ' + currency(it.rate))
+                  : ((it.qty || 1) + ' nos x ' + currency(it.rate))}
+              </div>
+            </div>
+            <div style={styles.itemAmount}>{currency(estimateItemAmount(it))}</div>
+          </div>
+        );
+      })}
+      <div style={styles.totalBar}><span>Total</span><span style={styles.totalAmt}>{currency(total)}</span></div>
+    </div>
+  );
+}
+
 export function EstimateChoiceNote({ job }) {
   const c = job.estimateChoice;
   if (!c) return null;
@@ -5815,6 +5850,7 @@ function EstimateView({ job, onSave, showToast }) {
   const [showQuote, setShowQuote] = useState(false);
   const [changeRequestText, setChangeRequestText] = useState('');
   const [showChangeRequestBox, setShowChangeRequestBox] = useState(false);
+  const [openDraftId, setOpenDraftId] = useState(null);
   const estimateStatus = job.estimateStatus || null;
   const estimateDrafts = job.estimateDrafts || [];
   const draftTotal = (d) => (d.items || []).reduce((s, it) => s + estimateItemAmount(it), 0);
@@ -5876,6 +5912,13 @@ function EstimateView({ job, onSave, showToast }) {
                 <div style={styles.itemSub}>{[d.materialCompany, d.sheetWeightKg && (d.sheetWeightKg + ' kg')].filter(Boolean).join(' - ')}</div>
               )}
               <div style={styles.itemSub}>{d.items.length} item{d.items.length !== 1 ? 's' : ''}</div>
+              <button
+                style={styles.linkBtn2}
+                onClick={() => setOpenDraftId((cur) => (cur === d.id ? null : d.id))}
+              >
+                {openDraftId === d.id ? 'Item list band karein' : 'Item-wise dekhein (' + d.items.length + ')'}
+              </button>
+              {openDraftId === d.id && <EstimateOptionItems items={d.items} />}
               {paid === 0 && (
                 <button style={{ ...styles.primaryBtn2, marginTop: 8 }} onClick={() => chooseDraft(d)}><Check size={14} /> Ye Option Choose Karein</button>
               )}
