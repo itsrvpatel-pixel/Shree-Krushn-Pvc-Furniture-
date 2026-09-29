@@ -1900,7 +1900,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
 
   return (
     <div>
-      {(job.items || []).length === 0 && <AdminEstimateDraftsPanel job={job} onSave={onSave} showToast={showToast} staffName={staffName} />}
+      <AdminEstimateDraftsPanel job={job} onSave={onSave} showToast={showToast} staffName={staffName} />
       <EstimateChoiceNote job={job} />
 
       <div style={styles.fieldLabel}>Flat Name / Number</div>
@@ -2082,6 +2082,13 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
   useEffect(() => { jobRef.current = job; }, [job]);
 
   const draftTotal = (d) => (d.items || []).reduce((s, it) => s + estimateItemAmount(it), 0);
+  // The panel used to be hidden entirely once an estimate existed, which
+  // meant the one moment the owner most often needs it - the customer
+  // ringing back to ask what a cheaper sheet would cost - was the one
+  // moment it was not there. It is always available now; these two just
+  // change what the wording and the confirm have to warn about.
+  const hasEstimate = (job.items || []).length > 0;
+  const paidSoFar = jobPaid(job);
 
   const startNewDraft = () => {
     setEditingDraftId('new');
@@ -2147,7 +2154,11 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
   // themselves. Same code path as the customer's, so both produce the
   // same estimate, and both leave a record of who decided.
   const finalizeDraft = (d) => {
-    if (!window.confirm('"' + d.label + '" ko final estimate banayein?\n\nBaaki options hat jayenge.')) return;
+    const lines = ['"' + d.label + '" ko final estimate banayein?'];
+    if (hasEstimate) lines.push('\nAbhi ka estimate (' + currency(jobTotal(jobRef.current)) + ') iski jagah hat jayega.');
+    if (paidSoFar > 0) lines.push('\nDhyan dein: is job par ' + currency(paidSoFar) + ' payment aa chuki hai. Total badlega to baaki rakam bhi badlegi.');
+    lines.push('\nBaaki options hat jayenge.');
+    if (!window.confirm(lines.join('\n'))) return;
     const nextJob = finalizeEstimateDraft(jobRef.current, d, 'admin', staffName);
     jobRef.current = nextJob;
     onSave(nextJob);
@@ -2232,7 +2243,11 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
         <div style={styles.fieldLabel}>Compare Materials (optional)</div>
         <button style={styles.linkBtn2} onClick={startNewDraft}>+ Add Option</button>
       </div>
-      <div style={styles.plainTextMuted}>Customer ko 2+ material options dikha ke compare karwayein - jo pasand aaye wahi final estimate ban jayega.</div>
+      <div style={styles.plainTextMuted}>
+        {hasEstimate
+          ? 'Estimate ban chuka hai. Customer doosre material ka rate poochhe to yahan option banayein - final karne par ye mojuda estimate ki jagah le lega.'
+          : 'Customer ko 2+ material options dikha ke compare karwayein - jo pasand aaye wahi final estimate ban jayega.'}
+      </div>
 
       {drafts.length === 0 && <div style={styles.emptySmall}>Abhi koi option nahi bana. Customer ko sirf ek hi estimate ban ke dikhega jab tak options na banayein.</div>}
       {drafts.map((d) => (

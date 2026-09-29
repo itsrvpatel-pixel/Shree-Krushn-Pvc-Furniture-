@@ -5858,10 +5858,14 @@ function EstimateView({ job, onSave, showToast }) {
 
   return (
     <>
-      {(job.items || []).length === 0 && estimateDrafts.length > 0 && (
+      {estimateDrafts.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <div style={styles.sectionTitle}>Material Options Compare Karein</div>
-          <div style={styles.plainTextMuted}>Jo aapke budget mein aaye, wo option choose karein - wahi aapka final estimate ban jayega.</div>
+          <div style={styles.plainTextMuted}>
+            {paid > 0
+              ? 'Is job par payment shuru ho chuki hai, isliye option yahan se badla nahi ja sakta. Jo chahiye wo humein phone par bata dein.'
+              : 'Jo aapke budget mein aaye, wo option choose karein - wahi aapka final estimate ban jayega.'}
+          </div>
           {estimateDrafts.map((d) => (
             <div key={d.id} style={styles.reviewCard}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -5872,7 +5876,9 @@ function EstimateView({ job, onSave, showToast }) {
                 <div style={styles.itemSub}>{[d.materialCompany, d.sheetWeightKg && (d.sheetWeightKg + ' kg')].filter(Boolean).join(' - ')}</div>
               )}
               <div style={styles.itemSub}>{d.items.length} item{d.items.length !== 1 ? 's' : ''}</div>
-              <button style={{ ...styles.primaryBtn2, marginTop: 8 }} onClick={() => chooseDraft(d)}><Check size={14} /> Ye Option Choose Karein</button>
+              {paid === 0 && (
+                <button style={{ ...styles.primaryBtn2, marginTop: 8 }} onClick={() => chooseDraft(d)}><Check size={14} /> Ye Option Choose Karein</button>
+              )}
             </div>
           ))}
         </div>
