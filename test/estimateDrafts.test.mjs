@@ -3,7 +3,7 @@
 // customer and the owner can now make that choice, so the same function
 // runs on both paths and is tested here directly.
 import assert from 'node:assert/strict';
-import { finalizeEstimateDraft } from '../src/jobCore.js';
+import { finalizeEstimateDraft, normalizeOptionRow, buildOptionPair } from '../src/jobCore.js';
 
 const job = {
   id: 'job_1', customerName: 'Test', items: [], discount: 0,
@@ -99,6 +99,86 @@ check('an estimate that already exists is replaced, with payments intact', () =>
   assert.equal(out.items[0].id, 'i2');
   assert.deepEqual(out.payments, priced.payments, 'payments were disturbed');
   assert.equal(out.estimateChoice.by, 'admin');
+});
+
+// ---- the two-option builder ------------------------------------------
+// One item list, a rate per option. Both estimates must come out
+// complete - the same items in each, only the rate different.
+
+const form = {
+  aId: 'A', bId: 'B',
+  a: { label: ' Kaka 7kg ', materialCompany: 'Kaka', sheetWeightKg: '7' },
+  b: { label: 'Economy', materialCompany: 'Other', sheetWeightKg: '5' },
+  items: [
+    { id: 'r1', desc: 'Wardrobe', length: '6', height: '7', qty: '1', rateA: '1200', rateB: '800' },
+    { id: 'r2', desc: 'Loft', length: '6', height: '2', qty: '1', rateA: '900', rateB: '900' },
+    { id: 'r3', desc: 'Handle', length: '', height: '', qty: '4', rateA: '150', rateB: '150' },
+  ],
+};
+
+check('both options come out with every item', () => {
+  const [a, b] = buildOptionPair(form);
+  assert.equal(a.items.length, 3);
+  assert.equal(b.items.length, 3);
+  assert.deepEqual(a.items.map((i) => i.desc), ['Wardrobe', 'Loft', 'Handle']);
+  assert.deepEqual(b.items.map((i) => i.desc), ['Wardrobe', 'Loft', 'Handle']);
+});
+
+check('each option carries its own rate, and nothing else differs', () => {
+  const [a, b] = buildOptionPair(form);
+  assert.deepEqual(a.items.map((i) => i.rate), ['1200', '900', '150']);
+  assert.deepEqual(b.items.map((i) => i.rate), ['800', '900', '150']);
+  a.items.forEach((it, i) => {
+    assert.equal(it.desc, b.items[i].desc);
+    assert.equal(it.length, b.items[i].length);
+    assert.equal(it.height, b.items[i].height);
+    assert.equal(it.qty, b.items[i].qty);
+  });
+});
+
+check('the two options keep their own name and material', () => {
+  const [a, b] = buildOptionPair(form);
+  assert.equal(a.label, 'Kaka 7kg', 'label was not trimmed');
+  assert.equal(b.label, 'Economy');
+  assert.equal(a.sheetWeightKg, '7');
+  assert.equal(b.sheetWeightKg, '5');
+  assert.equal(a.id, 'A');
+  assert.equal(b.id, 'B');
+});
+
+check('the two options do not share item objects', () => {
+  const [a, b] = buildOptionPair(form);
+  a.items[0].rate = '9999';
+  assert.equal(b.items[0].rate, '800', 'editing one option changed the other');
+  assert.notEqual(a.items[0].id, b.items[0].id, 'same item id in both options');
+});
+
+check('a blank second rate means the same as the first, not free', () => {
+  const r = normalizeOptionRow({ desc: ' Shutter ', rateA: '700', rateB: '' });
+  assert.equal(r.rateB, '700');
+  assert.equal(r.desc, 'Shutter');
+  assert.equal(r.qty, '1');
+  const missing = normalizeOptionRow({ desc: 'X', rateA: '500' });
+  assert.equal(missing.rateB, '500');
+});
+
+check('a real second rate of zero is kept as zero', () => {
+  const r = normalizeOptionRow({ desc: 'Free fitting', rateA: '700', rateB: '0' });
+  assert.equal(r.rateB, '0');
+});
+
+check('editing a row keeps its place, by keeping its id', () => {
+  const r = normalizeOptionRow({ desc: 'Wardrobe', rateA: '1200', rateB: '800' }, 'r1');
+  assert.equal(r.id, 'r1');
+});
+
+check('the pair drops straight into the job as a real estimate', () => {
+  const [, b] = buildOptionPair(form);
+  const out = finalizeEstimateDraft({ ...job, estimateDrafts: buildOptionPair(form) }, b, 'admin', 'Ravi');
+  assert.equal(out.items.length, 3);
+  assert.deepEqual(out.items.map((i) => i.rate), ['800', '900', '150']);
+  assert.equal(out.materialCompany, 'Other');
+  assert.deepEqual(out.estimateDrafts, []);
 });
 
 console.log(failed === 0 ? '\nall passed' : '\n' + failed + ' failed');
