@@ -104,6 +104,7 @@ import {
   jobDue,
   jobPaid,
   normalizeOptionRow,
+  seedOptionForm,
   jobTotal,
   loadImageAsDataUrl,
   loadJsPDF,
@@ -2107,37 +2108,7 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
   const blankRow = { desc: '', length: '', height: '', qty: '1', rateA: '', rateB: '' };
 
   const openBuilder = () => {
-    const a = drafts[0];
-    const b = drafts[1];
-    // Start from whatever already exists: the saved options if there are
-    // any, otherwise the job's own estimate, which is exactly the item
-    // list the second option is meant to re-price.
-    const base = (a && a.items) || (hasEstimate ? job.items : []) || [];
-    setForm({
-      aId: a ? a.id : null,
-      bId: b ? b.id : null,
-      a: {
-        label: (a && a.label) || 'Option 1',
-        materialCompany: (a && a.materialCompany) || job.materialCompany || '',
-        sheetWeightKg: (a && a.sheetWeightKg) || job.sheetWeightKg || '',
-      },
-      b: {
-        label: (b && b.label) || 'Option 2',
-        materialCompany: (b && b.materialCompany) || '',
-        sheetWeightKg: (b && b.sheetWeightKg) || '',
-      },
-      items: base.map((it, i) => ({
-        id: uid(),
-        desc: it.desc,
-        length: it.length || '',
-        height: it.height || '',
-        qty: it.qty || '1',
-        rateA: String(it.rate == null ? '' : it.rate),
-        rateB: String((b && b.items && b.items[i] && b.items[i].rate) != null
-          ? b.items[i].rate
-          : (it.rate == null ? '' : it.rate)),
-      })),
-    });
+    setForm(seedOptionForm(job));
     setEditingRowId(null);
     setRow(blankRow);
   };
