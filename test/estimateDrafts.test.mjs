@@ -3,7 +3,7 @@
 // customer and the owner can now make that choice, so the same function
 // runs on both paths and is tested here directly.
 import assert from 'node:assert/strict';
-import { finalizeEstimateDraft, normalizeOptionRow, buildOptionPair } from '../src/jobCore.js';
+import { finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm } from '../src/jobCore.js';
 
 const job = {
   id: 'job_1', customerName: 'Test', items: [], discount: 0,
@@ -179,6 +179,99 @@ check('the pair drops straight into the job as a real estimate', () => {
   assert.deepEqual(out.items.map((i) => i.rate), ['800', '900', '150']);
   assert.equal(out.materialCompany, 'Other');
   assert.deepEqual(out.estimateDrafts, []);
+});
+
+// ---- opening the builder --------------------------------------------
+let seq = 0;
+const fakeId = () => 'id' + (++seq);
+
+check('the second rate follows the item, not its position in the list', () => {
+  // Built one at a time under the old screen, the two options can hold
+  // the same items in a different order. Lining them up by position
+  // would put the cheap sheet's rate against the wrong item.
+  const j = {
+    items: [], materialCompany: '', sheetWeightKg: '',
+    estimateDrafts: [
+      { id: 'A', label: 'Kaka', materialCompany: 'Kaka', sheetWeightKg: '7', items: [
+        { id: '1', desc: 'Wardrobe', length: '6', height: '7', qty: '1', rate: '1200' },
+        { id: '2', desc: 'Loft', length: '6', height: '2', qty: '1', rate: '900' },
+        { id: '3', desc: 'Handle', qty: '4', rate: '150' },
+      ] },
+      { id: 'B', label: 'Economy', items: [
+        { id: '9', desc: 'Handle', qty: '4', rate: '120' },
+        { id: '7', desc: 'Wardrobe', length: '6', height: '7', qty: '1', rate: '800' },
+        { id: '8', desc: 'Loft', length: '6', height: '2', qty: '1', rate: '650' },
+      ] },
+    ],
+  };
+  const f = seedOptionForm(j, fakeId);
+  assert.deepEqual(f.items.map((i) => i.desc), ['Wardrobe', 'Loft', 'Handle']);
+  assert.deepEqual(f.items.map((i) => i.rateA), ['1200', '900', '150']);
+  assert.deepEqual(f.items.map((i) => i.rateB), ['800', '650', '120'],
+    'the second option\'s rates were matched by position, not by item');
+});
+
+check('two items with the same name each keep their own second rate', () => {
+  const j = {
+    items: [],
+    estimateDrafts: [
+      { id: 'A', label: 'A', items: [
+        { id: '1', desc: 'Shutter', qty: '1', rate: '100' },
+        { id: '2', desc: 'Shutter', qty: '1', rate: '200' },
+      ] },
+      { id: 'B', label: 'B', items: [
+        { id: '3', desc: 'Shutter', qty: '1', rate: '60' },
+        { id: '4', desc: 'Shutter', qty: '1', rate: '90' },
+      ] },
+    ],
+  };
+  const f = seedOptionForm(j, fakeId);
+  assert.deepEqual(f.items.map((i) => i.rateB), ['60', '90']);
+});
+
+check('an item the second option never had falls back to the first rate', () => {
+  const j = {
+    items: [],
+    estimateDrafts: [
+      { id: 'A', label: 'A', items: [
+        { id: '1', desc: 'Wardrobe', qty: '1', rate: '1200' },
+        { id: '2', desc: 'Mandir', qty: '1', rate: '4000' },
+      ] },
+      { id: 'B', label: 'B', items: [{ id: '3', desc: 'Wardrobe', qty: '1', rate: '800' }] },
+    ],
+  };
+  const f = seedOptionForm(j, fakeId);
+  assert.deepEqual(f.items.map((i) => i.rateB), ['800', '4000']);
+});
+
+check('with no options saved it starts from the job\'s own estimate', () => {
+  const j = {
+    items: [{ id: 'x', desc: 'Wardrobe', length: '6', height: '7', qty: '1', rate: '1250' }],
+    materialCompany: 'Kaka', sheetWeightKg: '7', estimateDrafts: [],
+  };
+  const f = seedOptionForm(j, fakeId);
+  assert.equal(f.items.length, 1);
+  assert.equal(f.items[0].rateA, '1250');
+  assert.equal(f.items[0].rateB, '1250', 'the second option should start level with the first');
+  assert.equal(f.a.materialCompany, 'Kaka');
+  assert.equal(f.aId, null);
+});
+
+check('a brand new job opens empty rather than breaking', () => {
+  const f = seedOptionForm({ items: [], estimateDrafts: [] }, fakeId);
+  assert.deepEqual(f.items, []);
+  assert.equal(f.a.label, 'Option 1');
+  assert.equal(f.b.label, 'Option 2');
+});
+
+check('seeding does not touch the job it read', () => {
+  const j = {
+    items: [{ id: 'x', desc: 'W', qty: '1', rate: '10' }],
+    estimateDrafts: [{ id: 'A', label: 'A', items: [{ id: '1', desc: 'W', qty: '1', rate: '10' }] }],
+  };
+  const before = JSON.stringify(j);
+  seedOptionForm(j, fakeId);
+  assert.equal(JSON.stringify(j), before);
 });
 
 console.log(failed === 0 ? '\nall passed' : '\n' + failed + ' failed');

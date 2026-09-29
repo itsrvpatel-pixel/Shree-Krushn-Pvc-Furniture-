@@ -61,6 +61,65 @@ export function buildOptionPair(form) {
   return [side('a', form.aId, form.a), side('b', form.bId, form.b)];
 }
 
+// What the two-option builder opens with.
+//
+// The second option's rate is found by matching the item, not by
+// position. Options built one at a time under the old screen can hold
+// the same items in a different order, or a different number of them,
+// and lining them up by position would have quietly put the cheap sheet's
+// rate against the wrong item - a mistake nobody would see until the
+// customer got the estimate. Each description is matched once, so two
+// items with the same name still take their own rate in order.
+export function seedOptionForm(job, makeId) {
+  const id = makeId || uid;
+  const drafts = job.estimateDrafts || [];
+  const a = drafts[0];
+  const b = drafts[1];
+  const hasEstimate = (job.items || []).length > 0;
+  const base = (a && a.items) || (hasEstimate ? job.items : []) || [];
+
+  const pool = new Map();
+  for (const it of (b && b.items) || []) {
+    const key = String(it.desc || '').trim().toLowerCase();
+    if (!pool.has(key)) pool.set(key, []);
+    pool.get(key).push(it);
+  }
+  const rateFromB = (desc) => {
+    const row = (pool.get(String(desc || '').trim().toLowerCase()) || []).shift();
+    return row && row.rate != null ? String(row.rate) : null;
+  };
+
+  return {
+    aId: a ? a.id : null,
+    bId: b ? b.id : null,
+    a: {
+      label: (a && a.label) || 'Option 1',
+      materialCompany: (a && a.materialCompany) || job.materialCompany || '',
+      sheetWeightKg: (a && a.sheetWeightKg) || job.sheetWeightKg || '',
+    },
+    b: {
+      label: (b && b.label) || 'Option 2',
+      materialCompany: (b && b.materialCompany) || '',
+      sheetWeightKg: (b && b.sheetWeightKg) || '',
+    },
+    items: base.map((it) => {
+      const rateA = String(it.rate == null ? '' : it.rate);
+      // Called once per item: it consumes from the pool, so calling it
+      // twice would take two of them.
+      const fromB = rateFromB(it.desc);
+      return {
+        id: id(),
+        desc: it.desc,
+        length: it.length || '',
+        height: it.height || '',
+        qty: it.qty || '1',
+        rateA,
+        rateB: fromB == null ? rateA : fromB,
+      };
+    }),
+  };
+}
+
 export function finalizeEstimateDraft(job, draft, by, byName) {
   const next = {
     ...job,
