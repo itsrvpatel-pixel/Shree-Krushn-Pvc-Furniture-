@@ -34,9 +34,11 @@ import { useBackToClose } from './useBackToClose.js';
 // forwarded: `export ... from` alone would not bind them in this file.
 import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary } from './jobCore.js';
 import { t, tf } from './i18n.js';
+import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
 export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary };
 export { t, tf };
+export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
 const DEFAULT_CATEGORIES = ['Kitchen', 'Wardrobe', 'Dressing Table', 'Bathroom Cabinet', 'TV Unit', 'Bed', 'Color/POP Work', 'Electrical Work', 'Other'];
 
@@ -2693,6 +2695,26 @@ export default function App() {
       galleryWriteInFlightRef.current = false;
     }
   }, [gallery]);
+  // A customer editing their OWN record writes that one document
+  // directly rather than going through persistCustomers. That path
+  // re-reads every customer first (to avoid two admins clobbering each
+  // other's edits to DIFFERENT customers), and a customer is not
+  // allowed to read the whole collection - the merge would fail and
+  // take the save down with it. One person editing one record of their
+  // own has nothing to merge against.
+  const saveOwnCustomer = useCallback(async (next) => {
+    const prev = customers.find((c) => c.id === next.id);
+    setCustomers((list) => list.map((c) => (c.id === next.id ? next : c)));
+    try {
+      await window.customersStore.saveDiff([next], prev ? [prev] : []);
+      return true;
+    } catch (e) {
+      showToast('Could not save your details', true);
+      if (prev) setCustomers((list) => list.map((c) => (c.id === next.id ? prev : c)));
+      return false;
+    }
+  }, [customers]);
+
   const persistCustomers = useCallback(async (next) => {
     const prevLocalCustomers = customers;
     setCustomers(next);
@@ -3349,6 +3371,7 @@ export default function App() {
       <ErrorBoundary scope='customer'>
       <CustomerApp
         customer={customer}
+        onSaveCustomer={saveOwnCustomer}
         gallery={gallery}
         loadGalleryData={loadGalleryData} galleryLoading={galleryLoading}
         job={myJob}
@@ -3622,10 +3645,67 @@ export class ErrorBoundary extends React.Component {
   }
 }
 
+/* The same four questions wherever they are asked - at registration,
+   and again from the home screen for everyone who signed up before
+   they existed. Nothing here is required: a half-filled profile still
+   tells an admin far more than a bare name and number. */
+export function CustomerProfileFields({ value, onChange, compact }) {
+  const p = normalizeProfile(value);
+  const set = (patch) => onChange({ ...value, ...patch });
+  const toggleNeed = (n) => {
+    const has = p.needs.includes(n);
+    set({ needs: has ? p.needs.filter((x) => x !== n) : [...p.needs, n] });
+  };
+  const gap = compact ? 10 : 12;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap }}>
+      <div>
+        <div style={styles.fieldLabel}>Area / locality</div>
+        <input
+          style={styles.input}
+          value={p.area}
+          onChange={(e) => set({ area: e.target.value })}
+          placeholder='e.g. Nava Naroda, Nikol, Vastral'
+        />
+      </div>
+      <div>
+        <div style={styles.fieldLabel}>Property type</div>
+        <div style={styles.profileChips}>
+          {PROPERTY_TYPES.map((x) => (
+            <button key={x} type='button' onClick={() => set({ propertyType: p.propertyType === x ? '' : x })}
+              style={{ ...styles.profileChip, ...(p.propertyType === x ? styles.profileChipOn : {}) }}>{x}</button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div style={styles.fieldLabel}>What do you need? (pick any)</div>
+        <div style={styles.profileChips}>
+          {NEED_OPTIONS.map((x) => (
+            <button key={x} type='button' onClick={() => toggleNeed(x)}
+              style={{ ...styles.profileChip, ...(p.needs.includes(x) ? styles.profileChipOn : {}) }}>{x}</button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div style={styles.fieldLabel}>When would you like to start?</div>
+        <div style={styles.profileChips}>
+          {TIMELINES.map((x) => (
+            <button key={x.value} type='button' onClick={() => set({ timeline: p.timeline === x.value ? '' : x.value })}
+              style={{ ...styles.profileChip, ...(p.timeline === x.value ? styles.profileChipOn : {}) }}>{x.label}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
   const [mode, setMode] = useState('choose');
   const [name, setName] = useState('');
   const [referredBy, setReferredBy] = useState('');
+  // Asked at registration so an admin knows who signed up, not just
+  // that someone did. None of it is required - see customerProfile.js.
+  const [profile, setProfile] = useState({ area: '', propertyType: '', needs: [], timeline: '' });
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [checkingPin, setCheckingPin] = useState(false);
@@ -3693,7 +3773,7 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
       setError(t('Galat OTP - dobara check karein')); return;
     }
     if (otpStage === 'register') {
-      onRegister({ id: uid(), name: name.trim(), phone: pendingPhone, phoneVerified: true, referredBy: referredBy.trim() || null, createdAt: new Date().toISOString() });
+      onRegister({ id: uid(), name: name.trim(), phone: pendingPhone, phoneVerified: true, referredBy: referredBy.trim() || null, ...normalizeProfile(profile), createdAt: new Date().toISOString() });
     } else {
       const found = await window.customersStore.getOne(pendingPhone);
       if (found) onCustomerLogin(found);
@@ -3827,12 +3907,15 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
 
       {!otpStage && mode === 'register' && (
         <div style={styles.loginCard}>
-          <div style={styles.fieldLabel}>Naam</div>
-          <input style={styles.input} value={name} onChange={(e) => { setName(e.target.value); setError(''); }} placeholder='Aapka naam' autoFocus />
+          <div style={styles.fieldLabel}>Name</div>
+          <input style={styles.input} value={name} onChange={(e) => { setName(e.target.value); setError(''); }} placeholder='Your name' autoFocus />
           <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Phone number</div>
           <input style={styles.input} value={phone} onChange={(e) => { const v = phoneCharsOnly(e.target.value).slice(0, 14); setPhone(v); setError(''); }} placeholder='98765 43210' inputMode='tel' maxLength={14} />
+          <div style={{ marginTop: 12 }}>
+            <CustomerProfileFields value={profile} onChange={setProfile} compact />
+          </div>
           <div style={{ ...styles.fieldLabel, marginTop: 12 }}>{t('Kisne refer kiya? (optional)')}</div>
-          <input style={styles.input} value={referredBy} onChange={(e) => setReferredBy(e.target.value)} placeholder='Naam ya phone number' />
+          <input style={styles.input} value={referredBy} onChange={(e) => setReferredBy(e.target.value)} placeholder='Name or phone number' />
           {error && <div style={styles.errorText}>{error}</div>}
           <button style={{ ...styles.primaryBtn, marginTop: 16 }} onClick={() => sendOtp('register')} disabled={sendingOtp}>{sendingOtp ? 'Sending...' : 'Send OTP'}</button>
           <button style={styles.backLink} onClick={() => setMode('choose')}><ArrowLeft size={13} /> Back</button>
@@ -4269,7 +4352,7 @@ const CUSTOMER_TAB_PARENT = {
   instant_estimate: 'home',
 };
 
-function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, faqs, materialSpecs, companyBenefits, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
+function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, faqs, materialSpecs, companyBenefits, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
   // Registers this customer's own device for push notifications
   // (visit confirmed, payment due, etc.) - the token is stored
   // directly on their job record, since that's what pushNotification
@@ -4291,8 +4374,8 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
   // booked yet, so booking is still one tap away, just not the ONLY
   // thing a new customer can reach.
   const [tab, setTab] = useState(() => takeArrivalTab() || 'home');
-  const [showProfile, setShowProfile] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [showSpecs, setShowSpecs] = useState(false);
   // Once the Gallery tab has been visited, it stays MOUNTED (just
   // hidden via CSS when a different tab is active) instead of being
@@ -4320,14 +4403,15 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
   if (showProfile) {
     return (
       <div style={{ paddingBottom: 20 }}>
-        <TopBar title='Mera Profile' onBack={() => setShowProfile(false)} hideLogout />
+        <TopBar title='Your profile' onBack={() => setShowProfile(false)} hideLogout />
         <div style={{ padding: '12px 16px' }}>
           <div style={styles.formCard}>
-            <div style={styles.fieldLabel}>Naam</div>
+            <div style={styles.fieldLabel}>Name</div>
             <div style={styles.itemDesc}>{customer?.name || '-'}</div>
             <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Mobile Number</div>
             <div style={styles.itemDesc}>{customer?.phone ? formatPhoneDisplay(customer.phone) : '-'}</div>
           </div>
+          <ProfileDetailsCard customer={customer} onSaveCustomer={onSaveCustomer} showToast={showToast} />
           <div style={{ ...styles.formCard, marginTop: 12 }}>
             <div style={styles.fieldLabel}>Notifications</div>
             <div style={styles.plainTextMuted}>{t('App band ho tab bhi updates (visit confirm, payment due, waghera) turant mil jayenge.')}</div>
@@ -4385,7 +4469,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
         }
       />
 
-      {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} onOpenCalculator={() => setTab('instant_estimate')} onLogout={onLogout} />}
+      {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} onOpenCalculator={() => setTab('instant_estimate')} onLogout={onLogout} onOpenProfile={() => setShowProfile(true)} />}
       {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
       {galleryEverVisited && (
         <div style={{ display: tab === 'gallery' ? 'block' : 'none' }}>
@@ -4422,7 +4506,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
   );
 }
 
-export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout }) {
+export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout, onOpenProfile }) {
   const st = STATUS[job.status] || STATUS.appointment;
   const total = jobTotal(job);
   const due = jobDue(job);
@@ -4466,6 +4550,8 @@ export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout
           {diary.length > 0 ? t('Kaam ki diary dekhein') : t('Kaam ki jaankari')}
         </button>
       </div>
+
+      {onOpenProfile && <ProfileNudge customer={customer} onOpen={onOpenProfile} />}
 
       {job.expectedCompletionDate && (job.status === 'in_progress' || job.status === 'delivered') && (() => {
         const days = daysUntil(job.expectedCompletionDate);
@@ -4565,6 +4651,60 @@ export function ProgressRing({ pct }) {
         strokeDasharray={c} strokeDashoffset={c * (1 - safe / 100)} transform='rotate(-90 31 31)' />
       <text x='31' y='35.5' textAnchor='middle' fill='#FDFCF8' fontSize='15' fontWeight='800'>{safe}%</text>
     </svg>
+  );
+}
+
+/* Everyone who registered before these questions existed still has an
+   empty profile, and that is most of the customer list. Rather than
+   leave those records blank forever, the home screen asks once, as a
+   card that disappears the moment it is filled in. */
+export function ProfileNudge({ customer, onOpen }) {
+  const pct = profileCompleteness(customer);
+  if (pct === 100) return null;
+  return (
+    <button style={{ ...styles.profileNudge, cursor: 'pointer', textAlign: 'left', width: '100%' }} onClick={onOpen}>
+      <div style={styles.profileNudgeTop}>
+        <User size={17} color={BRAND.gold} />
+        <span style={styles.profileNudgeTitle}>Tell us about your home</span>
+        <span style={styles.profileNudgePct}>{pct}%</span>
+      </div>
+      <div style={styles.profileBar}><div style={{ ...styles.profileBarFill, width: pct + '%' }} /></div>
+      <div style={styles.profileNudgeText}>
+        Your area, home size and what you need - it takes 20 seconds and helps us quote you properly.
+      </div>
+    </button>
+  );
+}
+
+/* Dropped into the profile screen that already existed, rather than
+   adding a second one. Holds its own draft so CustomerApp does not
+   grow another hook for a card that is only sometimes on screen. */
+export function ProfileDetailsCard({ customer, onSaveCustomer, showToast }) {
+  const saved = normalizeProfile(customer);
+  const [draft, setDraft] = useState(saved);
+  const [saving, setSaving] = useState(false);
+  const dirty = JSON.stringify(normalizeProfile(draft)) !== JSON.stringify(saved);
+  const save = async () => {
+    setSaving(true);
+    const ok = await onSaveCustomer({ ...customer, ...normalizeProfile(draft) });
+    setSaving(false);
+    if (ok) showToast('Details saved');
+  };
+  return (
+    <div style={{ ...styles.formCard, marginTop: 12 }}>
+      <div style={styles.fieldLabel}>About your home</div>
+      <div style={styles.plainTextMuted}>
+        Helps us quote you properly. Only Shree Krushn PVC Furniture sees this.
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <CustomerProfileFields value={draft} onChange={setDraft} compact />
+      </div>
+      <button
+        style={{ ...styles.primaryBtn, marginTop: 16, opacity: (!dirty || saving) ? 0.55 : 1 }}
+        onClick={save}
+        disabled={!dirty || saving}
+      >{saving ? 'Saving...' : 'Save details'}</button>
+    </div>
   );
 }
 
@@ -7268,7 +7408,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
           <div style={{ marginTop: 10 }}>
             {showAddCustomer ? (
               <div style={styles.formCard}>
-                <div style={styles.fieldLabel}>Naam</div>
+                <div style={styles.fieldLabel}>Name</div>
                 <input style={styles.input} value={newCustName} onChange={(e) => setNewCustName(e.target.value)} placeholder='Customer ka naam' autoFocus />
                 <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Mobile Number</div>
                 <input style={styles.input} inputMode='numeric' value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)} placeholder='98765 43210' />
@@ -7359,7 +7499,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
       {tab === 'profile' && (
         <div style={{ padding: '12px 16px' }}>
           <div style={styles.formCard}>
-            <div style={styles.fieldLabel}>Naam</div>
+            <div style={styles.fieldLabel}>Name</div>
             <div style={styles.itemDesc}>{staffName}</div>
             <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Commission Rate</div>
             <div style={styles.itemDesc}>{commissionPercent}%</div>
@@ -7854,6 +7994,19 @@ export const styles = {
   homeActionT1: { fontSize: 13.5, fontWeight: 700, color: BRAND.navy },
   homeActionT2: { fontSize: 11.5, color: BRAND.textMuted, marginTop: 1 },
   homeActionChev: { color: BRAND.textMuted, flex: 'none', fontSize: 17, lineHeight: 1 },
+
+  // --- Customer profile chips --------------------------------------
+  profileChips: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  profileChip: { border: '1px solid ' + BRAND.line, background: BRAND.paper, color: BRAND.navy, borderRadius: 999, padding: '6px 11px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1.3 },
+  profileChipOn: { background: BRAND.navy, color: '#FFF', borderColor: BRAND.navy },
+  profileNudge: { background: BRAND.paper, border: '1px solid ' + BRAND.gold, borderRadius: 14, padding: 14, marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 },
+  profileNudgeTop: { display: 'flex', alignItems: 'center', gap: 10 },
+  profileNudgeTitle: { fontSize: 14, fontWeight: 800, color: BRAND.navy, flex: 1, minWidth: 0 },
+  profileNudgePct: { fontSize: 11, fontWeight: 800, color: BRAND.gold, flex: 'none', fontVariantNumeric: 'tabular-nums' },
+  profileNudgeText: { fontSize: 12.5, color: BRAND.textMuted },
+  profileBar: { height: 6, borderRadius: 4, background: BRAND.cream, overflow: 'hidden' },
+  profileBarFill: { height: '100%', background: BRAND.gold, borderRadius: 4 },
+  profileSummaryLine: { fontSize: 11.5, color: BRAND.navy, background: BRAND.cream, border: '1px solid ' + BRAND.line, borderRadius: 7, padding: '5px 8px', marginTop: 6, lineHeight: 1.45 },
 
   // --- Work diary ---------------------------------------------------
   diaryDay: { display: 'grid', gridTemplateColumns: '22px 1fr', gap: 11 },

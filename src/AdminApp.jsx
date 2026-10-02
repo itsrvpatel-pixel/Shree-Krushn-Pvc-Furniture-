@@ -118,6 +118,10 @@ import {
   resolveCategory,
   t,
   tf,
+  CustomerProfileFields,
+  normalizeProfile,
+  profileSummary,
+  profileCompleteness,
   shareEstimatePdf,
   styles,
   timeAgo,
@@ -1469,7 +1473,7 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
     }
     const dupe = customers.find((c) => c.phone === normalized && c.id !== updated.id);
     if (dupe) { showToast('Ye phone number pehle se kisi aur customer ka hai', true); return; }
-    setCustomers(customersRef.current.map((c) => (c.id === updated.id ? { ...c, name: updated.name.trim(), phone: normalized, birthdayMonthDay: updated.birthdayMonthDay } : c)));
+    setCustomers(customersRef.current.map((c) => (c.id === updated.id ? { ...c, name: updated.name.trim(), phone: normalized, birthdayMonthDay: updated.birthdayMonthDay, ...normalizeProfile(updated) } : c)));
     setJobs(jobsRef.current.map((j) => (j.customerId === updated.id ? { ...j, customerName: updated.name.trim(), phone: normalized } : j)));
     setEditingCustomer(null);
     showToast('Customer updated');
@@ -1507,7 +1511,7 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
       </div>
       {showAddCustomer && (
         <div style={{ ...styles.formCard, marginTop: 10 }}>
-          <div style={styles.fieldLabel}>Naam</div>
+          <div style={styles.fieldLabel}>Name</div>
           <input style={styles.input} value={newCustName} onChange={(e) => setNewCustName(e.target.value)} placeholder='Customer ka naam' autoFocus />
           <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Mobile Number</div>
           <input style={styles.input} inputMode='numeric' value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)} placeholder='98765 43210' />
@@ -1565,6 +1569,17 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
                     {BUSINESS.branches.length > 1 && job?.branch && <span style={styles.metaItem}>{job.branch}</span>}
                     {job?.city && <span style={styles.metaItem}>{job.city}</span>}
                   </div>
+                  {/* What they told us at sign-up. Without this a card
+                      for someone who registered and did nothing else
+                      showed a name, a number and a date - nothing that
+                      said who they were or whether they were even in
+                      the service area. */}
+                  {profileSummary(customer) && (
+                    <div style={styles.profileSummaryLine}>{profileSummary(customer)}</div>
+                  )}
+                  {!profileSummary(customer) && (
+                    <div style={{ ...styles.profileSummaryLine, color: BRAND.textMuted }}>No details given yet - call to find out</div>
+                  )}
                 </div>
                 {job && <StageBadge status={job.status} />}
               </div>
@@ -1608,12 +1623,13 @@ function CustomerEditDialog({ customer, onCancel, onSave }) {
   // Birthday is stored as month-day only (no year) - enough to send a
   // yearly wish, without needing a full date of birth on file.
   const [birthdayMonthDay, setBirthdayMonthDay] = useState(customer.birthdayMonthDay || '');
+  const [profile, setProfile] = useState(() => normalizeProfile(customer));
   return (
     <div style={styles.overlay} onClick={onCancel}>
       <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
         <SheetHeader title='Edit Customer' onClose={onCancel} />
         <div style={styles.sheetBody}>
-          <div style={styles.fieldLabel}>Naam</div>
+          <div style={styles.fieldLabel}>Name</div>
           <input style={styles.input} value={name} onChange={(e) => setName(e.target.value)} />
           <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Phone number</div>
           <input
@@ -1629,9 +1645,12 @@ function CustomerEditDialog({ customer, onCancel, onSave }) {
             value={birthdayMonthDay ? ('2000-' + birthdayMonthDay) : ''}
             onChange={(e) => setBirthdayMonthDay(e.target.value ? e.target.value.slice(5) : '')}
           />
+          <div style={{ marginTop: 14 }}>
+            <CustomerProfileFields value={profile} onChange={setProfile} compact />
+          </div>
         </div>
         <div style={styles.sheetFooter}>
-          <button style={styles.primaryBtn} onClick={() => onSave({ id: customer.id, name, phone, birthdayMonthDay: birthdayMonthDay || null })}>Save Changes</button>
+          <button style={styles.primaryBtn} onClick={() => onSave({ id: customer.id, name, phone, birthdayMonthDay: birthdayMonthDay || null, ...normalizeProfile(profile) })}>Save Changes</button>
         </div>
       </div>
     </div>
