@@ -33,8 +33,10 @@ import { useBackToClose } from './useBackToClose.js';
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
 import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory } from './jobCore.js';
+import { t, tf, LANGUAGES, getLanguage, setLanguageValue, readStoredLanguage } from './i18n.js';
 
 export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory };
+export { t, tf, LANGUAGES, getLanguage };
 
 const DEFAULT_CATEGORIES = ['Kitchen', 'Wardrobe', 'Dressing Table', 'Bathroom Cabinet', 'TV Unit', 'Bed', 'Color/POP Work', 'Electrical Work', 'Other'];
 
@@ -67,6 +69,11 @@ export const STATUS_ORDER = ['appointment', 'estimate', 'in_progress', 'delivere
 // itself, applied here at a smaller scale.
 const COMPLAINT_STAGES = {
   open: { label: 'Reported', color: '#B5562E', icon: AlertCircle },
+  // Left as the plain Hinglish source string on purpose: this object
+  // is built once at module load, long before App reads the stored
+  // language, so a t() call HERE would freeze the label in whichever
+  // language happened to be active at import time and never follow a
+  // later switch. It is translated where it is rendered instead.
   in_progress: { label: 'Repair Ho Raha Hai', color: '#A8975F', icon: Hammer },
   resolved: { label: 'Resolved', color: '#2F7D4F', icon: CheckCircle2 },
 };
@@ -607,7 +614,7 @@ export async function loadImageAsDataUrl(url) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error || new Error('Photo padhi nahi ja saki'));
+    reader.onerror = () => reject(reader.error || new Error(t('Photo padhi nahi ja saki')));
     reader.readAsDataURL(blob);
   });
 }
@@ -1650,7 +1657,7 @@ export function SmartImg({ src, origUrl, alt, style, onError: onErrorProp }) {
     return (
       <div style={{ ...style, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#EEF0F5', gap: 4, padding: 6, boxSizing: 'border-box' }}>
         <ImageIcon size={16} color='#B3B8C6' />
-        <span style={{ fontSize: 8.5, color: '#B3B8C6', fontWeight: 700, textAlign: 'center' }}>Load nahi hui</span>
+        <span style={{ fontSize: 8.5, color: '#B3B8C6', fontWeight: 700, textAlign: 'center' }}>{t('Load nahi hui')}</span>
       </div>
     );
   }
@@ -1754,7 +1761,7 @@ export function BrochureList({ brochures, showToast, canManage, onDelete }) {
   );
 
   if (!brochures || brochures.length === 0) {
-    return <div style={styles.emptySmall}>Abhi koi brochure upload nahi hui.</div>;
+    return <div style={styles.emptySmall}>{t('Abhi koi brochure upload nahi hui.')}</div>;
   }
 
   return (
@@ -1794,6 +1801,17 @@ export function BrochureList({ brochures, showToast, canManage, onDelete }) {
 /* ===================== ROOT ===================== */
 export default function App() {
   const [loaded, setLoaded] = useState(false);
+  // The ONE piece of language state in the app. t() itself reads a
+  // module variable (see i18n.js - a lot of this app's text is built
+  // outside any component, where a hook cannot run), so this state's
+  // only job is to repaint: nothing below App is memoised, so setting
+  // it re-renders every screen with the new language. The initial
+  // value is read lazily so the stored choice is picked up before the
+  // first paint rather than flashing Hinglish and then switching.
+  const [language, setLanguageState] = useState(() => setLanguageValue(readStoredLanguage()));
+  const changeLanguage = useCallback((next) => {
+    setLanguageState(setLanguageValue(next));
+  }, []);
   // Offline, Firestore does not reject - it retries for as long as you
   // let it. The start-up load therefore never settles, its `finally`
   // never runs, `loaded` stays false, and the app sits on "Loading..."
@@ -2646,7 +2664,7 @@ export default function App() {
       return true;
     } catch (e) {
       setGallery(prevGallery);
-      showToast('Save failed: ' + (e.message || 'internet check karein aur dobara try karein'), true);
+      showToast('Save failed: ' + (e.message || t('internet check karein aur dobara try karein')), true);
       return false;
     } finally {
       galleryWriteInFlightRef.current = false;
@@ -2905,11 +2923,11 @@ export default function App() {
       // Each of these used to read "Notification permission nahi mili",
       // including the one case where nobody was ever asked.
       showToast({
-        not_configured: 'Notifications abhi setup nahi hui - Firebase Console se Web Push key chahiye',
-        unsupported: 'Ye browser notifications support nahi karta',
-        denied: 'Notification permission nahi mili - phone ki settings se allow karein',
-        no_token: 'Notification token nahi mila - dobara koshish karein',
-      }[reason] || 'Notifications on nahi ho payi', true);
+        not_configured: t('Notifications abhi setup nahi hui - Firebase Console se Web Push key chahiye'),
+        unsupported: t('Ye browser notifications support nahi karta'),
+        denied: t('Notification permission nahi mili - phone ki settings se allow karein'),
+        no_token: t('Notification token nahi mila - dobara koshish karein'),
+      }[reason] || t('Notifications on nahi ho payi'), true);
       return false;
     }
     if (adminPushTokens.some((t) => t.token === token)) { showToast('Notifications pehle se on hain'); return true; }
@@ -3016,10 +3034,10 @@ export default function App() {
             <div style={styles.startupStall}>
               <div style={styles.startupStallText}>
                 {!online
-                  ? 'Internet connection nahi mil raha. Wi-Fi ya mobile data on karke dobara koshish karein.'
-                  : 'Net dheema lag raha hai. Thoda ruk jaayein, ya dobara koshish karein.'}
+                  ? t('Internet connection nahi mil raha. Wi-Fi ya mobile data on karke dobara koshish karein.')
+                  : t('Net dheema lag raha hai. Thoda ruk jaayein, ya dobara koshish karein.')}
               </div>
-              <button style={styles.startupStallBtn} onClick={() => window.location.reload()}>Dobara koshish karein</button>
+              <button style={styles.startupStallBtn} onClick={() => window.location.reload()}>{t('Dobara koshish karein')}</button>
             </div>
           )}
         </div>
@@ -3038,6 +3056,8 @@ export default function App() {
           partnerPin={partnerPin}
           dhPartnerPin={dhPartnerPin}
           staff={staff}
+          language={language}
+          onChangeLanguage={changeLanguage}
           onCustomerLogin={(cust) => {
             // Seed the record we already fetched. The customer list is
             // loaded per session now, and that load is async - without
@@ -3308,6 +3328,8 @@ export default function App() {
       <ErrorBoundary scope='customer'>
       <CustomerApp
         customer={customer}
+        language={language}
+        onChangeLanguage={changeLanguage}
         gallery={gallery}
         loadGalleryData={loadGalleryData} galleryLoading={galleryLoading}
         job={myJob}
@@ -3422,7 +3444,7 @@ function AdminLoading() {
   return (
     <div style={{ padding: '60px 16px', textAlign: 'center' }}>
       <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid ' + BRAND.line, borderTopColor: BRAND.gold, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-      <div style={{ marginTop: 12, fontWeight: 700, fontSize: 12.5, color: BRAND.textMuted }}>Panel khul raha hai...</div>
+      <div style={{ marginTop: 12, fontWeight: 700, fontSize: 12.5, color: BRAND.textMuted }}>{t('Panel khul raha hai...')}</div>
     </div>
   );
 }
@@ -3565,13 +3587,12 @@ export class ErrorBoundary extends React.Component {
     return (
       <div style={box}>
         <div style={{ fontSize: 34, marginBottom: 6 }}>⚠️</div>
-        <div style={{ fontSize: 19, fontWeight: 800, marginBottom: 8 }}>Kuch gadbad ho gayi</div>
-        <div style={{ fontSize: 14, lineHeight: 1.6, color: '#5a6478' }}>
-          Is screen mein dikkat aa gayi. <b>Aapka data surakshit hai</b> - kuch delete nahi hua.
+        <div style={{ fontSize: 19, fontWeight: 800, marginBottom: 8 }}>{t('Kuch gadbad ho gayi')}</div>
+        <div style={{ fontSize: 14, lineHeight: 1.6, color: '#5a6478' }}>{t('Is screen mein dikkat aa gayi.')}<b>{t('Aapka data surakshit hai')}</b> - kuch delete nahi hua.
           Neeche wale button se wapas jaakar kaam jaari rakh sakte hain.
         </div>
-        <button style={btn} onClick={() => this.setState({ error: null })}>Wapas jaayein</button>
-        <button style={btn2} onClick={() => window.location.reload()}>App dobara kholein</button>
+        <button style={btn} onClick={() => this.setState({ error: null })}>{t('Wapas jaayein')}</button>
+        <button style={btn2} onClick={() => window.location.reload()}>{t('App dobara kholein')}</button>
         <div style={{ marginTop: 18, fontSize: 12, color: '#8a94a8' }}>Agar ye baar baar ho to ye message bhej dijiye:</div>
         <pre style={{ marginTop: 6, padding: 10, background: '#f4f6fa', borderRadius: 8, fontSize: 11,
           whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#5a6478' }}>
@@ -3582,7 +3603,43 @@ export class ErrorBoundary extends React.Component {
   }
 }
 
-function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
+/* Two buttons rather than a dropdown: there are exactly two languages,
+   and a <select> on a phone opens a native picker for a choice that is
+   faster to make by tapping. `language` is passed in rather than read
+   from getLanguage() so the buttons re-render with the rest of the app
+   when it changes - getLanguage() is not React state and would leave
+   the highlight stuck on the old choice. */
+export function LanguageToggle({ language, onChange, compact }) {
+  return (
+    <div style={{ display: 'inline-flex', gap: 2, padding: 2, borderRadius: 999, background: 'rgba(0,0,0,0.06)' }}>
+      {LANGUAGES.map((l) => {
+        const active = language === l.code;
+        return (
+          <button
+            key={l.code}
+            type='button'
+            onClick={() => onChange(l.code)}
+            aria-label={'Language: ' + l.name}
+            aria-pressed={active}
+            style={{
+              border: 'none',
+              cursor: 'pointer',
+              borderRadius: 999,
+              padding: compact ? '3px 9px' : '5px 13px',
+              fontSize: compact ? 11 : 12.5,
+              fontWeight: 700,
+              lineHeight: 1.4,
+              background: active ? BRAND.navy : 'transparent',
+              color: active ? '#FFF' : BRAND.navy,
+            }}
+          >{l.label}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, staff, onCustomerLogin, onRegister, onAdminLogin, language, onChangeLanguage }) {
   const [mode, setMode] = useState('choose');
   const [name, setName] = useState('');
   const [referredBy, setReferredBy] = useState('');
@@ -3608,15 +3665,15 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
 
   const sendOtp = async (forMode) => {
     const normalized = normalizeIndianPhone(phone);
-    if (forMode === 'register' && !name.trim()) { setError('Naam daalein'); return; }
-    if (!normalized) { setError('Sahi 10-digit mobile number daalein (jaise 98765 43210)'); return; }
+    if (forMode === 'register' && !name.trim()) { setError(t('Naam daalein')); return; }
+    if (!normalized) { setError(t('Sahi 10-digit mobile number daalein (jaise 98765 43210)')); return; }
     // Fetches just this one customer's document instead of scanning a
     // list of everyone. Customer documents are keyed by phone precisely so
     // this lookup is possible without reading anybody else's record - which
     // is what lets the phase 3 rules allow it.
     const existing = await window.customersStore.getOne(normalized);
     if (forMode === 'login' && !existing) {
-      setError('Ye number register nahi hai. Pehle register karein.'); return;
+      setError(t('Ye number register nahi hai. Pehle register karein.')); return;
     }
     if (forMode === 'register' && existing) { onCustomerLogin(existing); return; }
     if (REAL_PHONE_AUTH) {
@@ -3624,7 +3681,7 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
       const result = await window.phoneAuth.sendOtp('+91' + normalized, 'recaptcha-container');
       setSendingOtp(false);
       if (!result) {
-        setError('OTP bhej nahi paye - thodi der baad try karein ya admin se contact karein.');
+        setError(t('OTP bhej nahi paye - thodi der baad try karein ya admin se contact karein.'));
         return;
       }
       setConfirmation(result);
@@ -3640,7 +3697,7 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
   };
 
   const verifyOtp = async () => {
-    if (!otpInput.trim()) { setError('OTP daalein'); return; }
+    if (!otpInput.trim()) { setError(t('OTP daalein')); return; }
     if (REAL_PHONE_AUTH) {
       // A successful confirm also signs the customer in to Firebase,
       // replacing the anonymous session with one whose token carries their
@@ -3648,16 +3705,16 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
       setSendingOtp(true);
       const user = await window.phoneAuth.verifyOtp(confirmation, otpInput.trim());
       setSendingOtp(false);
-      if (!user) { setError('Galat OTP - dobara check karein'); return; }
+      if (!user) { setError(t('Galat OTP - dobara check karein')); return; }
     } else if (otpInput.trim() !== sentOtp) {
-      setError('Galat OTP - dobara check karein'); return;
+      setError(t('Galat OTP - dobara check karein')); return;
     }
     if (otpStage === 'register') {
       onRegister({ id: uid(), name: name.trim(), phone: pendingPhone, phoneVerified: true, referredBy: referredBy.trim() || null, createdAt: new Date().toISOString() });
     } else {
       const found = await window.customersStore.getOne(pendingPhone);
       if (found) onCustomerLogin(found);
-      else setError('Ye number register nahi hai. Pehle register karein.');
+      else setError(t('Ye number register nahi hai. Pehle register karein.'));
     }
   };
 
@@ -3668,7 +3725,7 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
       setSendingOtp(true);
       const result = await window.phoneAuth.sendOtp('+91' + pendingPhone, 'recaptcha-container');
       setSendingOtp(false);
-      if (!result) { setError('OTP dobara bhej nahi paye - thodi der baad try karein.'); return; }
+      if (!result) { setError(t('OTP dobara bhej nahi paye - thodi der baad try karein.')); return; }
       setConfirmation(result);
       return;
     }
@@ -3718,7 +3775,7 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
         if (!localPinCheck()) {
           setError(adminPinReadDenied
             ? 'Admin PIN check band hai: Firestore rules PIN document padhne nahi de rahe. Rules theek karein ya Vercel mein ADMIN_PIN set karein.'
-            : 'Galat PIN');
+            : t('Galat PIN'));
         }
         return;
       }
@@ -3726,7 +3783,7 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
         onAdminLogin(result.staffName, result.role, result.staffId);
         return;
       }
-      setError(result.error || 'Galat PIN');
+      setError(result.error || t('Galat PIN'));
     } finally {
       setCheckingPin(false);
     }
@@ -3735,6 +3792,12 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
   return (
     <div style={styles.loginWrap}>
       <div style={styles.loginBgAccent} />
+      {/* Offered before sign-in, not only inside the app: someone who
+          cannot read the Hinglish needs the switch on the first screen
+          they are shown, not after they have worked out how to log in. */}
+      <div style={{ position: 'relative', display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+        <LanguageToggle language={language} onChange={onChangeLanguage} />
+      </div>
       <div style={styles.loginBrand}>
         <img src='/icon-512.png' alt='Shree Krushn PVC Furniture logo' style={styles.loginLogo} />
         <div style={styles.brandName}>SHREE KRUSHN</div>
@@ -3755,7 +3818,7 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
           {!REAL_PHONE_AUTH && (
             <div style={styles.otpDemoBox}>
               <AlertTriangle size={13} color='#B5562E' />
-              <span>Demo mode - real SMS nahi jaata. Aapka OTP: <b>{sentOtp}</b></span>
+              <span>{t('Demo mode - real SMS nahi jaata. Aapka OTP:')}<b>{sentOtp}</b></span>
             </div>
           )}
           <input
@@ -3769,7 +3832,7 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
           />
           {error && <div style={styles.errorText}>{error}</div>}
           <button style={{ ...styles.primaryBtn, marginTop: 16 }} onClick={verifyOtp}>Verify &amp; Continue</button>
-          <button style={styles.linkBtn2} onClick={resendOtp}>OTP dobara bhejein</button>
+          <button style={styles.linkBtn2} onClick={resendOtp}>{t('OTP dobara bhejein')}</button>
           <button style={styles.backLink} onClick={backFromOtp}><ArrowLeft size={13} /> Back</button>
         </div>
       )}
@@ -3777,11 +3840,8 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
       {!otpStage && mode === 'choose' && (
         <div style={styles.loginCard}>
           <button style={styles.primaryBtn} onClick={() => setMode('register')}>
-            <Sparkles size={15} /> Naye Customer - Register karein
-          </button>
-          <button style={{ ...styles.primaryBtn, background: BRAND.navyLight, marginTop: 10 }} onClick={() => setMode('login')}>
-            Pehle se registered? Login karein
-          </button>
+            <Sparkles size={15} />{t('Naye Customer - Register karein')}</button>
+          <button style={{ ...styles.primaryBtn, background: BRAND.navyLight, marginTop: 10 }} onClick={() => setMode('login')}>{t('Pehle se registered? Login karein')}</button>
           <button style={styles.adminLink} onClick={() => setMode('admin')}>
             <ShieldCheck size={13} /> Admin Login
           </button>
@@ -3794,7 +3854,7 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
           <input style={styles.input} value={name} onChange={(e) => { setName(e.target.value); setError(''); }} placeholder='Aapka naam' autoFocus />
           <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Phone number</div>
           <input style={styles.input} value={phone} onChange={(e) => { const v = phoneCharsOnly(e.target.value).slice(0, 14); setPhone(v); setError(''); }} placeholder='98765 43210' inputMode='tel' maxLength={14} />
-          <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Kisne refer kiya? (optional)</div>
+          <div style={{ ...styles.fieldLabel, marginTop: 12 }}>{t('Kisne refer kiya? (optional)')}</div>
           <input style={styles.input} value={referredBy} onChange={(e) => setReferredBy(e.target.value)} placeholder='Naam ya phone number' />
           {error && <div style={styles.errorText}>{error}</div>}
           <button style={{ ...styles.primaryBtn, marginTop: 16 }} onClick={() => sendOtp('register')} disabled={sendingOtp}>{sendingOtp ? 'Sending...' : 'Send OTP'}</button>
@@ -3817,7 +3877,7 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
           <div style={styles.fieldLabel}>Admin PIN</div>
           <input style={styles.input} value={pin} onChange={(e) => { setPin(e.target.value); setError(''); }} placeholder='****' inputMode='numeric' type='password' autoFocus />
           {error && <div style={styles.errorText}>{error}</div>}
-          <button style={{ ...styles.primaryBtn, marginTop: 16, opacity: checkingPin ? 0.65 : 1 }} onClick={doAdmin} disabled={checkingPin}>{checkingPin ? 'Check kar rahe hain...' : 'Enter Admin Panel'}</button>
+          <button style={{ ...styles.primaryBtn, marginTop: 16, opacity: checkingPin ? 0.65 : 1 }} onClick={doAdmin} disabled={checkingPin}>{checkingPin ? t('Check kar rahe hain...') : 'Enter Admin Panel'}</button>
           <button style={styles.backLink} onClick={() => setMode('choose')}><ArrowLeft size={13} /> Back</button>
         </div>
       )}
@@ -3938,8 +3998,8 @@ function FavoritesButton({ job, onSaveJob, showToast, categories, gallery }) {
                   badge, which counts the raw saved entries - it reads as
                   the favorites having been lost. Say which case it is
                   instead. */}
-              {resolvedDesigns.length === 0 && savedDesigns.length === 0 && <div style={styles.emptySmall}>Gallery mein photo ke star icon se favorite add karein.</div>}
-              {resolvedDesigns.length === 0 && savedDesigns.length > 0 && <div style={styles.emptySmall}>Photo load ho rahi hain... Gallery khulne ke baad yahan dikhengi.</div>}
+              {resolvedDesigns.length === 0 && savedDesigns.length === 0 && <div style={styles.emptySmall}>{t('Gallery mein photo ke star icon se favorite add karein.')}</div>}
+              {resolvedDesigns.length === 0 && savedDesigns.length > 0 && <div style={styles.emptySmall}>{t('Photo load ho rahi hain... Gallery khulne ke baad yahan dikhengi.')}</div>}
               {resolvedDesigns.length > 0 && (
                 <div style={styles.savedDesignGrid}>
                   {resolvedDesigns.map((d, i) => (
@@ -3999,7 +4059,7 @@ export function NotificationBell({ notifications, viewerKey, onOpenJob, onMarkRe
               {unread.length > 0 && <button style={styles.notifMarkAllBtn} onClick={() => onMarkAllRead(viewerKey)}>Mark all read</button>}
             </div>
             <div style={styles.notifList}>
-              {recent.length === 0 && <div style={styles.emptySmall}>Koi notification nahi hai.</div>}
+              {recent.length === 0 && <div style={styles.emptySmall}>{t('Koi notification nahi hai.')}</div>}
               {recent.map((n) => {
                 const meta = NOTIFICATION_META[n.type] || { icon: 'Bell', label: n.type };
                 const Icon = NOTIFICATION_ICONS[meta.icon] || Bell;
@@ -4094,7 +4154,7 @@ function MaterialSpecsScreen({ materialSpecs, companyBenefits, onBack }) {
       <div style={{ padding: '12px 16px' }}>
         <div style={styles.sectionTitle}>Hamare Material Ki Specifications</div>
         {(!materialSpecs || materialSpecs.length === 0) ? (
-          <div style={styles.emptySmall}>Abhi koi specification add nahi hui hai.</div>
+          <div style={styles.emptySmall}>{t('Abhi koi specification add nahi hui hai.')}</div>
         ) : (
           materialSpecs.map((s) => (
             <div key={s.id} style={{ ...styles.formCard, marginTop: 10 }}>
@@ -4109,9 +4169,9 @@ function MaterialSpecsScreen({ materialSpecs, companyBenefits, onBack }) {
           ))
         )}
 
-        <div style={{ ...styles.sectionTitle, marginTop: 20 }}>Hamare Saath Judne Ke Fayde</div>
+        <div style={{ ...styles.sectionTitle, marginTop: 20 }}>{t('Hamare Saath Judne Ke Fayde')}</div>
         {(!companyBenefits || companyBenefits.length === 0) ? (
-          <div style={styles.emptySmall}>Abhi koi benefit add nahi hua hai.</div>
+          <div style={styles.emptySmall}>{t('Abhi koi benefit add nahi hua hai.')}</div>
         ) : (
           companyBenefits.map((b) => (
             <div key={b.id} style={{ ...styles.formCard, marginTop: 10 }}>
@@ -4162,7 +4222,7 @@ function HelpScreen({ faqs, job, onSaveJob, pushNotification, customer, showToas
       <TopBar title='Help / FAQ' onBack={onBack} hideLogout />
       <div style={{ padding: '12px 16px' }}>
         {(!faqs || faqs.length === 0) ? (
-          <div style={styles.emptySmall}>Abhi koi FAQ add nahi hui hai. Kuch bhi poochhna ho to seedha call/WhatsApp karein.</div>
+          <div style={styles.emptySmall}>{t('Abhi koi FAQ add nahi hui hai. Kuch bhi poochhna ho to seedha call/WhatsApp karein.')}</div>
         ) : (
           faqs.map((f) => {
             const isOpen = openId === f.id;
@@ -4180,7 +4240,7 @@ function HelpScreen({ faqs, job, onSaveJob, pushNotification, customer, showToas
 
         {job && (
           <div style={{ marginTop: 20 }}>
-            <div style={styles.sectionTitle}>Apna Sawaal Poochhein</div>
+            <div style={styles.sectionTitle}>{t('Apna Sawaal Poochhein')}</div>
             {questions.length > 0 && (
               <div style={{ marginTop: 8 }}>
                 {questions.map((q) => (
@@ -4193,7 +4253,7 @@ function HelpScreen({ faqs, job, onSaveJob, pushNotification, customer, showToas
                         <div style={{ ...styles.itemDesc, marginTop: 2 }}>{q.answer}</div>
                       </div>
                     ) : (
-                      <div style={{ ...styles.itemSub, marginTop: 6, color: BRAND.gold }}>Jawab ka wait ho raha hai...</div>
+                      <div style={{ ...styles.itemSub, marginTop: 6, color: BRAND.gold }}>{t('Jawab ka wait ho raha hai...')}</div>
                     )}
                   </div>
                 ))}
@@ -4201,14 +4261,14 @@ function HelpScreen({ faqs, job, onSaveJob, pushNotification, customer, showToas
             )}
             {showAskForm ? (
               <div style={{ ...styles.formCard, marginTop: 8 }}>
-                <textarea style={{ ...styles.input, minHeight: 70, resize: 'vertical' }} placeholder='Aapka sawaal likhein...' value={questionText} onChange={(e) => setQuestionText(e.target.value)} autoFocus />
+                <textarea style={{ ...styles.input, minHeight: 70, resize: 'vertical' }} placeholder={t('Aapka sawaal likhein...')} value={questionText} onChange={(e) => setQuestionText(e.target.value)} autoFocus />
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={askQuestion}>Bhej Dein</button>
+                  <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={askQuestion}>{t('Bhej Dein')}</button>
                   <button style={styles.cancelBtn} onClick={() => { setShowAskForm(false); setQuestionText(''); }}>Cancel</button>
                 </div>
               </div>
             ) : (
-              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => setShowAskForm(true)}><Plus size={14} /> Naya Sawaal Poochhein</button>
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => setShowAskForm(true)}><Plus size={14} />{t('Naya Sawaal Poochhein')}</button>
             )}
           </div>
         )}
@@ -4219,7 +4279,7 @@ function HelpScreen({ faqs, job, onSaveJob, pushNotification, customer, showToas
   );
 }
 
-function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, faqs, materialSpecs, companyBenefits, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
+function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, faqs, materialSpecs, companyBenefits, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast, language, onChangeLanguage }) {
   // Registers this customer's own device for push notifications
   // (visit confirmed, payment due, etc.) - the token is stored
   // directly on their job record, since that's what pushNotification
@@ -4280,13 +4340,12 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
           </div>
           <div style={{ ...styles.formCard, marginTop: 12 }}>
             <div style={styles.fieldLabel}>Notifications</div>
-            <div style={styles.plainTextMuted}>App band ho tab bhi updates (visit confirm, payment due, waghera) turant mil jayenge.</div>
+            <div style={styles.plainTextMuted}>{t('App band ho tab bhi updates (visit confirm, payment due, waghera) turant mil jayenge.')}</div>
             {job.customerPushToken ? (
               <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
-                <CheckCircle2 size={14} /> Notifications on hain
-              </div>
+                <CheckCircle2 size={14} />{t('Notifications on hain')}</div>
             ) : (
-              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={enableCustomerPushNotifications}><Bell size={14} /> Notifications On Karein</button>
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={enableCustomerPushNotifications}><Bell size={14} />{t('Notifications On Karein')}</button>
             )}
           </div>
           <a
@@ -4294,8 +4353,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
             target='_blank' rel='noopener noreferrer'
             style={{ ...styles.addBtn, marginTop: 12, textDecoration: 'none' }}
           >
-            <Send size={14} /> App Doston Ko Bhejein
-          </a>
+            <Send size={14} />{t('App Doston Ko Bhejein')}</a>
           <button style={{ ...styles.addBtn, marginTop: 12 }} onClick={() => setShowSpecs(true)}><ShieldCheck size={14} /> Hamari Khaasiyat</button>
           <button style={{ ...styles.addBtn, marginTop: 12 }} onClick={() => setShowHelp(true)}><HelpCircle size={14} /> Help / FAQ</button>
           <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
@@ -4312,6 +4370,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
         hideLogout
         right={
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <LanguageToggle language={language} onChange={onChangeLanguage} compact />
             <FavoritesButton job={job} onSaveJob={onSaveJob} showToast={showToast} categories={categories} gallery={gallery} />
             <NotificationBell
               // Only customer-facing types (things admin/karigar did that
@@ -4383,7 +4442,7 @@ function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout }) {
         <div style={styles.heroTop}>
           <div>
             <div style={styles.heroGreeting}>Namaste, {customer?.name?.split(' ')[0] || 'Customer'} 👋</div>
-            <div style={styles.heroSub}>Aapke order ki current stage</div>
+            <div style={styles.heroSub}>{t('Aapke order ki current stage')}</div>
           </div>
           <StageBadge status={job.status} />
         </div>
@@ -4404,7 +4463,7 @@ function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout }) {
         const dateText = formatDate(job.expectedCompletionDate);
         let mainText;
         if (job.status === 'delivered') {
-          mainText = <span>Deliver ho chuka hai: <b>{dateText}</b></span>;
+          mainText = <span>{t('Deliver ho chuka hai:')}<b>{dateText}</b></span>;
         } else if (days === 0) {
           mainText = <span><b>Aaj</b> delivery ka din hai! 🎉</span>;
         } else if (days === 1) {
@@ -4463,7 +4522,7 @@ function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout }) {
         <QuickTile icon={<Edit3 size={20} color={BRAND.navy} />} label='Add Requirement' onClick={() => setTab('requirements')} />
         <QuickTile icon={<Hammer size={20} color={BRAND.navy} />} label='Work Progress' onClick={() => setTab('progress')} />
         {(job.status === 'delivered' || job.status === 'paid') && (
-          <QuickTile icon={<Star size={20} color={BRAND.navy} />} label={job.review ? 'Aapka Review' : 'Review Dein'} onClick={() => setTab('review')} />
+          <QuickTile icon={<Star size={20} color={BRAND.navy} />} label={job.review ? t('Aapka Review') : t('Review Dein')} onClick={() => setTab('review')} />
         )}
       </div>
 
@@ -4657,7 +4716,7 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
     return (
       <div style={{ padding: '40px 16px', textAlign: 'center' }}>
         <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid ' + BRAND.line, borderTopColor: BRAND.gold, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-        <div style={{ ...styles.plainTextMuted, marginTop: 12 }}>Gallery load ho rahi hai...</div>
+        <div style={{ ...styles.plainTextMuted, marginTop: 12 }}>{t('Gallery load ho rahi hai...')}</div>
       </div>
     );
   }
@@ -4696,7 +4755,7 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
         {photos.length === 0 && (
           <div style={styles.emptyBlock}>
             <ImageIcon size={26} color='#C7CCDC' />
-            <p style={styles.emptyBlockText}>{query.trim() ? 'Koi photo match nahi hui.' : 'Is category mein abhi koi photo nahi hai.'}</p>
+            <p style={styles.emptyBlockText}>{query.trim() ? t('Koi photo match nahi hui.') : t('Is category mein abhi koi photo nahi hai.')}</p>
           </div>
         )}
         <div style={styles.galleryMasonryRow}>
@@ -4814,7 +4873,7 @@ export function Lightbox({ data, onClose, setLightbox, job, onSaveDesign, showTo
       ? current.filter((d) => d.photoId !== photo.id)
       : [...current, { photoId: photo.id, caption: photo.caption || '', savedAt: new Date().toISOString() }];
     onSaveDesign({ ...job, savedDesigns: next });
-    if (showToast) showToast(isSaved ? 'Design saved list se hataya' : 'Design save ho gaya');
+    if (showToast) showToast(isSaved ? t('Design saved list se hataya') : t('Design save ho gaya'));
   };
 
   // Zoom (double-tap or pinch) so someone can check finishing/texture
@@ -4918,7 +4977,7 @@ export function Lightbox({ data, onClose, setLightbox, job, onSaveDesign, showTo
         <button style={{ ...styles.lightboxNav, right: 8 }} onClick={(e) => { e.stopPropagation(); go(1); }}><ChevronRight size={26} color='#FFF' /></button>
       )}
       {photo.caption && <div style={styles.lightboxCaption}>{photo.caption}</div>}
-      <div style={styles.lightboxSwipeHint}>{photos.length > 1 ? 'Swipe left/right ya arrows use karein - zoom ke liye double-tap karein' : 'Zoom ke liye double-tap karein'}</div>
+      <div style={styles.lightboxSwipeHint}>{photos.length > 1 ? t('Swipe left/right ya arrows use karein - zoom ke liye double-tap karein') : t('Zoom ke liye double-tap karein')}</div>
     </div>
   );
 }
@@ -5017,9 +5076,9 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
               <Calendar size={16} color={BRAND.navy} />
               <div>
                 <div style={styles.apptConfirmedDate}>{formatDate(appt.confirmedDate)} {appt.confirmedTime && ('- ' + formatTime12h(appt.confirmedTime))}</div>
-                <div style={styles.itemSub}>{appt.status === 'rescheduled' ? 'Admin ne naya time diya hai' : 'Admin ne confirm ki hai'}</div>
+                <div style={styles.itemSub}>{appt.status === 'rescheduled' ? t('Admin ne naya time diya hai') : t('Admin ne confirm ki hai')}</div>
                 {appt.status === 'rescheduled' && (
-                  <button style={{ ...styles.primaryBtn2, marginTop: 8 }} onClick={confirmReschedule}><Check size={14} /> Ye Time Theek Hai</button>
+                  <button style={{ ...styles.primaryBtn2, marginTop: 8 }} onClick={confirmReschedule}><Check size={14} />{t('Ye Time Theek Hai')}</button>
                 )}
               </div>
             </div>
@@ -5042,8 +5101,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
           {appt.notes && <div style={styles.apptRow}><span style={styles.apptRowLabel}>Notes</span><span style={styles.apptRowValue}>{appt.notes}</span></div>}
 
           <button style={styles.linkBtn2} onClick={() => setManualEdit(true)}>
-            <Edit3 size={12} style={{ marginRight: 4 }} /> Request naya / edit karein
-          </button>
+            <Edit3 size={12} style={{ marginRight: 4 }} />{t('Request naya / edit karein')}</button>
         </div>
 
         {(job.status === 'in_progress' || job.status === 'delivered') && (
@@ -5055,8 +5113,8 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
 
   return (
     <div style={{ padding: '12px 16px' }}>
-      <div style={styles.sectionTitle}>Appointment Book Karein</div>
-      <div style={styles.plainTextMuted}>Site visit ya consultation ke liye apni details batayein.</div>
+      <div style={styles.sectionTitle}>{t('Appointment Book Karein')}</div>
+      <div style={styles.plainTextMuted}>{t('Site visit ya consultation ke liye apni details batayein.')}</div>
 
       <div style={styles.formCard}>
         <div style={styles.fieldLabel}>Purpose</div>
@@ -5073,7 +5131,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
           ))}
         </div>
 
-        <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Kya kya kaam karvana hai? (select karein)</div>
+        <div style={{ ...styles.fieldLabel, marginTop: 14 }}>{t('Kya kya kaam karvana hai? (select karein)')}</div>
         <div style={styles.checklistGrid}>
           {(itemOptions || DEFAULT_CATEGORIES).map((cat) => {
             const checked = form.items.includes(cat);
@@ -5104,7 +5162,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
 
         {BUSINESS.branches.length > 1 && (
           <>
-            <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Kaunsi branch se contact karein?</div>
+            <div style={{ ...styles.fieldLabel, marginTop: 14 }}>{t('Kaunsi branch se contact karein?')}</div>
             <div style={styles.chipRow}>
               {BUSINESS.branches.map((b) => (
                 <button key={b.city} onClick={() => set('branch', b.city)} style={{ ...styles.chip, ...(form.branch === b.city ? styles.chipActive : {}) }}>{b.city}</button>
@@ -5114,7 +5172,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
         )}
 
         <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Extra notes</div>
-        <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder='Koi special instructions...' />
+        <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder={t('Koi special instructions...')} />
 
         <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
           <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={submit}><Send size={14} /> Send Request</button>
@@ -5158,20 +5216,20 @@ function AdditionalVisitsPanel({ job, onSave, showToast }) {
   return (
     <div style={{ marginTop: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={styles.fieldLabel}>Aur Visit Chahiye?</div>
+        <div style={styles.fieldLabel}>{t('Aur Visit Chahiye?')}</div>
         {!showForm && (
           <button style={styles.linkBtn2} onClick={() => setShowForm(true)}>+ Naya Visit Request</button>
         )}
       </div>
       {showForm && (
         <div style={styles.formCard}>
-          <textarea style={{ ...styles.input, minHeight: 50 }} placeholder='Kis liye visit chahiye...' value={reason} onChange={(e) => setReason(e.target.value)} />
+          <textarea style={{ ...styles.input, minHeight: 50 }} placeholder={t('Kis liye visit chahiye...')} value={reason} onChange={(e) => setReason(e.target.value)} />
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <input style={styles.input} type='date' value={preferredDate} onChange={(e) => setPreferredDate(e.target.value)} />
             <input style={styles.input} type='time' value={preferredTime} onChange={(e) => setPreferredTime(e.target.value)} />
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={requestVisit}>Bhejein</button>
+            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={requestVisit}>{t('Bhejein')}</button>
             <button style={styles.cancelBtn} onClick={() => setShowForm(false)}>Cancel</button>
           </div>
         </div>
@@ -5181,7 +5239,7 @@ function AdditionalVisitsPanel({ job, onSave, showToast }) {
           <div style={styles.itemDesc}>{v.reason}</div>
           <div style={styles.itemSub}>{formatDate(v.status === 'confirmed' ? v.confirmedDate : v.preferredDate)} {(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime) && ('- ' + formatTime12h(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime))}</div>
           <div style={{ ...styles.estimateStatusBanner, marginTop: 8, background: v.status === 'confirmed' ? '#E8F5E9' : '#FFF3E0', color: v.status === 'confirmed' ? '#2E7D32' : '#E65100' }}>
-            {v.status === 'confirmed' ? <ThumbsUp size={14} /> : <AlertCircle size={14} />} {v.status === 'confirmed' ? 'Confirm ho gaya' : 'Admin confirm karega'}
+            {v.status === 'confirmed' ? <ThumbsUp size={14} /> : <AlertCircle size={14} />} {v.status === 'confirmed' ? t('Confirm ho gaya') : 'Admin confirm karega'}
           </div>
         </div>
       ))}
@@ -5358,7 +5416,7 @@ export function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorNa
   return (
     <div>
       <div style={styles.fieldLabel}>Project Notes</div>
-      <div style={styles.plainTextMuted}>Planning, measurements, ya reference photos yahan save karein - item wise organize hoga.</div>
+      <div style={styles.plainTextMuted}>{t('Planning, measurements, ya reference photos yahan save karein - item wise organize hoga.')}</div>
 
       <div style={styles.formCard}>
         <div style={styles.hintText}>Kis item ke liye hai:</div>
@@ -5367,7 +5425,7 @@ export function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorNa
             <button key={c} onClick={() => setNoteCategory(c)} style={{ ...styles.chip, ...(noteCategory === c ? styles.chipActive : {}) }}>{c}</button>
           ))}
         </div>
-        <div style={{ ...styles.hintText, marginTop: 8 }}>Kya note karna hai:</div>
+        <div style={{ ...styles.hintText, marginTop: 8 }}>{t('Kya note karna hai:')}</div>
         <div style={styles.chipRow}>
           {NOTE_TYPES.map((t) => (
             <button key={t} onClick={() => setNoteType(t)} style={{ ...styles.chip, ...(noteType === t ? styles.chipActive : {}) }}>{t}</button>
@@ -5383,14 +5441,14 @@ export function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorNa
           <>
             <input ref={fileInputRef} type='file' accept='image/*' style={{ display: 'none' }} onChange={handleFilePicked} />
             <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading}>
-              <Camera size={13} /> {uploading ? 'Processing...' : 'Photo attach karein (optional)'}
+              <Camera size={13} /> {uploading ? 'Processing...' : t('Photo attach karein (optional)')}
             </button>
           </>
         )}
         <button style={styles.addBtn} onClick={addNote}><Plus size={14} /> Add note</button>
       </div>
 
-      {notes.length === 0 && <div style={styles.emptySmall}>Abhi koi note nahi hai.</div>}
+      {notes.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi note nahi hai.')}</div>}
       {categoryOrder.map((cat) => {
         const isOpen = openFolder === cat;
         // Quick per-type counts shown on the closed folder summary (e.g.
@@ -5443,8 +5501,7 @@ export function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorNa
                     )}
                     {n.locked ? (
                       <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
-                        <ThumbsUp size={14} /> Approved - sirf admin change kar sakta hai
-                      </div>
+                        <ThumbsUp size={14} />{t('Approved - sirf admin change kar sakta hai')}</div>
                     ) : (
                       isAdmin && (
                         <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => approveNote(n.id)}><ThumbsUp size={12} /> Approve &amp; Lock</button>
@@ -5552,12 +5609,12 @@ function InstantEstimateCalculator({ estimateRates, showToast, onBack }) {
       {onBack && <button style={styles.backLink} onClick={onBack}><ArrowLeft size={13} /> Home</button>}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: onBack ? 10 : 0 }}>
         <div style={styles.sectionTitle}>Instant Estimate Calculator</div>
-        {calcItems.length > 0 && <button style={styles.linkBtn2} onClick={resetCalculator}>Clear Karein</button>}
+        {calcItems.length > 0 && <button style={styles.linkBtn2} onClick={resetCalculator}>{t('Clear Karein')}</button>}
       </div>
       <div style={styles.plainTextMuted}>Apni measurements daal ke turant approx price dekhein. Ye ek approx estimate hai, final estimate admin banayenge site visit ke baad.</div>
 
       <div style={{ ...styles.formCard, marginTop: 14 }}>
-        <div style={styles.hintText}>Item (rate ke saath)</div>
+        <div style={styles.hintText}>{t('Item (rate ke saath)')}</div>
         <div style={styles.chipRow}>
           {rates.map((r) => (
             <button key={r.id} onClick={() => setCalcRateId(r.id)} style={{ ...styles.chip, ...(calcRateId === r.id ? styles.chipActive : {}) }}>
@@ -5573,7 +5630,7 @@ function InstantEstimateCalculator({ estimateRates, showToast, onBack }) {
             <input style={styles.input} inputMode='decimal' placeholder='Height (inch)' value={calcHeight} onChange={(e) => setCalcHeight(e.target.value)} />
           </div>
         )}
-        <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={addCalcItem}><Plus size={14} /> Item Add Karein</button>
+        <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={addCalcItem}><Plus size={14} />{t('Item Add Karein')}</button>
 
         {calcItems.length > 0 && (
           <div style={{ marginTop: 12 }}>
@@ -5729,8 +5786,8 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
     <div style={{ padding: '12px 16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <div style={styles.sectionTitle}>Aapki Requirements</div>
-          <div style={styles.plainTextMuted}>Furniture mein kya banana hai, detail mein batayein</div>
+          <div style={styles.sectionTitle}>{t('Aapki Requirements')}</div>
+          <div style={styles.plainTextMuted}>{t('Furniture mein kya banana hai, detail mein batayein')}</div>
         </div>
         {!showForm && (
           <button style={styles.roundAddBtn} onClick={() => setShowForm(true)}><Plus size={18} color='#FFF' /></button>
@@ -5740,13 +5797,13 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
 
       {showForm && (
         <div style={styles.formCard}>
-          <div style={styles.fieldLabel}>Category select karein</div>
+          <div style={styles.fieldLabel}>{t('Category select karein')}</div>
           <div style={styles.chipRow}>
             {categories.map((c) => (
               <button key={c} onClick={() => setCategory(c)} style={{ ...styles.chip, ...(category === c ? styles.chipActive : {}) }}>{c}</button>
             ))}
           </div>
-          <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Kya chahiye, likhein</div>
+          <div style={{ ...styles.fieldLabel, marginTop: 14 }}>{t('Kya chahiye, likhein')}</div>
           <textarea
             style={{ ...styles.input, minHeight: 90, resize: 'vertical' }}
             value={text}
@@ -5762,7 +5819,7 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
             placeholder='e.g. 10ft x 8ft, ya room ka naap'
           />
           <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Reference Photo (optional)</div>
-          <div style={styles.plainTextMuted}>Apne phone se koi photo daal sakte hain - jaisa design chahiye.</div>
+          <div style={styles.plainTextMuted}>{t('Apne phone se koi photo daal sakte hain - jaisa design chahiye.')}</div>
           {ownPhotoDataUri ? (
             <div style={{ position: 'relative', marginTop: 8, width: 90, height: 90 }}>
               <img src={ownPhotoDataUri} alt='Reference' style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} />
@@ -5772,7 +5829,7 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
             <>
               <input ref={ownPhotoInputRef} type='file' accept='image/*' style={{ display: 'none' }} onChange={handleOwnPhotoPicked} />
               <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => ownPhotoInputRef.current && ownPhotoInputRef.current.click()} disabled={uploadingOwnPhoto}>
-                <Camera size={14} /> {uploadingOwnPhoto ? 'Load ho raha hai...' : 'Photo Add Karein'}
+                <Camera size={14} /> {uploadingOwnPhoto ? t('Load ho raha hai...') : t('Photo Add Karein')}
               </button>
             </>
           )}
@@ -5794,7 +5851,7 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
       {savedDesigns.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <div style={styles.fieldLabel}>Aapke saved designs ({savedDesigns.length})</div>
-          <div style={styles.plainTextMuted}>Gallery se save kiye gaye designs - project mein add karein.</div>
+          <div style={styles.plainTextMuted}>{t('Gallery se save kiye gaye designs - project mein add karein.')}</div>
           <div style={styles.savedDesignGrid}>
             {savedDesigns.map((d) => {
               const resolved = resolveGalleryPhoto(d.photoId);
@@ -5814,7 +5871,7 @@ function RequirementsPanel({ job, onSave, showToast, categories, customer, galle
       )}
 
       <div style={{ ...styles.fieldLabel, marginTop: 20 }}>Your list ({(job.requirements || []).length})</div>
-      {(job.requirements || []).length === 0 && !showForm && <div style={styles.emptySmall}>Abhi koi requirement add nahi ki.</div>}
+      {(job.requirements || []).length === 0 && !showForm && <div style={styles.emptySmall}>{t('Abhi koi requirement add nahi ki.')}</div>}
       {Object.entries(grouped).map(([cat, reqs]) => (
         <div key={cat} style={{ marginBottom: 12 }}>
           <div style={styles.reqGroupHeader}>{cat} <span style={styles.reqGroupCount}>({reqs.length})</span></div>
@@ -5905,9 +5962,9 @@ function EstimateView({ job, onSave, showToast }) {
     setShowChangeRequestBox(false);
     setChangeRequestText('');
     showToast(
-      status === 'approved' ? 'Estimate approve ho gaya' :
-      status === 'change_requested' ? 'Change request bhej di gayi' :
-      'Estimate cancel ho gaya'
+      status === 'approved' ? t('Estimate approve ho gaya') :
+      status === 'change_requested' ? t('Change request bhej di gayi') :
+      t('Estimate cancel ho gaya')
     );
   };
 
@@ -5915,11 +5972,11 @@ function EstimateView({ job, onSave, showToast }) {
     <>
       {estimateDrafts.length > 0 && (
         <div style={{ marginTop: 10 }}>
-          <div style={styles.sectionTitle}>Material Options Compare Karein</div>
+          <div style={styles.sectionTitle}>{t('Material Options Compare Karein')}</div>
           <div style={styles.plainTextMuted}>
             {paid > 0
               ? 'Is job par payment shuru ho chuki hai, isliye option yahan se badla nahi ja sakta. Jo chahiye wo humein phone par bata dein.'
-              : 'Jo aapke budget mein aaye, wo option choose karein - wahi aapka final estimate ban jayega.'}
+              : t('Jo aapke budget mein aaye, wo option choose karein - wahi aapka final estimate ban jayega.')}
           </div>
           {estimateDrafts.map((d) => (
             <div key={d.id} style={styles.reviewCard}>
@@ -5935,11 +5992,11 @@ function EstimateView({ job, onSave, showToast }) {
                 style={styles.linkBtn2}
                 onClick={() => setOpenDraftId((cur) => (cur === d.id ? null : d.id))}
               >
-                {openDraftId === d.id ? 'Item list band karein' : 'Item-wise dekhein (' + d.items.length + ')'}
+                {openDraftId === d.id ? t('Item list band karein') : t('Item-wise dekhein (') + d.items.length + ')'}
               </button>
               {openDraftId === d.id && <EstimateOptionItems items={d.items} />}
               {paid === 0 && (
-                <button style={{ ...styles.primaryBtn2, marginTop: 8 }} onClick={() => chooseDraft(d)}><Check size={14} /> Ye Option Choose Karein</button>
+                <button style={{ ...styles.primaryBtn2, marginTop: 8 }} onClick={() => chooseDraft(d)}><Check size={14} />{t('Ye Option Choose Karein')}</button>
               )}
             </div>
           ))}
@@ -6069,8 +6126,7 @@ function EstimateView({ job, onSave, showToast }) {
 
           {estimateStatus === 'approved' && (
             <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32' }}>
-              <ThumbsUp size={15} /> Aapne ye estimate approve kar diya hai - kaam shuru ho jayega.
-            </div>
+              <ThumbsUp size={15} />{t('Aapne ye estimate approve kar diya hai - kaam shuru ho jayega.')}</div>
           )}
           {estimateStatus === 'change_requested' && (
             <div style={{ ...styles.estimateStatusBanner, background: '#FFF3E0', color: '#E65100' }}>
@@ -6080,35 +6136,30 @@ function EstimateView({ job, onSave, showToast }) {
           )}
           {estimateStatus === 'cancelled' && (
             <div style={{ ...styles.estimateStatusBanner, background: '#FFEBEE', color: '#C62828' }}>
-              <XCircle size={15} /> Aapne ye estimate cancel kar diya hai.
-            </div>
+              <XCircle size={15} />{t('Aapne ye estimate cancel kar diya hai.')}</div>
           )}
 
           {(!estimateStatus || estimateStatus === 'change_requested') && !showChangeRequestBox && (
             <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
               <button style={{ ...styles.primaryBtn2, flex: 1, minWidth: 140, marginTop: 0 }} onClick={() => respondToEstimate('approved')}>
-                <ThumbsUp size={14} /> Approve - Kaam Shuru Karein
-              </button>
+                <ThumbsUp size={14} />{t('Approve - Kaam Shuru Karein')}</button>
               <button style={{ ...styles.cancelBtn, flex: 1, minWidth: 140 }} onClick={() => setShowChangeRequestBox(true)}>
                 <MessageSquare size={14} /> Change Chahiye
               </button>
               <button style={{ ...styles.cancelBtn, background: '#FFEBEE', color: '#C62828', flex: 1, minWidth: 140 }} onClick={() => respondToEstimate('cancelled')}>
-                <XCircle size={14} /> Cancel Karein
-              </button>
+                <XCircle size={14} />{t('Cancel Karein')}</button>
             </div>
           )}
           {showChangeRequestBox && (
             <div style={{ marginTop: 12 }}>
               <textarea
                 style={{ ...styles.input, minHeight: 70 }}
-                placeholder='Kya change chahiye, likhein...'
+                placeholder={t('Kya change chahiye, likhein...')}
                 value={changeRequestText}
                 onChange={(e) => setChangeRequestText(e.target.value)}
               />
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => respondToEstimate('change_requested', changeRequestText)}>
-                  Bhejein
-                </button>
+                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => respondToEstimate('change_requested', changeRequestText)}>{t('Bhejein')}</button>
                 <button style={styles.cancelBtn} onClick={() => setShowChangeRequestBox(false)}>Cancel</button>
               </div>
             </div>
@@ -6135,7 +6186,7 @@ export function ComplaintStageStepper({ status }) {
               <div style={{ width: 20, height: 20, borderRadius: '50%', background: done ? stage.color : '#E4E7EE', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Icon size={11} color={done ? '#FFF' : '#B3B8C6'} />
               </div>
-              <span style={{ fontSize: 8.5, fontWeight: done ? 800 : 600, color: done ? stage.color : '#B3B8C6', textAlign: 'center' }}>{stage.label}</span>
+              <span style={{ fontSize: 8.5, fontWeight: done ? 800 : 600, color: done ? stage.color : '#B3B8C6', textAlign: 'center' }}>{t(stage.label)}</span>
             </div>
           </React.Fragment>
         );
@@ -6246,7 +6297,7 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
       next = { ...next, status: 'delivered' };
     }
     saveJob(logActivity(next, 'Customer ne extra kaam ' + (approve ? 'approve' : 'reject') + ' kiya: ' + item.desc));
-    showToast(approve ? 'Extra kaam approve ho gaya' : 'Extra kaam reject kar diya gaya');
+    showToast(approve ? t('Extra kaam approve ho gaya') : t('Extra kaam reject kar diya gaya'));
   };
 
   return (
@@ -6273,18 +6324,18 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
       {(job.workPercent || 0) > 0 && (
         <div style={styles.deliveryDateBanner}>
           <Hammer size={15} color={BRAND.gold} />
-          <span>Kaam <b>{job.workPercent}%</b> complete ho gaya hai</span>
+          <span>Kaam <b>{job.workPercent}%</b>{t('complete ho gaya hai')}</span>
         </div>
       )}
 
       {(job.status === 'delivered' || job.status === 'paid') && (
-        <button style={{ ...styles.addBtn, marginTop: 12 }} onClick={() => generateWarrantyCertificate(job, showToast)}><FileText size={14} /> Warranty Certificate Download Karein</button>
+        <button style={{ ...styles.addBtn, marginTop: 12 }} onClick={() => generateWarrantyCertificate(job, showToast)}><FileText size={14} />{t('Warranty Certificate Download Karein')}</button>
       )}
 
       {job.status === 'delivered' && (
         <div style={{ ...styles.formCard, marginTop: 12 }}>
-          <div style={styles.fieldLabel}>Koi Problem Hai?</div>
-          <div style={styles.plainTextMuted}>Delivery ke baad kuch theek nahi lag raha to yahan batayein.</div>
+          <div style={styles.fieldLabel}>{t('Koi Problem Hai?')}</div>
+          <div style={styles.plainTextMuted}>{t('Delivery ke baad kuch theek nahi lag raha to yahan batayein.')}</div>
           {complaints.map((c) => (
             <div key={c.id} style={{ ...styles.formCard, marginTop: 8, padding: 10 }}>
               <div style={styles.itemDesc}>{c.text}</div>
@@ -6299,7 +6350,7 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
           ))}
           {showComplaintForm ? (
             <div style={{ marginTop: 10 }}>
-              <textarea style={{ ...styles.input, minHeight: 70, resize: 'vertical' }} placeholder='Kya problem hai, detail mein likhein...' value={complaintText} onChange={(e) => setComplaintText(e.target.value)} autoFocus />
+              <textarea style={{ ...styles.input, minHeight: 70, resize: 'vertical' }} placeholder={t('Kya problem hai, detail mein likhein...')} value={complaintText} onChange={(e) => setComplaintText(e.target.value)} autoFocus />
               {complaintPhotoDataUri ? (
                 <div style={{ position: 'relative', marginTop: 8, width: 90, height: 90 }}>
                   <img src={complaintPhotoDataUri} alt='Problem' style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} />
@@ -6307,17 +6358,17 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
                 </div>
               ) : (
                 <label style={{ ...styles.addBtn, marginTop: 8, cursor: 'pointer', display: 'inline-flex' }}>
-                  <Camera size={14} /> {uploadingComplaintPhoto ? 'Load ho raha hai...' : 'Photo Add Karein'}
+                  <Camera size={14} /> {uploadingComplaintPhoto ? t('Load ho raha hai...') : t('Photo Add Karein')}
                   <input type='file' accept='image/*' style={{ display: 'none' }} onChange={handleComplaintPhotoPicked} disabled={uploadingComplaintPhoto} />
                 </label>
               )}
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addComplaint}>Report Karein</button>
+                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addComplaint}>{t('Report Karein')}</button>
                 <button style={styles.cancelBtn} onClick={() => { setShowComplaintForm(false); setComplaintText(''); setComplaintPhotoDataUri(null); }}>Cancel</button>
               </div>
             </div>
           ) : (
-            <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => setShowComplaintForm(true)}><Plus size={14} /> Problem Report Karein</button>
+            <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => setShowComplaintForm(true)}><Plus size={14} />{t('Problem Report Karein')}</button>
           )}
         </div>
       )}
@@ -6333,7 +6384,7 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
       {(job.status === 'in_progress' || job.status === 'delivered' || extraWork.length > 0) && (
         <div style={{ marginTop: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={styles.fieldLabel}>Extra Kaam (Original estimate se alag)</div>
+            <div style={styles.fieldLabel}>{t('Extra Kaam (Original estimate se alag)')}</div>
             {job.status === 'in_progress' && !showExtraWorkForm && (
               <button style={styles.linkBtn2} onClick={() => setShowExtraWorkForm(true)}>+ Request Extra Work</button>
             )}
@@ -6341,27 +6392,26 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
 
           {showExtraWorkForm && (
             <div style={styles.formCard}>
-              <textarea style={{ ...styles.input, minHeight: 60 }} placeholder='Kya extra kaam chahiye, likhein...' value={extraWorkDesc} onChange={(e) => setExtraWorkDesc(e.target.value)} />
+              <textarea style={{ ...styles.input, minHeight: 60 }} placeholder={t('Kya extra kaam chahiye, likhein...')} value={extraWorkDesc} onChange={(e) => setExtraWorkDesc(e.target.value)} />
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={requestExtraWork}>Bhejein</button>
+                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={requestExtraWork}>{t('Bhejein')}</button>
                 <button style={styles.cancelBtn} onClick={() => setShowExtraWorkForm(false)}>Cancel</button>
               </div>
             </div>
           )}
 
           {extraWork.length === 0 && !showExtraWorkForm && (
-            <div style={styles.emptySmall}>Koi extra kaam nahi hai abhi.</div>
+            <div style={styles.emptySmall}>{t('Koi extra kaam nahi hai abhi.')}</div>
           )}
           {extraWork.map((e) => (
             <div key={e.id} style={styles.extraWorkCard}>
               <div style={styles.itemDesc}>{e.desc}</div>
               <div style={styles.itemSub}>
-                {e.addedBy === 'admin' ? 'Admin ne add kiya' : 'Aapne request kiya'} - {formatDate(e.createdAt)}
+                {e.addedBy === 'admin' ? 'Admin ne add kiya' : t('Aapne request kiya')} - {formatDate(e.createdAt)}
               </div>
               {e.status === 'pending_admin_price' && (
                 <div style={{ ...styles.estimateStatusBanner, background: '#FFF3E0', color: '#E65100', marginTop: 8 }}>
-                  <AlertCircle size={14} /> Admin price set karega, phir approval ke liye aayega.
-                </div>
+                  <AlertCircle size={14} />{t('Admin price set karega, phir approval ke liye aayega.')}</div>
               )}
               {e.status === 'pending_customer_approval' && (
                 <>
@@ -6391,8 +6441,7 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
               )}
               {e.status === 'rejected' && (
                 <div style={{ ...styles.estimateStatusBanner, background: '#FFEBEE', color: '#C62828', marginTop: 8 }}>
-                  <XCircle size={14} /> Reject kar diya gaya
-                </div>
+                  <XCircle size={14} />{t('Reject kar diya gaya')}</div>
               )}
             </div>
           ))}
@@ -6400,7 +6449,7 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
       )}
 
       <div style={{ ...styles.fieldLabel, marginTop: 20 }}>Progress Photos ({photos.length})</div>
-      {photos.length === 0 && <div style={styles.emptySmall}>Kaam shuru hone ke baad yahan progress photos dikhengi.</div>}
+      {photos.length === 0 && <div style={styles.emptySmall}>{t('Kaam shuru hone ke baad yahan progress photos dikhengi.')}</div>}
       <div style={styles.photoGrid}>
         {photos.map((p, i) => (
           <button key={p.id} style={styles.photoThumb} onClick={() => setLightbox({ photos, index: i })}>
@@ -6464,7 +6513,7 @@ function ReviewPanel({ job, onSave, showToast }) {
   if (!canReview && !job.review) {
     return (
       <div style={{ padding: '12px 16px' }}>
-        <div style={styles.sectionTitle}>Review dein</div>
+        <div style={styles.sectionTitle}>{t('Review dein')}</div>
         <div style={styles.emptySmall}>
           Kaam complete hone ke baad hi review de sakte hain. Jaise hi aapka order deliver ho jaayega, yahan review ka option aa jaayega.
         </div>
@@ -6474,8 +6523,8 @@ function ReviewPanel({ job, onSave, showToast }) {
 
   return (
     <div style={{ padding: '12px 16px' }}>
-      <div style={styles.sectionTitle}>Review dein</div>
-      <div style={styles.plainTextMuted}>Aapka anubhav kaisa raha? Hamein bataiye.</div>
+      <div style={styles.sectionTitle}>{t('Review dein')}</div>
+      <div style={styles.plainTextMuted}>{t('Aapka anubhav kaisa raha? Hamein bataiye.')}</div>
       <div style={styles.starRow}>
         {[1, 2, 3, 4, 5].map((n) => (
           <button key={n} style={styles.starBtn} onMouseEnter={() => setHoverRating(n)} onMouseLeave={() => setHoverRating(0)} onClick={() => setRating(n)}>
@@ -6483,8 +6532,8 @@ function ReviewPanel({ job, onSave, showToast }) {
           </button>
         ))}
       </div>
-      <textarea style={{ ...styles.input, minHeight: 90, resize: 'vertical', marginTop: 10 }} value={text} onChange={(e) => setText(e.target.value)} placeholder='Kaam, quality, service ke baare mein likhein...' />
-      <button style={styles.primaryBtn2} onClick={submit}><Send size={14} /> {job.review ? 'Review Update Karein' : 'Submit Review'}</button>
+      <textarea style={{ ...styles.input, minHeight: 90, resize: 'vertical', marginTop: 10 }} value={text} onChange={(e) => setText(e.target.value)} placeholder={t('Kaam, quality, service ke baare mein likhein...')} />
+      <button style={styles.primaryBtn2} onClick={submit}><Send size={14} /> {job.review ? t('Review Update Karein') : 'Submit Review'}</button>
     </div>
   );
 }
@@ -6608,8 +6657,8 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
               job here is photos, not planning decisions. */}
           <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid ' + BRAND.line }}>
             <div style={styles.sectionTitle}>Project Notes</div>
-            <div style={styles.plainTextMuted}>Admin/customer ne jo final kiya hai, yahan dikhega.</div>
-            {notes.length === 0 && <div style={styles.emptySmall}>Abhi koi note nahi hai.</div>}
+            <div style={styles.plainTextMuted}>{t('Admin/customer ne jo final kiya hai, yahan dikhega.')}</div>
+            {notes.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi note nahi hai.')}</div>}
             {Object.entries(notes.reduce((acc, n) => { const cat = n.category || 'General'; (acc[cat] = acc[cat] || []).push(n); return acc; }, {})).map(([cat, catNotes]) => (
               <div key={cat} style={{ marginTop: 10 }}>
                 <div style={styles.folderHeader}><ImageIcon size={13} /> {cat} ({catNotes.length})</div>
@@ -6645,7 +6694,7 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
               {(activeJob.materials || []).map((m) => (
                 <div key={m.id} style={styles.extraWorkCard}>
                   <div style={styles.itemDesc}>{m.desc} <span style={styles.reqCatBadge}>{m.category === 'hardware' ? 'Hardware' : 'Material'}</span></div>
-                  <div style={styles.itemSub}>Status: {m.status === 'pending' ? 'Pending' : m.status === 'ordered' ? 'Order ho gaya' : 'Aa gaya'}</div>
+                  <div style={styles.itemSub}>Status: {m.status === 'pending' ? 'Pending' : m.status === 'ordered' ? t('Order ho gaya') : t('Aa gaya')}</div>
                 </div>
               ))}
             </div>
@@ -6653,8 +6702,8 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
 
           <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid ' + BRAND.line }}>
             <div style={styles.sectionTitle}>Admin se Sawal/Message</div>
-            <div style={styles.plainTextMuted}>Kaam ke beech kuch confirm karna ho to yahan puchein, call karne ki zaroorat nahi.</div>
-            {messages.length === 0 && <div style={styles.emptySmall}>Abhi koi message nahi hai.</div>}
+            <div style={styles.plainTextMuted}>{t('Kaam ke beech kuch confirm karna ho to yahan puchein, call karne ki zaroorat nahi.')}</div>
+            {messages.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi message nahi hai.')}</div>}
             {messages.map((m) => (
               <div key={m.id} style={{ ...styles.extraWorkCard, ...(m.from === 'admin' ? { background: '#E1EDEA' } : {}) }}>
                 <div style={styles.itemSub}>{m.from === 'admin' ? 'Admin' : staffName} - {formatDate(m.createdAt)}</div>
@@ -6662,8 +6711,8 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
               </div>
             ))}
             <div style={{ marginTop: 10 }}>
-              <textarea style={{ ...styles.input, minHeight: 60 }} placeholder='Apna sawal likhein...' value={msgText} onChange={(e) => setMsgText(e.target.value)} />
-              <button style={styles.addBtn} onClick={() => sendKarigarMessage(activeJob)}><Send size={14} /> Bhejein</button>
+              <textarea style={{ ...styles.input, minHeight: 60 }} placeholder={t('Apna sawal likhein...')} value={msgText} onChange={(e) => setMsgText(e.target.value)} />
+              <button style={styles.addBtn} onClick={() => sendKarigarMessage(activeJob)}><Send size={14} />{t('Bhejein')}</button>
             </div>
           </div>
         </div>
@@ -6925,26 +6974,26 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
 
           {!activeJob.appointment && (
             <div style={{ ...styles.formCard, marginTop: 12 }}>
-              <div style={styles.fieldLabel}>Visit Book Karein</div>
+              <div style={styles.fieldLabel}>{t('Visit Book Karein')}</div>
               <div style={styles.plainTextMuted}>Abhi tak koi appointment nahi hai - customer se baat karke date/address confirm karein.</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <input style={styles.input} type='date' value={apptDate} onChange={(e) => setApptDate(e.target.value)} />
                 <input style={styles.input} type='time' value={apptTime} onChange={(e) => setApptTime(e.target.value)} />
               </div>
               <input style={{ ...styles.input, marginTop: 8 }} placeholder='Address' value={apptAddress} onChange={(e) => setApptAddress(e.target.value)} />
-              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => bookAppointment(activeJob)}><Calendar size={14} /> Visit Book Karein</button>
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => bookAppointment(activeJob)}><Calendar size={14} />{t('Visit Book Karein')}</button>
             </div>
           )}
 
           {activeJob.appointment && activeJob.appointment.status === 'requested' && (
             <div style={{ ...styles.formCard, marginTop: 12 }}>
-              <div style={styles.fieldLabel}>Visit Confirm Karein</div>
+              <div style={styles.fieldLabel}>{t('Visit Confirm Karein')}</div>
               <div style={styles.itemSub}>Customer ne chaha hai: {formatDate(activeJob.appointment.preferredDate)}{activeJob.appointment.preferredTime ? (' - ' + formatTime12h(activeJob.appointment.preferredTime)) : ''}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <input style={styles.input} type='date' value={apptDate} onChange={(e) => setApptDate(e.target.value)} />
                 <input style={styles.input} type='time' value={apptTime} onChange={(e) => setApptTime(e.target.value)} />
               </div>
-              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => confirmAppointment(activeJob)}><CheckCircle2 size={14} /> Visit Confirm Karein</button>
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => confirmAppointment(activeJob)}><CheckCircle2 size={14} />{t('Visit Confirm Karein')}</button>
             </div>
           )}
 
@@ -7003,7 +7052,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
           )}
 
           <div style={{ ...styles.sectionTitle, marginTop: 16 }}>Estimate</div>
-          {(activeJob.items || []).length === 0 && <div style={styles.emptySmall}>Abhi koi estimate nahi bana hai.</div>}
+          {(activeJob.items || []).length === 0 && <div style={styles.emptySmall}>{t('Abhi koi estimate nahi bana hai.')}</div>}
           {(activeJob.items || []).map((it) => (
             <div key={it.id} style={styles.itemRow}>
               <div style={{ flex: 1 }}>
@@ -7019,7 +7068,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
 
           <div style={{ ...styles.formCard, marginTop: 16 }}>
             <div style={styles.fieldLabel}>Estimate Banayein</div>
-            <div style={styles.plainTextMuted}>Aapke sheher ke market rate ke hisab se items banayein - admin approve karenge, tabhi asli estimate mein jodega.</div>
+            <div style={styles.plainTextMuted}>{t('Aapke sheher ke market rate ke hisab se items banayein - admin approve karenge, tabhi asli estimate mein jodega.')}</div>
             {(activeJob.suggestedItems || []).length > 0 && (
               <div style={{ marginTop: 8 }}>
                 {activeJob.suggestedItems.map((s) => (
@@ -7035,7 +7084,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
                 <div style={styles.totalBar}><span>Suggested Total</span><span style={styles.totalAmt}>{currency(activeJob.suggestedItems.reduce((sum, s) => sum + estimateItemAmount(s), 0))}</span></div>
               </div>
             )}
-            <input style={{ ...styles.input, marginTop: 8 }} placeholder='Item (jaise "Wardrobe")' value={suggestDesc} onChange={(e) => setSuggestDesc(e.target.value)} />
+            <input style={{ ...styles.input, marginTop: 8 }} placeholder={t('Item (jaise "Wardrobe")')} value={suggestDesc} onChange={(e) => setSuggestDesc(e.target.value)} />
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <input style={styles.input} inputMode='decimal' placeholder='Length (inch)' value={suggestLength} onChange={(e) => setSuggestLength(e.target.value)} />
               <input style={styles.input} inputMode='decimal' placeholder='Height (inch)' value={suggestHeight} onChange={(e) => setSuggestHeight(e.target.value)} />
@@ -7051,7 +7100,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
                 {suggestRate && <span> x {currency(suggestRate)} = <b>{currency(estimateItemAmount({ length: suggestLength, height: suggestHeight, qty: suggestQty, rate: suggestRate }))}</b></span>}
               </div>
             )}
-            <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => suggestRateItem(activeJob)}>Item Add Karein</button>
+            <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => suggestRateItem(activeJob)}>{t('Item Add Karein')}</button>
           </div>
 
           {jobTotal(activeJob) > 0 && (
@@ -7077,7 +7126,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
                 <div style={{ marginTop: 10 }}>
                   <input style={styles.input} inputMode='numeric' placeholder='Amount jo customer ne diya' value={newPaymentAmount} onChange={(e) => setNewPaymentAmount(e.target.value)} />
                   <input style={{ ...styles.input, marginTop: 8 }} placeholder='Note (optional)' value={newPaymentNote} onChange={(e) => setNewPaymentNote(e.target.value)} />
-                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => recordPayment(activeJob)}><IndianRupee size={14} /> Payment Collect Karein</button>
+                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => recordPayment(activeJob)}><IndianRupee size={14} />{t('Payment Collect Karein')}</button>
                 </div>
               )}
             </div>
@@ -7096,16 +7145,14 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
                 <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption} style={styles.photoImg} />
                 <button style={styles.photoDeleteBtn} onClick={() => removePhoto(activeJob, p.id)}><Trash2 size={12} color='#FFF' /></button>
                 {onSubmitGalleryPhoto && (
-                  <button style={{ position: 'absolute', bottom: 4, left: 4, right: 4, fontSize: 9.5, padding: '3px 6px', borderRadius: 6, border: 'none', background: 'rgba(15,27,61,0.85)', color: '#FFF', cursor: 'pointer' }} onClick={() => { setSubmittingPhotoId(p.id); setSubmitCategory(categories?.[0] || ''); }}>
-                    Gallery Mein Bhejein
-                  </button>
+                  <button style={{ position: 'absolute', bottom: 4, left: 4, right: 4, fontSize: 9.5, padding: '3px 6px', borderRadius: 6, border: 'none', background: 'rgba(15,27,61,0.85)', color: '#FFF', cursor: 'pointer' }} onClick={() => { setSubmittingPhotoId(p.id); setSubmitCategory(categories?.[0] || ''); }}>{t('Gallery Mein Bhejein')}</button>
                 )}
               </div>
             ))}
           </div>
           {submittingPhotoId && (
             <div style={{ ...styles.formCard, marginTop: 10 }}>
-              <div style={styles.fieldLabel}>Category Chunein</div>
+              <div style={styles.fieldLabel}>{t('Category Chunein')}</div>
               <select style={styles.input} value={submitCategory} onChange={(e) => setSubmitCategory(e.target.value)}>
                 {(categories || []).map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -7113,9 +7160,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
                 <button
                   style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }}
                   onClick={() => submitPhotoToGallery(activeJob, activeJob.progressPhotos.find((p) => p.id === submittingPhotoId))}
-                >
-                  Bhej Dein
-                </button>
+                >{t('Bhej Dein')}</button>
                 <button style={styles.cancelBtn} onClick={() => { setSubmittingPhotoId(null); setSubmitCategory(''); }}>Cancel</button>
               </div>
             </div>
@@ -7146,7 +7191,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
               <div style={{ fontSize: 18, fontWeight: 800, color: '#2F7D4F' }}>{currency(totalPaidOut)}</div>
             </div>
             <div>
-              <div style={styles.itemSub}>Baaki Hai</div>
+              <div style={styles.itemSub}>{t('Baaki Hai')}</div>
               <div style={{ fontSize: 18, fontWeight: 800, color: balanceOwed > 0 ? BRAND.gold : '#2F7D4F' }}>{currency(balanceOwed)}</div>
             </div>
           </div>
@@ -7154,7 +7199,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
         </div>
 
         {!hasPushToken && (
-          <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={onEnablePush}><Bell size={14} /> Naye Kaam Ki Notification On Karein</button>
+          <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={onEnablePush}><Bell size={14} />{t('Naye Kaam Ki Notification On Karein')}</button>
         )}
 
         {onCreateCustomer && (
@@ -7166,7 +7211,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
                 <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Mobile Number</div>
                 <input style={styles.input} inputMode='numeric' value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)} placeholder='98765 43210' />
                 <div style={{ ...styles.fieldLabel, marginTop: 10 }}>City (optional)</div>
-                <input style={styles.input} value={newCustCity} onChange={(e) => setNewCustCity(e.target.value)} placeholder='Jaise Rajkot' />
+                <input style={styles.input} value={newCustCity} onChange={(e) => setNewCustCity(e.target.value)} placeholder={t('Jaise Rajkot')} />
                 <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                   <button
                     style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }}
@@ -7177,9 +7222,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
                         setActiveJobId(newJobId);
                       }
                     }}
-                  >
-                    Add Karein
-                  </button>
+                  >{t('Add Karein')}</button>
                   <button style={styles.cancelBtn} onClick={() => { setShowAddCustomer(false); setNewCustName(''); setNewCustPhone(''); setNewCustCity(''); }}>Cancel</button>
                 </div>
               </div>
@@ -7237,7 +7280,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
             }
             combined.sort((a, b) => new Date(b.date) - new Date(a.date));
             const recent = combined.slice(0, 40);
-            if (recent.length === 0) return <div style={styles.emptySmall}>Abhi koi activity nahi hai.</div>;
+            if (recent.length === 0) return <div style={styles.emptySmall}>{t('Abhi koi activity nahi hai.')}</div>;
             return recent.map((a) => (
               <button key={a.id} style={styles.miniRowClickArea} onClick={() => setActiveJobId(a.jobId)}>
                 <div style={{ flex: 1, textAlign: 'left' }}>
@@ -7261,13 +7304,12 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
           </div>
           <div style={{ ...styles.formCard, marginTop: 12 }}>
             <div style={styles.fieldLabel}>Notifications</div>
-            <div style={styles.plainTextMuted}>App band ho tab bhi naye kaam ki khabar mil jayegi.</div>
+            <div style={styles.plainTextMuted}>{t('App band ho tab bhi naye kaam ki khabar mil jayegi.')}</div>
             {hasPushToken ? (
               <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
-                <CheckCircle2 size={14} /> Notifications on hain
-              </div>
+                <CheckCircle2 size={14} />{t('Notifications on hain')}</div>
             ) : (
-              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={onEnablePush}><Bell size={14} /> Notifications On Karein</button>
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={onEnablePush}><Bell size={14} />{t('Notifications On Karein')}</button>
             )}
           </div>
           <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
@@ -7634,7 +7676,7 @@ export function PhotoAddPanel({ onAdd, addLabel, showToast }) {
                 ) : (
                   <>
                     <Camera size={22} color={BRAND.gold} />
-                    <span style={styles.uploadHint}>Camera se click karein ya gallery se ek ya zyada photos select karein</span>
+                    <span style={styles.uploadHint}>{t('Camera se click karein ya gallery se ek ya zyada photos select karein')}</span>
                   </>
                 )}
               </button>
@@ -7654,7 +7696,7 @@ export function PhotoAddPanel({ onAdd, addLabel, showToast }) {
               </div>
               <input ref={fileInputRef} type='file' accept='image/*' multiple style={{ display: 'none' }} onChange={handleFilesPicked} />
               <div style={styles.hintText}>{pendingUploads.length} photo{pendingUploads.length !== 1 ? 's' : ''} ready - poori quality mein save hongi.</div>
-              <input style={{ ...styles.input, marginTop: 8 }} placeholder='Caption (optional, sabpar lagega)' value={caption} onChange={(e) => setCaption(e.target.value)} />
+              <input style={{ ...styles.input, marginTop: 8 }} placeholder={t('Caption (optional, sabpar lagega)')} value={caption} onChange={(e) => setCaption(e.target.value)} />
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                 <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={confirmUploads}><Check size={14} /> {addLabel || ('Add ' + pendingUploads.length + ' photo' + (pendingUploads.length !== 1 ? 's' : ''))}</button>
                 <button style={styles.cancelBtn} onClick={() => setPendingUploads([])}>Cancel</button>
