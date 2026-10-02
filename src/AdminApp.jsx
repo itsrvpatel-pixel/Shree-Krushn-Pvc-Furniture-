@@ -116,6 +116,8 @@ import {
   readLastCrash,
   receiptNo,
   resolveCategory,
+  t,
+  tf,
   shareEstimatePdf,
   styles,
   timeAgo,
@@ -233,13 +235,13 @@ function serviceVisitDue(job, nowIso) {
 
 function buildServiceOfferText(job, visit) {
   const lines = [];
-  lines.push('Namaste ' + job.customerName + ',');
+  lines.push(tf('Namaste {name},', { name: job.customerName }));
   lines.push('');
-  lines.push('Aapke kaam ko ' + visit.label + ' ho gaye hain.');
-  lines.push('Hamari 2 saal ki maintenance warranty ke andar aapka free service visit due hai -');
-  lines.push('fitting, adjustment, ya koi bhi chhoti dikkat ho to hum aakar theek kar denge.');
+  lines.push(tf('Aapke kaam ko {age} ho gaye hain.', { age: visit.label }));
+  lines.push(t('Hamari 2 saal ki maintenance warranty ke andar aapka free service visit due hai -'));
+  lines.push(t('fitting, adjustment, ya koi bhi chhoti dikkat ho to hum aakar theek kar denge.'));
   lines.push('');
-  lines.push('Kab aana theek rahega? Din aur time bata dijiye.');
+  lines.push(t('Kab aana theek rahega? Din aur time bata dijiye.'));
   lines.push('');
   lines.push('- ' + BUSINESS.name);
   return lines.join(NEWLINE);
@@ -440,9 +442,9 @@ function buildPaymentReminderText(job) {
   const paid = jobPaid(job);
   const due = jobDue(job);
   const lines = [];
-  lines.push('Namaste ' + job.customerName + ',');
+  lines.push(tf('Namaste {name},', { name: job.customerName }));
   lines.push('');
-  lines.push('Aapke kaam ka hisaab:');
+  lines.push(t('Aapke kaam ka hisaab:'));
   lines.push('Total: ' + currency(total));
   lines.push('Ab tak mila: ' + currency(paid));
   lines.push('Baaki: ' + currency(due));
@@ -454,8 +456,8 @@ function buildPaymentReminderText(job) {
     lines.push(milestone.label + ' ka ' + currency(milestone.due) + ' abhi due hai.');
   }
   lines.push('');
-  lines.push('Aap jab bhi bhej dein, bata dijiyega - hum receipt bhej denge.');
-  lines.push('Koi sawaal ho to poochh lijiye.');
+  lines.push(t('Aap jab bhi bhej dein, bata dijiyega - hum receipt bhej denge.'));
+  lines.push(t('Koi sawaal ho to poochh lijiye.'));
   lines.push('');
   lines.push('- ' + BUSINESS.name);
   return lines.join(NEWLINE);
@@ -731,11 +733,11 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <div style={{ padding: '12px 16px' }}>
           <div style={styles.sectionTitle}>Aaj ki Visits</div>
           <div style={styles.plainTextMuted}>{todaysVisits.length} visit{todaysVisits.length !== 1 ? 's' : ''} aaj</div>
-          {todaysVisits.length === 0 && <div style={styles.emptySmall}>Aaj koi visit nahi hai.</div>}
+          {todaysVisits.length === 0 && <div style={styles.emptySmall}>{t('Aaj koi visit nahi hai.')}</div>}
           {todaysVisits.map((j) => (
             <button key={j.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(j.id)}>
               <div style={styles.cardName}>{j.customerName}</div>
-              <div style={styles.itemSub}>{j.appointment.confirmedTime ? formatTime12h(j.appointment.confirmedTime) : 'Time set nahi hai'} {j.appointment.address && ('- ' + j.appointment.address)}</div>
+              <div style={styles.itemSub}>{j.appointment.confirmedTime ? formatTime12h(j.appointment.confirmedTime) : t('Time set nahi hai')} {j.appointment.address && ('- ' + j.appointment.address)}</div>
             </button>
           ))}
         </div>
@@ -751,18 +753,17 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <div style={{ padding: '12px 16px' }}>
           <div style={styles.sectionTitle}>Kal Ki Visits</div>
           <div style={styles.plainTextMuted}>{tomorrowsVisits.length} visit{tomorrowsVisits.length !== 1 ? 's' : ''} kal - reminder bhejne ke liye WhatsApp button dabayein</div>
-          {tomorrowsVisits.length === 0 && <div style={styles.emptySmall}>Kal koi visit nahi hai.</div>}
+          {tomorrowsVisits.length === 0 && <div style={styles.emptySmall}>{t('Kal koi visit nahi hai.')}</div>}
           {tomorrowsVisits.map((j) => {
             const reminderText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'Yeh ek reminder hai ki aapki visit KAL hai:' + NEWLINE + formatDate(j.appointment.confirmedDate) + (j.appointment.confirmedTime ? (' - ' + formatTime12h(j.appointment.confirmedTime)) : '') + NEWLINE + NEWLINE + 'Address: ' + (j.appointment.address || j.address || '-') + NEWLINE + NEWLINE + '- ' + BUSINESS.name;
             return (
               <div key={j.id} style={styles.reviewCard}>
                 <button style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }} onClick={() => onOpenJob(j.id)}>
                   <div style={styles.cardName}>{j.customerName}</div>
-                  <div style={styles.itemSub}>{j.appointment.confirmedTime ? formatTime12h(j.appointment.confirmedTime) : 'Time set nahi hai'} {j.appointment.address && ('- ' + j.appointment.address)}</div>
+                  <div style={styles.itemSub}>{j.appointment.confirmedTime ? formatTime12h(j.appointment.confirmedTime) : t('Time set nahi hai')} {j.appointment.address && ('- ' + j.appointment.address)}</div>
                 </button>
                 <a href={whatsAppShareUrl(j.phone, reminderText)} target='_blank' rel='noopener noreferrer' style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
-                  <Send size={13} /> Reminder Bhejein
-                </a>
+                  <Send size={13} />{t('Reminder Bhejein')}</a>
               </div>
             );
           })}
@@ -779,7 +780,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <div style={{ padding: '12px 16px' }}>
           <div style={styles.sectionTitle}>Update Chahiye</div>
           <div style={styles.plainTextMuted}>Ye jobs "In Progress" hain lekin {STALE_DAYS_THRESHOLD}+ din se koi update nahi hui - customer ko ek chhota update bhej dein.</div>
-          {staleJobs.length === 0 && <div style={styles.emptySmall}>Sab jobs par recent update hai - kuch bhi stale nahi hai.</div>}
+          {staleJobs.length === 0 && <div style={styles.emptySmall}>{t('Sab jobs par recent update hai - kuch bhi stale nahi hai.')}</div>}
           {staleJobs.map((j) => {
             const lastActivityDate = (j.activity && j.activity[0]) ? new Date(j.activity[0].date) : new Date(j.createdAt);
             const daysSince = Math.floor((new Date() - lastActivityDate) / (1000 * 60 * 60 * 24));
@@ -791,8 +792,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
                   <div style={styles.itemSub}>{daysSince} din se koi update nahi</div>
                 </button>
                 <a href={whatsAppShareUrl(j.phone, updateText)} target='_blank' rel='noopener noreferrer' style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
-                  <Send size={13} /> Update Bhejein
-                </a>
+                  <Send size={13} />{t('Update Bhejein')}</a>
               </div>
             );
           })}
@@ -809,7 +809,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <div style={{ padding: '12px 16px' }}>
           <div style={styles.sectionTitle}>Follow-up Chahiye</div>
           <div style={styles.plainTextMuted}>In customers ko estimate mila hai lekin {FOLLOW_UP_AFTER_DAYS_DISPLAY}+ din se koi response nahi - ek call/message karke follow-up karein, lead thanda na ho.</div>
-          {followUpJobs.length === 0 && <div style={styles.emptySmall}>Koi pending follow-up nahi hai - sab estimates par response aa chuka hai.</div>}
+          {followUpJobs.length === 0 && <div style={styles.emptySmall}>{t('Koi pending follow-up nahi hai - sab estimates par response aa chuka hai.')}</div>}
           {followUpJobs.map((j) => {
             const sinceDate = j.estimateGivenAt || j.createdAt;
             const daysSince = Math.floor((new Date() - new Date(sinceDate)) / (1000 * 60 * 60 * 24));
@@ -821,8 +821,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
                   <div style={styles.itemSub}>{daysSince} din se estimate par response nahi</div>
                 </button>
                 <a href={whatsAppShareUrl(j.phone, followUpText)} target='_blank' rel='noopener noreferrer' style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
-                  <Send size={13} /> Follow-up Bhejein
-                </a>
+                  <Send size={13} />{t('Follow-up Bhejein')}</a>
               </div>
             );
           })}
@@ -838,8 +837,8 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         </div>
         <div style={{ padding: '12px 16px' }}>
           <div style={styles.sectionTitle}>Sawaal Ka Jawab Chahiye</div>
-          <div style={styles.plainTextMuted}>Customers ne Help/FAQ se sawaal poochhe hain - job kholke jawab dein.</div>
-          {jobsWithPendingQuestions.length === 0 && <div style={styles.emptySmall}>Koi pending sawaal nahi hai.</div>}
+          <div style={styles.plainTextMuted}>{t('Customers ne Help/FAQ se sawaal poochhe hain - job kholke jawab dein.')}</div>
+          {jobsWithPendingQuestions.length === 0 && <div style={styles.emptySmall}>{t('Koi pending sawaal nahi hai.')}</div>}
           {jobsWithPendingQuestions.map((j) => {
             const openCount = (j.questions || []).filter((q) => q.status !== 'answered').length;
             return (
@@ -914,7 +913,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
               <button key={j.id} style={styles.miniRowClickArea} onClick={() => onOpenJob(j.id)}>
                 <div style={{ flex: 1, textAlign: 'left' }}>
                   <div style={styles.itemDesc}>{j.customerName}</div>
-                  <div style={styles.itemSub}>{j.appointment.confirmedTime ? formatTime12h(j.appointment.confirmedTime) : 'Time set nahi hai'} {j.appointment.address && ('- ' + j.appointment.address)}</div>
+                  <div style={styles.itemSub}>{j.appointment.confirmedTime ? formatTime12h(j.appointment.confirmedTime) : t('Time set nahi hai')} {j.appointment.address && ('- ' + j.appointment.address)}</div>
                 </div>
                 <Calendar size={15} color={BRAND.gold} />
               </button>
@@ -959,7 +958,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
       </div>
 
       <div style={styles.fieldLabel}>Recent customers</div>
-      {recentJobs.length === 0 && <div style={styles.emptySmall}>Abhi koi customer register nahi hua.</div>}
+      {recentJobs.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi customer register nahi hua.')}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {recentJobs.map((j) => (
           <div key={j.id} style={styles.miniRow}>
@@ -1006,8 +1005,8 @@ function AdminKarigarPerformance({ staff, jobs, attendance }) {
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Karigar Performance</div>
-      <div style={styles.plainTextMuted}>Kaunsa karigar kitna kaam handle kar raha hai.</div>
-      {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi karigar add nahi kiya.</div>}
+      <div style={styles.plainTextMuted}>{t('Kaunsa karigar kitna kaam handle kar raha hai.')}</div>
+      {rows.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi karigar add nahi kiya.')}</div>}
       {rows.map((r) => (
         <div key={r.karigar.id} style={styles.reviewCard}>
           <div style={styles.cardName}>{r.karigar.name}</div>
@@ -1083,7 +1082,7 @@ function AdminCommissionReport({ staff, jobs, setStaff, showToast }) {
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Regional Partner Commission</div>
-      <div style={styles.plainTextMuted}>Har partner ko ab tak kitna commission banta hai, kitna de diya hai, aur kitna baaki hai.</div>
+      <div style={styles.plainTextMuted}>{t('Har partner ko ab tak kitna commission banta hai, kitna de diya hai, aur kitna baaki hai.')}</div>
       {leaderboard.length > 1 && (
         <div style={{ marginTop: 12 }}>
           <div style={styles.fieldLabel}>Performance Score</div>
@@ -1103,11 +1102,11 @@ function AdminCommissionReport({ staff, jobs, setStaff, showToast }) {
         </div>
       )}
 
-      {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi Regional Partner add nahi kiya.</div>}
+      {rows.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi Regional Partner add nahi kiya.')}</div>}
       {rows.length > 0 && (
         <div style={{ ...styles.statRow2, marginTop: 10 }}>
           <StatCard icon={<Users size={16} />} label='Partners' value={rows.length} />
-          <StatCard icon={<IndianRupee size={16} />} label='Total Baaki' value={currency(grandTotalOwed)} accent />
+          <StatCard icon={<IndianRupee size={16} />} label={t('Total Baaki')} value={currency(grandTotalOwed)} accent />
         </div>
       )}
       {rows.map((r) => (
@@ -1124,14 +1123,14 @@ function AdminCommissionReport({ staff, jobs, setStaff, showToast }) {
               <div style={{ fontSize: 15, fontWeight: 800, color: '#2F7D4F' }}>{currency(r.totalPaidOut)}</div>
             </div>
             <div>
-              <div style={styles.itemSub}>Baaki Hai</div>
+              <div style={styles.itemSub}>{t('Baaki Hai')}</div>
               <div style={{ fontSize: 15, fontWeight: 800, color: r.balanceOwed > 0 ? BRAND.gold : '#2F7D4F' }}>{currency(r.balanceOwed)}</div>
             </div>
           </div>
           {r.balanceOwed > 0 && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <input style={styles.input} inputMode='numeric' placeholder='Amount de diya' value={payoutAmountByPartner[r.partner.id] || ''} onChange={(e) => setPayoutAmountByPartner({ ...payoutAmountByPartner, [r.partner.id]: e.target.value })} />
-              <button style={{ ...styles.cardActionBtn, flexShrink: 0 }} onClick={() => recordPayout(r.partner.id)}>Payout Record Karein</button>
+              <button style={{ ...styles.cardActionBtn, flexShrink: 0 }} onClick={() => recordPayout(r.partner.id)}>{t('Payout Record Karein')}</button>
             </div>
           )}
           {r.commissionByJob.filter((c) => c.commission > 0).map((c) => (
@@ -1166,7 +1165,7 @@ function AdminReferralReport({ customers }) {
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Referral Report</div>
-      <div style={styles.plainTextMuted}>Kis customer ne kitne naye customers refer kiye hain.</div>
+      <div style={styles.plainTextMuted}>{t('Kis customer ne kitne naye customers refer kiye hain.')}</div>
 
       <div style={styles.statRow2}>
         <StatCard icon={<Users size={16} />} label='Total Referrals' value={grouped.list.reduce((s, g) => s + g.count, 0)} />
@@ -1174,7 +1173,7 @@ function AdminReferralReport({ customers }) {
       </div>
 
       <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Top referrers</div>
-      {grouped.list.length === 0 && <div style={styles.emptySmall}>Abhi tak koi referral record nahi hai.</div>}
+      {grouped.list.length === 0 && <div style={styles.emptySmall}>{t('Abhi tak koi referral record nahi hai.')}</div>}
       {grouped.list.map((g) => (
         <div key={g.displayName} style={styles.reviewCard}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1257,7 +1256,7 @@ function AdminVisitsByDate({ jobs, onOpenJob }) {
         <StatCard icon={<AlertCircle size={16} />} label='Pending' value={pendingCount} />
       </div>
 
-      {sortedDates.length === 0 && <div style={styles.emptySmall}>Koi visit nahi hai.</div>}
+      {sortedDates.length === 0 && <div style={styles.emptySmall}>{t('Koi visit nahi hai.')}</div>}
       {sortedDates.map((dateKey) => (
         <div key={dateKey} style={{ marginTop: 14 }}>
           <div style={styles.folderHeader}>{dateKey === 'Date not set' ? dateKey : formatDate(dateKey)} ({byDate[dateKey].length})</div>
@@ -1267,7 +1266,7 @@ function AdminVisitsByDate({ jobs, onOpenJob }) {
                 <div style={styles.cardName}>{v.customerName}</div>
                 <span style={{ ...styles.badge, background: v.completed ? '#DFF0E4' : '#F3EFE3', color: v.completed ? '#2F7D4F' : '#A8975F' }}>{v.completed ? 'Completed' : 'Pending'}</span>
               </div>
-              <div style={styles.itemSub}>{v.time ? formatTime12h(v.time) : 'Time set nahi hai'}{v.reason && (' - ' + v.reason)}</div>
+              <div style={styles.itemSub}>{v.time ? formatTime12h(v.time) : t('Time set nahi hai')}{v.reason && (' - ' + v.reason)}</div>
             </button>
           ))}
         </div>
@@ -1285,7 +1284,7 @@ function AdminNewAppointmentsList({ jobs, onOpenJob }) {
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>New Appointment Requests</div>
       <div style={styles.plainTextMuted}>{rows.length} request{rows.length !== 1 ? 's' : ''} confirm karni hai</div>
-      {rows.length === 0 && <div style={styles.emptySmall}>Koi naya request nahi hai.</div>}
+      {rows.length === 0 && <div style={styles.emptySmall}>{t('Koi naya request nahi hai.')}</div>}
       {rows.map((j) => (
         <button key={j.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(j.id)}>
           <div style={styles.cardName}>{j.customerName}</div>
@@ -1328,11 +1327,11 @@ function AdminAllEstimatesList({ jobs, onOpenJob }) {
       </div>
 
       {rows.length > 0 && (
-        <input style={{ ...styles.input, marginTop: 12 }} placeholder='Naam ya Flat Number se search karein...' value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input style={{ ...styles.input, marginTop: 12 }} placeholder={t('Naam ya Flat Number se search karein...')} value={query} onChange={(e) => setQuery(e.target.value)} />
       )}
 
-      {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi estimate nahi bana.</div>}
-      {rows.length > 0 && filteredRows.length === 0 && <div style={styles.emptySmall}>Koi estimate match nahi hua.</div>}
+      {rows.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi estimate nahi bana.')}</div>}
+      {rows.length > 0 && filteredRows.length === 0 && <div style={styles.emptySmall}>{t('Koi estimate match nahi hua.')}</div>}
       {filteredRows.map((r) => (
         <button key={r.job.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(r.job.id)}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -1513,7 +1512,7 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
           <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Mobile Number</div>
           <input style={styles.input} inputMode='numeric' value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)} placeholder='98765 43210' />
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addNewCustomer}>Add Karein</button>
+            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addNewCustomer}>{t('Add Karein')}</button>
             <button style={styles.cancelBtn} onClick={() => { setShowAddCustomer(false); setNewCustName(''); setNewCustPhone(''); }}>Cancel</button>
           </div>
         </div>
@@ -1548,7 +1547,7 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
       </div>
 
       <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {rows.length === 0 && <div style={styles.empty}>Koi customer nahi mila.</div>}
+        {rows.length === 0 && <div style={styles.empty}>{t('Koi customer nahi mila.')}</div>}
         {rows.map(({ customer, job }) => (
           <div key={customer.id} style={styles.card}>
             <button style={styles.cardClickArea} onClick={() => job && onOpenJob(job.id)}>
@@ -1591,7 +1590,7 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
           <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
             <AlertTriangle size={24} color='#B5562E' />
             <div style={styles.confirmDialogTitle}>{deletingCustomer.name} ko delete karein?</div>
-            <div style={styles.confirmDialogText}>Isse unka poora record - requirements, estimate, payments, sab hamesha ke liye mit jaayega.</div>
+            <div style={styles.confirmDialogText}>{t('Isse unka poora record - requirements, estimate, payments, sab hamesha ke liye mit jaayega.')}</div>
             <div style={{ display: 'flex', gap: 8, marginTop: 14, width: '100%' }}>
               <button style={{ ...styles.cancelBtn, flex: 1 }} onClick={() => setDeletingCustomer(null)}>Cancel</button>
               <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0, background: '#B5562E' }} onClick={confirmDeleteCustomer}>Delete</button>
@@ -1623,7 +1622,7 @@ function CustomerEditDialog({ customer, onCancel, onSave }) {
             onChange={(e) => setPhone(phoneCharsOnly(e.target.value).slice(0, 14))}
             inputMode='tel'
           />
-          <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Birthday (optional, din/mahina)</div>
+          <div style={{ ...styles.fieldLabel, marginTop: 12 }}>{t('Birthday (optional, din/mahina)')}</div>
           <input
             style={styles.input}
             type='date'
@@ -1677,7 +1676,7 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
       requestedAt: new Date().toISOString(), bookedByAdmin: true,
     };
     let next = { ...jobRef.current, appointment: nextAppt, address: bookAddress.trim() };
-    next = logActivity(next, 'Admin ne appointment book ki: ' + formatDate(bookDate) + (bookTime ? (', ' + formatTime12h(bookTime)) : ''));
+    next = logActivity(next, 'Admin booked an appointment: ' + formatDate(bookDate) + (bookTime ? (', ' + formatTime12h(bookTime)) : ''));
     saveJob(next);
     if (pushNotification) {
       pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(bookDate) + (bookTime ? (' - ' + formatTime12h(bookTime)) : '') + ' ke liye book ho gayi hai', job.id);
@@ -1700,15 +1699,15 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
   if (!appt) {
     return (
       <div style={{ padding: '12px 16px' }}>
-        <div style={styles.emptySmall}>Customer ne abhi tak koi appointment request nahi ki.</div>
-        <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Aap khud se book karein</div>
-        <div style={styles.plainTextMuted}>Agar customer ne call karke bataya hai, to seedha yahan se book kar sakte hain.</div>
+        <div style={styles.emptySmall}>{t('Customer ne abhi tak koi appointment request nahi ki.')}</div>
+        <div style={{ ...styles.fieldLabel, marginTop: 16 }}>{t('Aap khud se book karein')}</div>
+        <div style={styles.plainTextMuted}>{t('Agar customer ne call karke bataya hai, to seedha yahan se book kar sakte hain.')}</div>
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
           <input style={styles.input} type='date' value={bookDate} onChange={(e) => setBookDate(e.target.value)} />
           <input style={styles.input} type='time' value={bookTime} onChange={(e) => setBookTime(e.target.value)} />
         </div>
         <input style={{ ...styles.input, marginTop: 8 }} placeholder='Address' value={bookAddress} onChange={(e) => setBookAddress(e.target.value)} />
-        <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={bookDirectly}>Appointment Book Karein</button>
+        <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={bookDirectly}>{t('Appointment Book Karein')}</button>
       </div>
     );
   }
@@ -1724,7 +1723,7 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
     if (pushNotification) {
       pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(confirmDate) + (confirmTime ? (' - ' + confirmTime) : '') + ' ke liye confirm ho gayi hai', job.id);
     }
-    showToast(asReschedule ? 'Appointment reschedule ki gayi' : 'Appointment confirm ho gayi');
+    showToast(asReschedule ? t('Appointment reschedule ki gayi') : t('Appointment confirm ho gayi'));
   };
 
   const markCompleted = () => {
@@ -1783,8 +1782,7 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
             target='_blank' rel='noopener noreferrer'
             style={{ ...styles.addBtn, background: '#25D366', color: '#FFF', textDecoration: 'none', justifyContent: 'center' }}
           >
-            <Send size={14} /> WhatsApp Par Bhejein
-          </a>
+            <Send size={14} />{t('WhatsApp Par Bhejein')}</a>
         </>
       )}
 
@@ -1799,7 +1797,7 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
                 {formatDate(v.status === 'confirmed' ? v.confirmedDate : v.preferredDate)} {(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime) && ('- ' + formatTime12h(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime))}
               </div>
               {v.status === 'requested' && confirmingVisitId !== v.id && (
-                <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => { setConfirmingVisitId(v.id); setVisitConfirmDate(v.preferredDate); setVisitConfirmTime(v.preferredTime); }}>Confirm karein</button>
+                <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => { setConfirmingVisitId(v.id); setVisitConfirmDate(v.preferredDate); setVisitConfirmTime(v.preferredTime); }}>{t('Confirm karein')}</button>
               )}
               {confirmingVisitId === v.id && (
                 <div style={{ marginTop: 8 }}>
@@ -1812,8 +1810,7 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
               )}
               {v.status === 'confirmed' && (
                 <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
-                  <ThumbsUp size={14} /> Confirm ho gayi
-                </div>
+                  <ThumbsUp size={14} />{t('Confirm ho gayi')}</div>
               )}
             </div>
           ))}
@@ -1912,7 +1909,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
       <EstimateChoiceNote job={job} />
 
       <div style={styles.fieldLabel}>Flat Name / Number</div>
-      <SavedInput style={styles.input} placeholder='Jaise Flat 402, Sun City' value={job.flatNo || ''} onCommit={(v) => onSave({ ...job, flatNo: v })} />
+      <SavedInput style={styles.input} placeholder={t('Jaise Flat 402, Sun City')} value={job.flatNo || ''} onCommit={(v) => onSave({ ...job, flatNo: v })} />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
         <div style={styles.fieldLabel}>Estimate items{job.quoteNo ? (' - ' + job.quoteNo) : ''}</div>
@@ -1943,7 +1940,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
         </div>
         <div style={styles.hintText}>Length x Height se sq ft auto-calculate hoga (inch to sq ft: LxH/144). Bina naap ke item (jaise tandem basket) ho to yeh khaali chhod ke neeche Qty use karein.</div>
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <input style={styles.input} placeholder='Qty (agar naap nahi)' inputMode='numeric' value={newItem.qty} onChange={(e) => setNewItem((n) => ({ ...n, qty: e.target.value }))} />
+          <input style={styles.input} placeholder={t('Qty (agar naap nahi)')} inputMode='numeric' value={newItem.qty} onChange={(e) => setNewItem((n) => ({ ...n, qty: e.target.value }))} />
           <input style={styles.input} placeholder='Rate ₹' inputMode='decimal' value={newItem.rate} onChange={(e) => setNewItem((n) => ({ ...n, rate: e.target.value }))} />
         </div>
         {/* Naap diya ho to Qty ginti mein nahi aati - estimateItemAmount
@@ -1969,14 +1966,14 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
       {(job.suggestedItems || []).length > 0 && (
         <div style={{ ...styles.card, marginTop: 12, borderColor: BRAND.gold, borderWidth: 1.5 }}>
           <div style={styles.fieldLabel}>Regional Partner Ke Suggestions</div>
-          <div style={styles.plainTextMuted}>Partner ne estimate items banaye hain - approve karne par hi asli estimate mein add hoga.</div>
+          <div style={styles.plainTextMuted}>{t('Partner ne estimate items banaye hain - approve karne par hi asli estimate mein add hoga.')}</div>
           {job.suggestedItems.map((s) => (
             <div key={s.id} style={{ ...styles.formCard, marginTop: 8 }}>
               <div style={styles.itemDesc}>{s.desc}</div>
               {s.length && s.height && <div style={styles.itemSub}>{s.length}&quot; x {s.height}&quot; = {estimateItemSqft(s).toFixed(2)} sq ft</div>}
               <div style={styles.itemSub}>{currency(estimateItemAmount(s))} - {s.suggestedBy} ne banaya</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => approveSuggestedItem(s)}><CheckCircle2 size={13} /> Approve Karein</button>
+                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => approveSuggestedItem(s)}><CheckCircle2 size={13} />{t('Approve Karein')}</button>
                 <button style={styles.cancelBtn} onClick={() => rejectSuggestedItem(s.id)}>Reject</button>
               </div>
             </div>
@@ -2015,7 +2012,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
       {(job.items || []).length > 0 && (
         <div style={{ marginTop: 12 }}>
           <div style={styles.fieldLabel}>Discount (optional)</div>
-          <div style={styles.plainTextMuted}>Poore estimate par flat discount - jitne mein estimate final hua hai.</div>
+          <div style={styles.plainTextMuted}>{t('Poore estimate par flat discount - jitne mein estimate final hua hai.')}</div>
           <SavedInput style={styles.input} placeholder='Discount ₹' inputMode='decimal' value={job.discount || ''} onCommit={(v) => onSave({ ...job, discount: v })} />
           {Number(job.discount) > 0 && (
             <div style={styles.hintText}>
@@ -2170,7 +2167,7 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
   };
 
   const deleteAll = () => {
-    if (!window.confirm('Dono option hata dein?')) return;
+    if (!window.confirm(t('Dono option hata dein?'))) return;
     const next = { ...jobRef.current, estimateDrafts: [] };
     jobRef.current = next;
     onSave(next);
@@ -2192,7 +2189,7 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
           onChange={(e) => setForm((f) => ({ ...f, [side]: { ...f[side], label: e.target.value } }))}
         />
         <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-          <input style={styles.input} placeholder='Company (jaise Kaka)' value={form[side].materialCompany}
+          <input style={styles.input} placeholder={t('Company (jaise Kaka)')} value={form[side].materialCompany}
             onChange={(e) => setForm((f) => ({ ...f, [side]: { ...f[side], materialCompany: e.target.value } }))} />
           <input style={{ ...styles.input, maxWidth: 96 }} placeholder='Sheet kg' inputMode='decimal' value={form[side].sheetWeightKg}
             onChange={(e) => setForm((f) => ({ ...f, [side]: { ...f[side], sheetWeightKg: e.target.value } }))} />
@@ -2202,8 +2199,8 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
 
     return (
       <div style={styles.formCard}>
-        <div style={styles.fieldLabel}>Dono Option Ek Saath</div>
-        <div style={styles.hintText}>Item ek hi baar likhein. Har item par dono ka rate bharein - doosra khaali chhoda to pehle wala hi lag jayega.</div>
+        <div style={styles.fieldLabel}>{t('Dono Option Ek Saath')}</div>
+        <div style={styles.hintText}>{t('Item ek hi baar likhein. Har item par dono ka rate bharein - doosra khaali chhoda to pehle wala hi lag jayega.')}</div>
 
         {meta('a', 1)}
         {meta('b', 2)}
@@ -2231,7 +2228,7 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
         })}
 
         <div style={{ marginTop: 10 }}>
-          <div style={styles.hintText}>{editingRowId ? 'Item edit ho raha hai' : 'Naya item'}</div>
+          <div style={styles.hintText}>{editingRowId ? t('Item edit ho raha hai') : t('Naya item')}</div>
           <input style={styles.input} placeholder='Item description' value={row.desc} onChange={(e) => setRow((n) => ({ ...n, desc: e.target.value }))} />
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <input style={styles.input} placeholder='Length (inch)' inputMode='decimal' value={row.length} onChange={(e) => setRow((n) => ({ ...n, length: e.target.value }))} />
@@ -2244,7 +2241,7 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button style={{ ...styles.cardActionBtn, flex: 1 }} onClick={commitRow}>
-              {editingRowId ? <><Check size={13} /> Item update karein</> : <><Plus size={13} /> Item add karein</>}
+              {editingRowId ? <><Check size={13} />{t('Item update karein')}</> : <><Plus size={13} />{t('Item add karein')}</>}
             </button>
             {editingRowId && <button style={styles.cancelBtn} onClick={() => { setEditingRowId(null); setRow(blankRow); }}>Cancel</button>}
           </div>
@@ -2255,7 +2252,7 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
         {cheaper && <div style={styles.hintText}>{cheaper} {currency(diff)} sasta padta hai.</div>}
 
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={saveBoth}><Check size={14} /> Dono Option Save Karein</button>
+          <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={saveBoth}><Check size={14} />{t('Dono Option Save Karein')}</button>
           <button style={styles.cancelBtn} onClick={() => { setForm(null); setEditingRowId(null); }}>Cancel</button>
         </div>
       </div>
@@ -2266,15 +2263,15 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={styles.fieldLabel}>Compare Materials (optional)</div>
-        <button style={styles.linkBtn2} onClick={openBuilder}>{drafts.length > 0 ? 'Edit karein' : '+ Do Option Banayein'}</button>
+        <button style={styles.linkBtn2} onClick={openBuilder}>{drafts.length > 0 ? t('Edit karein') : '+ Do Option Banayein'}</button>
       </div>
       <div style={styles.plainTextMuted}>
         {hasEstimate
           ? 'Estimate ban chuka hai. Customer doosre material ka rate poochhe to yahan do option banayein - wahi item, alag rate. Final karne par ye mojuda estimate ki jagah le lega.'
-          : 'Wahi item, do alag rate - customer ko dono total dikhenge aur jo pasand aaye wahi final estimate ban jayega.'}
+          : t('Wahi item, do alag rate - customer ko dono total dikhenge aur jo pasand aaye wahi final estimate ban jayega.')}
       </div>
 
-      {drafts.length === 0 && <div style={styles.emptySmall}>Abhi koi option nahi bana. Customer ko sirf ek hi estimate dikhega jab tak options na banayein.</div>}
+      {drafts.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi option nahi bana. Customer ko sirf ek hi estimate dikhega jab tak options na banayein.')}</div>}
       {drafts.map((d) => (
         <div key={d.id} style={styles.extraWorkCard}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -2290,16 +2287,16 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
             style={styles.linkBtn2}
             onClick={() => setOpenDraftId((cur) => (cur === d.id ? null : d.id))}
           >
-            {openDraftId === d.id ? 'Item list band karein' : 'Item-wise dekhein (' + d.items.length + ')'}
+            {openDraftId === d.id ? t('Item list band karein') : t('Item-wise dekhein (') + d.items.length + ')'}
           </button>
           {openDraftId === d.id && <EstimateOptionItems items={d.items} />}
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-            <button style={{ ...styles.cardActionBtn, color: '#2E7D32', fontWeight: 800 }} onClick={() => finalizeDraft(d)}><Check size={12} /> Ye Final Karein</button>
+            <button style={{ ...styles.cardActionBtn, color: '#2E7D32', fontWeight: 800 }} onClick={() => finalizeDraft(d)}><Check size={12} />{t('Ye Final Karein')}</button>
           </div>
         </div>
       ))}
       {drafts.length > 0 && (
-        <button style={{ ...styles.cardActionBtn, color: '#C62828', marginTop: 8 }} onClick={deleteAll}><Trash2 size={12} /> Options hata dein</button>
+        <button style={{ ...styles.cardActionBtn, color: '#C62828', marginTop: 8 }} onClick={deleteAll}><Trash2 size={12} />{t('Options hata dein')}</button>
       )}
     </div>
   );
@@ -2440,10 +2437,10 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     const base = jobRef.current;
     const complaints = (base.complaints || []).map((c) => (c.id === id ? { ...c, status: 'in_progress' } : c));
     let next = { ...base, complaints };
-    next = logActivity(next, 'Complaint repair shuru hua');
+    next = logActivity(next, 'Repair started on the complaint');
     saveJob(next);
     showToast('Repair shuru mark ho gaya');
-    if (pushNotification) pushNotification('complaint_in_progress', 'Aapki complaint par repair shuru ho gaya hai', job.id);
+    if (pushNotification) pushNotification('complaint_in_progress', t('Aapki complaint par repair shuru ho gaya hai'), job.id);
   };
   const resolveComplaint = (id, resolutionNote) => {
     const base = jobRef.current;
@@ -2452,7 +2449,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     next = logActivity(next, 'Complaint resolved');
     saveJob(next);
     showToast('Complaint resolved mark ho gayi');
-    if (pushNotification) pushNotification('complaint_resolved', 'Aapki complaint solve ho gayi hai', job.id);
+    if (pushNotification) pushNotification('complaint_resolved', t('Aapki complaint solve ho gayi hai'), job.id);
   };
   // Lets admin log a repair directly on an already-delivered job, even
   // when the customer never reported anything through the app (a phone
@@ -2471,7 +2468,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     const entry = { id: uid(), text: adminRepairText.trim(), status: 'open', source: 'admin', createdAt: new Date().toISOString() };
     const base = jobRef.current;
     let next = { ...base, complaints: [entry, ...(base.complaints || [])] };
-    next = logActivity(next, 'Repair admin ne add kiya: ' + entry.text);
+    next = logActivity(next, 'Repair added by admin: ' + entry.text);
     saveJob(next);
     setAdminRepairText(''); setShowAdminRepairForm(false);
     showToast('Repair add ho gaya');
@@ -2487,11 +2484,11 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     const base = jobRef.current;
     const questions = (base.questions || []).map((q) => (q.id === id ? { ...q, status: 'answered', answer: answerText.trim(), answeredAt: new Date().toISOString() } : q));
     let next = { ...base, questions };
-    next = logActivity(next, 'Customer ke sawaal ka jawab diya');
+    next = logActivity(next, 'Replied to the customer question');
     saveJob(next);
     setAnsweringQuestionId(null); setAnswerText('');
     showToast('Jawab bhej diya');
-    if (pushNotification) pushNotification('question_answered', 'Aapke sawaal ka jawab mil gaya hai', job.id);
+    if (pushNotification) pushNotification('question_answered', t('Aapke sawaal ka jawab mil gaya hai'), job.id);
   };
 
   const addItem = () => {
@@ -2558,7 +2555,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     if (justCompletedPayment) nextJob.status = 'paid';
     saveJob(nextJob);
     if (justCompletedPayment && pushNotification) {
-      pushNotification('payment_completed', 'Aapka poora payment ho gaya hai - ' + BUSINESS.name + ' ki taraf se dhanyavaad! Hume aapke saath kaam karke khushi hui.', job.id);
+      pushNotification('payment_completed', tf('Aapka poora payment ho gaya hai - {business} ki taraf se dhanyavaad! Hume aapke saath kaam karke khushi hui.', { business: BUSINESS.name }), job.id);
     }
     setNewPayment({ amount: '', note: '', method: 'Cash' });
     showToast('Payment recorded');
@@ -2591,10 +2588,10 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     const entry = { id: uid(), desc, items: newExtraWork.items, amount, addedBy: 'admin', status: selfApprove ? 'approved' : 'pending_customer_approval', createdAt: new Date().toISOString(), respondedAt: selfApprove ? new Date().toISOString() : null };
     const base = jobRef.current;
     let next = { ...base, extraWork: [entry, ...(base.extraWork || [])] };
-    next = logActivity(next, (selfApprove ? 'Extra work add ho gaya: ' : 'Extra work added: ') + entry.desc + ' (' + currency(entry.amount) + ')');
+    next = logActivity(next, 'Extra work added: ' + entry.desc + ' (' + currency(entry.amount) + ')');
     saveJob(next);
     setNewExtraWork({ title: '', items: [] });
-    showToast(selfApprove ? 'Extra work add ho gaya aur estimate mein shaamil ho gaya' : 'Extra work added, customer approval ke liye bheja gaya');
+    showToast(selfApprove ? t('Extra work add ho gaya aur estimate mein shaamil ho gaya') : t('Extra work added, customer approval ke liye bheja gaya'));
   };
   // Pricing a customer-requested item (which arrives with only a text
   // description, no amount) works the same itemized way - admin builds
@@ -2620,7 +2617,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
     const next = { ...base, extraWork: (base.extraWork || []).map((e) => (e.id === item.id ? { ...e, items: pricingItems, amount, status: 'pending_customer_approval' } : e)) };
     saveJob(logActivity(next, 'Extra work priced: ' + item.desc + ' (' + currency(amount) + ')'));
     if (pushNotification) {
-      pushNotification('extra_work_needs_price', 'Aapke extra kaam "' + item.desc + '" ka price ' + currency(amount) + ' set ho gaya hai - approve karein', job.id);
+      pushNotification('extra_work_needs_price', tf('Aapke extra kaam "{item}" ka price {amount} set ho gaya hai - approve karein', { item: item.desc, amount: currency(amount) }), job.id);
     }
     setPricingId(null);
     setPricingItems([]);
@@ -2649,7 +2646,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
       extraWork: (base.extraWork || []).map((e) => (e.id === entry.id ? { ...e, mergedIntoEstimate: true } : e)),
     };
     if (!(base.items || []).length) next.estimateGivenAt = new Date().toISOString();
-    next = logActivity(next, 'Extra work estimate mein merge kiya: ' + entry.desc + ' (' + currency(entry.amount) + ')');
+    next = logActivity(next, 'Extra work merged into the estimate: ' + entry.desc + ' (' + currency(entry.amount) + ')');
     saveJob(next);
     showToast('Estimate mein merge ho gaya');
   };
@@ -2719,7 +2716,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
 
             {staff && staff.some((s) => s.role === 'karigar' || s.role === 'regional_partner') && (
               <div style={{ marginTop: 16 }}>
-                <div style={styles.fieldLabel}>Karigar / Regional Partner assign karein</div>
+                <div style={styles.fieldLabel}>{t('Karigar / Regional Partner assign karein')}</div>
                 <select
                   style={styles.input}
                   value={job.assignedStaffId || ''}
@@ -2741,7 +2738,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                     }
                   }}
                 >
-                  <option value=''>Koi assign nahi</option>
+                  <option value=''>{t('Koi assign nahi')}</option>
                   {staff.filter((s) => s.role === 'karigar' || s.role === 'regional_partner').map((s) => <option key={s.id} value={s.id}>{s.name}{s.role === 'regional_partner' ? ' (Regional Partner)' : ''}</option>)}
                 </select>
               </div>
@@ -2749,18 +2746,18 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
 
             {(job.status === 'delivered' || job.status === 'paid') && (
               <div style={{ marginTop: 16 }}>
-                <div style={styles.fieldLabel}>Repair Ka Record Rakhein</div>
+                <div style={styles.fieldLabel}>{t('Repair Ka Record Rakhein')}</div>
                 <div style={styles.plainTextMuted}>Agar customer ne phone par bataya ho ya aapko khud pata chala ho ki kuch theek karna hai - yahan add karein, taaki record rahe.</div>
                 {showAdminRepairForm ? (
                   <div style={{ marginTop: 8 }}>
-                    <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} placeholder='Kya repair karna hai, detail likhein...' value={adminRepairText} onChange={(e) => setAdminRepairText(e.target.value)} autoFocus />
+                    <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} placeholder={t('Kya repair karna hai, detail likhein...')} value={adminRepairText} onChange={(e) => setAdminRepairText(e.target.value)} autoFocus />
                     <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                      <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addAdminRepair}>Add Karein</button>
+                      <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addAdminRepair}>{t('Add Karein')}</button>
                       <button style={styles.cancelBtn} onClick={() => { setShowAdminRepairForm(false); setAdminRepairText(''); }}>Cancel</button>
                     </div>
                   </div>
                 ) : (
-                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => setShowAdminRepairForm(true)}><Plus size={14} /> Repair Add Karein</button>
+                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => setShowAdminRepairForm(true)}><Plus size={14} />{t('Repair Add Karein')}</button>
                 )}
               </div>
             )}
@@ -2774,19 +2771,19 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                     <div style={styles.itemSub}>{formatDate(q.createdAt)}</div>
                     {q.status === 'answered' ? (
                       <div style={{ ...styles.formCard, background: '#F0F7F0', marginTop: 8, padding: 8 }}>
-                        <div style={styles.itemSub}>Aapka jawab:</div>
+                        <div style={styles.itemSub}>{t('Aapka jawab:')}</div>
                         <div style={{ ...styles.itemDesc, marginTop: 2 }}>{q.answer}</div>
                       </div>
                     ) : answeringQuestionId === q.id ? (
                       <div style={{ marginTop: 8 }}>
-                        <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} placeholder='Jawab likhein...' value={answerText} onChange={(e) => setAnswerText(e.target.value)} autoFocus />
+                        <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} placeholder={t('Jawab likhein...')} value={answerText} onChange={(e) => setAnswerText(e.target.value)} autoFocus />
                         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                          <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => answerQuestion(q.id)}>Jawab Bhejein</button>
+                          <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => answerQuestion(q.id)}>{t('Jawab Bhejein')}</button>
                           <button style={styles.cancelBtn} onClick={() => { setAnsweringQuestionId(null); setAnswerText(''); }}>Cancel</button>
                         </div>
                       </div>
                     ) : (
-                      <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={() => setAnsweringQuestionId(q.id)}><MessageSquare size={13} /> Jawab Dein</button>
+                      <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={() => setAnsweringQuestionId(q.id)}><MessageSquare size={13} />{t('Jawab Dein')}</button>
                     )}
                   </div>
                 ))}
@@ -2798,7 +2795,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                 <div style={styles.fieldLabel}>Complaints ({job.complaints.length})</div>
                 {job.complaints.map((c) => (
                   <div key={c.id} style={{ ...styles.formCard, marginTop: 8, padding: 10 }}>
-                    <div style={styles.itemDesc}>{c.text} {c.source === 'admin' && <span style={styles.reqCatBadge}>Admin ne add kiya</span>}</div>
+                    <div style={styles.itemDesc}>{c.text} {c.source === 'admin' && <span style={styles.reqCatBadge}>{t('Admin ne add kiya')}</span>}</div>
                     {c.photo && (
                       <button style={{ border: 'none', padding: 0, background: 'none', cursor: 'pointer', marginTop: 8, display: 'block' }} onClick={() => setReqLightbox({ photos: [{ id: c.id, url: c.photo.url, origUrl: c.photo.origUrl, caption: c.text }], index: 0 })}>
                         <SmartImg src={c.photo.url} origUrl={c.photo.origUrl} alt='Problem' style={{ width: 90, height: 90, objectFit: 'cover', borderRadius: 8 }} />
@@ -2807,19 +2804,19 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                     <div style={styles.itemSub}>{formatDate(c.createdAt)}</div>
                     <ComplaintStageStepper status={c.status} />
                     {c.status === 'open' && (
-                      <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={() => startComplaintRepair(c.id)}><Hammer size={13} /> Repair Shuru Karein</button>
+                      <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={() => startComplaintRepair(c.id)}><Hammer size={13} />{t('Repair Shuru Karein')}</button>
                     )}
                     {c.status === 'in_progress' && (
                       resolvingComplaintId === c.id ? (
                         <div style={{ marginTop: 10 }}>
-                          <textarea style={{ ...styles.input, minHeight: 50, resize: 'vertical' }} placeholder='Kya theek kiya (optional note customer ko dikhega)' value={resolutionNoteText} onChange={(e) => setResolutionNoteText(e.target.value)} autoFocus />
+                          <textarea style={{ ...styles.input, minHeight: 50, resize: 'vertical' }} placeholder={t('Kya theek kiya (optional note customer ko dikhega)')} value={resolutionNoteText} onChange={(e) => setResolutionNoteText(e.target.value)} autoFocus />
                           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => { resolveComplaint(c.id, resolutionNoteText); setResolvingComplaintId(null); setResolutionNoteText(''); }}>Resolved Mark Karein</button>
+                            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => { resolveComplaint(c.id, resolutionNoteText); setResolvingComplaintId(null); setResolutionNoteText(''); }}>{t('Resolved Mark Karein')}</button>
                             <button style={styles.cancelBtn} onClick={() => { setResolvingComplaintId(null); setResolutionNoteText(''); }}>Cancel</button>
                           </div>
                         </div>
                       ) : (
-                        <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={() => setResolvingComplaintId(c.id)}><CheckCircle2 size={13} /> Resolved Mark Karein</button>
+                        <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={() => setResolvingComplaintId(c.id)}><CheckCircle2 size={13} />{t('Resolved Mark Karein')}</button>
                       )
                     )}
                     {c.status === 'resolved' && c.resolutionNote && (
@@ -2832,7 +2829,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
 
             {(job.status === 'delivered' || job.status === 'paid') && (
               <>
-              <button style={{ ...styles.addBtn, marginTop: 16 }} onClick={() => generateWarrantyCertificate(job, showToast)}><FileText size={14} /> Warranty Certificate Download Karein</button>
+              <button style={{ ...styles.addBtn, marginTop: 16 }} onClick={() => generateWarrantyCertificate(job, showToast)}><FileText size={14} />{t('Warranty Certificate Download Karein')}</button>
               {/* The number printed on the certificate. It used to be a
                   slice of the internal job id, which nobody can read out
                   over a phone - now it is whatever the business wants to
@@ -2851,17 +2848,17 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
             </div>
 
             <div style={{ marginTop: 16 }}>
-              <div style={styles.fieldLabel}>Material (poore estimate ke liye)</div>
-              <div style={styles.plainTextMuted}>Kaunsi company ki sheet, kitni kg - poore estimate mein ek hi material use hota hai.</div>
+              <div style={styles.fieldLabel}>{t('Material (poore estimate ke liye)')}</div>
+              <div style={styles.plainTextMuted}>{t('Kaunsi company ki sheet, kitni kg - poore estimate mein ek hi material use hota hai.')}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                <SavedInput style={styles.input} placeholder='Company (jaise Kaka)' value={job.materialCompany || ''} onCommit={(v) => saveJob({ ...jobRef.current, materialCompany: v })} />
+                <SavedInput style={styles.input} placeholder={t('Company (jaise Kaka)')} value={job.materialCompany || ''} onCommit={(v) => saveJob({ ...jobRef.current, materialCompany: v })} />
                 <SavedInput style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={job.sheetWeightKg || ''} onCommit={(v) => saveJob({ ...jobRef.current, sheetWeightKg: v })} />
               </div>
             </div>
 
             <div style={{ marginTop: 16 }}>
               <div style={styles.fieldLabel}>Work % Complete</div>
-              <div style={styles.plainTextMuted}>Kaam kitna hua hai - payment lena ho to yaad dilata hai.</div>
+              <div style={styles.plainTextMuted}>{t('Kaam kitna hua hai - payment lena ho to yaad dilata hai.')}</div>
               <div style={styles.chipRow}>
                 {[0, 25, 50, 75, 100].map((pct) => (
                   <button key={pct} onClick={() => saveJob({ ...jobRef.current, workPercent: pct })} style={{ ...styles.chip, ...((job.workPercent || 0) === pct ? styles.chipActive : {}) }}>{pct}%</button>
@@ -2874,7 +2871,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                     <div style={styles.itemSub}>{currency(jobDue(job))} abhi bhi due hai</div>
                   </div>
                   <a
-                    href={whatsAppShareUrl(job.phone, 'Namaste ' + job.customerName + ', aapka kaam ' + job.workPercent + '% ho gaya hai. Payment due hai: ' + currency(jobDue(job)) + '. Shree Krushn PVC Furniture.')}
+                    href={whatsAppShareUrl(job.phone, tf('Namaste {name}, aapka kaam {pct}% ho gaya hai. Payment due hai: {due}. Shree Krushn PVC Furniture.', { name: job.customerName, pct: job.workPercent, due: currency(jobDue(job)) }))}
                     target='_blank' rel='noopener noreferrer' style={styles.waReminderBtn}
                   >
                     <Send size={13} /> Remind
@@ -2891,9 +2888,9 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
 
         {tab === 'extrawork' && (
           <div>
-            <div style={styles.fieldLabel}>Naya extra work add karein</div>
+            <div style={styles.fieldLabel}>{t('Naya extra work add karein')}</div>
             <div style={styles.formCard}>
-              <input style={styles.input} placeholder='Title (optional - jaise "Extra shelving")' value={newExtraWork.title} onChange={(e) => setNewExtraWork((n) => ({ ...n, title: e.target.value }))} />
+              <input style={styles.input} placeholder={t('Title (optional - jaise "Extra shelving")')} value={newExtraWork.title} onChange={(e) => setNewExtraWork((n) => ({ ...n, title: e.target.value }))} />
 
               <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Items ({newExtraWork.items.length})</div>
               {newExtraWork.items.map((it, i) => {
@@ -2917,26 +2914,26 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                 <input style={styles.input} placeholder='Height (inch)' inputMode='decimal' value={newExtraWorkItem.height} onChange={(e) => setNewExtraWorkItem((n) => ({ ...n, height: e.target.value }))} />
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <input style={styles.input} placeholder='Qty (agar naap nahi)' inputMode='numeric' value={newExtraWorkItem.qty} onChange={(e) => setNewExtraWorkItem((n) => ({ ...n, qty: e.target.value }))} />
+                <input style={styles.input} placeholder={t('Qty (agar naap nahi)')} inputMode='numeric' value={newExtraWorkItem.qty} onChange={(e) => setNewExtraWorkItem((n) => ({ ...n, qty: e.target.value }))} />
                 <input style={styles.input} placeholder='Rate ₹' inputMode='decimal' value={newExtraWorkItem.rate} onChange={(e) => setNewExtraWorkItem((n) => ({ ...n, rate: e.target.value }))} />
               </div>
-              <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={addItemToNewExtraWork}><Plus size={13} /> Item add karein</button>
+              <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={addItemToNewExtraWork}><Plus size={13} />{t('Item add karein')}</button>
 
               {newExtraWork.items.length > 0 && (
                 <div style={styles.totalBar}><span>Extra Work Total</span><span style={styles.totalAmt}>{currency(newExtraWork.items.reduce((s, it) => s + estimateItemAmount(it), 0))}</span></div>
               )}
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button style={{ ...styles.addBtn, flex: 1, marginTop: 0 }} onClick={() => addExtraWork(false)}><Send size={14} /> Customer Approval Bhejein</button>
-                <button style={{ ...styles.addBtn, flex: 1, marginTop: 0, background: BRAND.navy, color: '#FFF', border: 'none' }} onClick={() => addExtraWork(true)}><CheckCircle2 size={14} /> Seedha Add Karein</button>
+                <button style={{ ...styles.addBtn, flex: 1, marginTop: 0 }} onClick={() => addExtraWork(false)}><Send size={14} />{t('Customer Approval Bhejein')}</button>
+                <button style={{ ...styles.addBtn, flex: 1, marginTop: 0, background: BRAND.navy, color: '#FFF', border: 'none' }} onClick={() => addExtraWork(true)}><CheckCircle2 size={14} />{t('Seedha Add Karein')}</button>
               </div>
             </div>
 
             <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Extra work history ({extraWork.length})</div>
-            {extraWork.length === 0 && <div style={styles.emptySmall}>Koi extra work nahi hai.</div>}
+            {extraWork.length === 0 && <div style={styles.emptySmall}>{t('Koi extra work nahi hai.')}</div>}
             {extraWork.map((e) => (
               <div key={e.id} style={styles.extraWorkCard}>
                 <div style={styles.itemDesc}>{e.desc}</div>
-                <div style={styles.itemSub}>{e.addedBy === 'admin' ? 'Aapne add kiya' : 'Customer ne request kiya'} - {formatDate(e.createdAt)}</div>
+                <div style={styles.itemSub}>{e.addedBy === 'admin' ? t('Aapne add kiya') : t('Customer ne request kiya')} - {formatDate(e.createdAt)}</div>
 
                 {(e.items || []).length > 0 && (
                   <div style={{ marginTop: 6 }}>
@@ -2952,7 +2949,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                 )}
 
                 {e.status === 'pending_admin_price' && pricingId !== e.id && (
-                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => startPricingItem(e)}>Price set karein</button>
+                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => startPricingItem(e)}>{t('Price set karein')}</button>
                 )}
                 {pricingId === e.id && (
                   <div style={{ marginTop: 8 }}>
@@ -2979,7 +2976,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                       <input style={styles.input} placeholder='Qty' inputMode='numeric' value={newPricingItem.qty} onChange={(ev) => setNewPricingItem((n) => ({ ...n, qty: ev.target.value }))} />
                       <input style={styles.input} placeholder='Rate ₹' inputMode='decimal' value={newPricingItem.rate} onChange={(ev) => setNewPricingItem((n) => ({ ...n, rate: ev.target.value }))} />
                     </div>
-                    <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={addItemToPricing}><Plus size={13} /> Item add karein</button>
+                    <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={addItemToPricing}><Plus size={13} />{t('Item add karein')}</button>
                     {pricingItems.length > 0 && (
                       <div style={styles.hintText}>Total: {currency(pricingItems.reduce((s, it) => s + estimateItemAmount(it), 0))}</div>
                     )}
@@ -3000,15 +2997,14 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
                   </div>
                 )}
                 {e.status === 'approved' && !e.mergedIntoEstimate && (
-                  <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => mergeExtraWorkIntoEstimate(e)}><FileText size={13} /> Estimate Mein Merge Karein</button>
+                  <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => mergeExtraWorkIntoEstimate(e)}><FileText size={13} />{t('Estimate Mein Merge Karein')}</button>
                 )}
                 {e.mergedIntoEstimate && (
-                  <div style={{ ...styles.itemSub, marginTop: 6 }}>Estimate ke items mein merge ho chuka hai</div>
+                  <div style={{ ...styles.itemSub, marginTop: 6 }}>{t('Estimate ke items mein merge ho chuka hai')}</div>
                 )}
                 {e.status === 'rejected' && (
                   <div style={{ ...styles.estimateStatusBanner, background: '#FFEBEE', color: '#C62828', marginTop: 8 }}>
-                    <XCircle size={14} /> Customer ne reject kiya
-                  </div>
+                    <XCircle size={14} />{t('Customer ne reject kiya')}</div>
                 )}
                 <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => removeExtraWork(e.id)}><Trash2 size={12} /> Remove</button>
               </div>
@@ -3081,7 +3077,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
         {tab === 'req' && (
           <div>
             <div style={styles.fieldLabel}>Customer requirements</div>
-            {(job.requirements || []).length === 0 && <div style={styles.emptySmall}>Customer ne abhi koi requirement nahi di.</div>}
+            {(job.requirements || []).length === 0 && <div style={styles.emptySmall}>{t('Customer ne abhi koi requirement nahi di.')}</div>}
             {(job.requirements || []).map((r) => (
               <div key={r.id} style={styles.reqRow}>
                 {r.photoRef && resolveGalleryPhotoForAdmin(r.photoRef.photoId) && (
@@ -3116,7 +3112,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
             {(job.workPercent || 0) > 0 && (
               <div style={{ ...styles.deliveryDateBanner, marginBottom: 12 }}>
                 <Hammer size={15} color={BRAND.gold} />
-                <span>Kaam <b>{job.workPercent}%</b> complete ho gaya hai</span>
+                <span>{t('Kaam')}<b>{job.workPercent}%</b>{t('complete ho gaya hai')}</span>
               </div>
             )}
             <div style={styles.fieldLabel}>Progress photos</div>
@@ -3142,7 +3138,7 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
         {tab === 'activity' && (
           <div>
             <div style={styles.fieldLabel}>Activity log</div>
-            {(job.activity || []).length === 0 && <div style={styles.emptySmall}>Koi activity nahi.</div>}
+            {(job.activity || []).length === 0 && <div style={styles.emptySmall}>{t('Koi activity nahi.')}</div>}
             <div style={styles.activityList}>
               {(job.activity || []).map((a) => (
                 <div key={a.id} style={styles.activityRow}>
@@ -3164,8 +3160,8 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
         {tab === 'karigar' && (
           <div>
             <div style={styles.fieldLabel}>Karigar se Messages</div>
-            <div style={styles.plainTextMuted}>Assigned karigar ke sawal yahan aayenge, reply karein.</div>
-            {karigarMessages.length === 0 && <div style={styles.emptySmall}>Abhi koi message nahi hai.</div>}
+            <div style={styles.plainTextMuted}>{t('Assigned karigar ke sawal yahan aayenge, reply karein.')}</div>
+            {karigarMessages.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi message nahi hai.')}</div>}
             {karigarMessages.map((m) => (
               <div key={m.id} style={{ ...styles.extraWorkCard, ...(m.from === 'admin' ? { background: '#E1EDEA' } : {}) }}>
                 <div style={styles.itemSub}>{m.authorName} - {formatDate(m.createdAt)}</div>
@@ -3173,8 +3169,8 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
               </div>
             ))}
             <div style={{ marginTop: 10 }}>
-              <textarea style={{ ...styles.input, minHeight: 60 }} placeholder='Reply likhein...' value={replyText} onChange={(e) => setReplyText(e.target.value)} />
-              <button style={styles.addBtn} onClick={sendAdminReply}><Send size={14} /> Reply bhejein</button>
+              <textarea style={{ ...styles.input, minHeight: 60 }} placeholder={t('Reply likhein...')} value={replyText} onChange={(e) => setReplyText(e.target.value)} />
+              <button style={styles.addBtn} onClick={sendAdminReply}><Send size={14} />{t('Reply bhejein')}</button>
             </div>
           </div>
         )}
@@ -3182,25 +3178,25 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
         {tab === 'materials' && (
           <div>
             <div style={styles.fieldLabel}>Material &amp; Hardware</div>
-            <div style={styles.plainTextMuted}>Kya order karna hai, kya customer ne handle/glass select kiya - sab yahan track karein.</div>
+            <div style={styles.plainTextMuted}>{t('Kya order karna hai, kya customer ne handle/glass select kiya - sab yahan track karein.')}</div>
 
             <div style={styles.formCard}>
-              <input style={styles.input} placeholder='Kya chahiye (jaise "Rose gold handle" ya "Kaka PVC sheet 18mm")' value={newMaterial.desc} onChange={(e) => setNewMaterial((n) => ({ ...n, desc: e.target.value }))} />
+              <input style={styles.input} placeholder={t('Kya chahiye (jaise "Rose gold handle" ya "Kaka PVC sheet 18mm")')} value={newMaterial.desc} onChange={(e) => setNewMaterial((n) => ({ ...n, desc: e.target.value }))} />
               <div style={styles.chipRow}>
                 <button onClick={() => setNewMaterial((n) => ({ ...n, category: 'material' }))} style={{ ...styles.chip, ...(newMaterial.category === 'material' ? styles.chipActive : {}) }}>Material</button>
                 <button onClick={() => setNewMaterial((n) => ({ ...n, category: 'hardware' }))} style={{ ...styles.chip, ...(newMaterial.category === 'hardware' ? styles.chipActive : {}) }}>Hardware/Fitting</button>
               </div>
-              <button style={styles.addBtn} onClick={addMaterial}><Plus size={14} /> Add karein</button>
+              <button style={styles.addBtn} onClick={addMaterial}><Plus size={14} />{t('Add karein')}</button>
             </div>
 
-            {materials.length === 0 && <div style={styles.emptySmall}>Abhi koi material/hardware add nahi kiya.</div>}
+            {materials.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi material/hardware add nahi kiya.')}</div>}
             {materials.map((m) => (
               <div key={m.id} style={styles.extraWorkCard}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={styles.itemDesc}>{m.desc} <span style={styles.reqCatBadge}>{m.category === 'hardware' ? 'Hardware' : 'Material'}</span></div>
                   <button style={styles.iconBtnSmall} onClick={() => removeMaterial(m.id)}><Trash2 size={13} color='#C7CCDC' /></button>
                 </div>
-                <div style={styles.itemSub}>Status: {m.status === 'pending' ? 'Pending' : m.status === 'ordered' ? 'Order ho gaya' : 'Aa gaya'}</div>
+                <div style={styles.itemSub}>Status: {m.status === 'pending' ? 'Pending' : m.status === 'ordered' ? t('Order ho gaya') : t('Aa gaya')}</div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                   <button style={{ ...styles.chip, ...(m.status === 'pending' ? styles.chipActive : {}) }} onClick={() => setMaterialStatus(m.id, 'pending')}>Pending</button>
                   <button style={{ ...styles.chip, ...(m.status === 'ordered' ? styles.chipActive : {}) }} onClick={() => setMaterialStatus(m.id, 'ordered')}>Ordered</button>
@@ -3273,7 +3269,7 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
     return (
       <div style={{ padding: '40px 16px', textAlign: 'center' }}>
         <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid ' + BRAND.line, borderTopColor: BRAND.gold, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-        <div style={{ ...styles.plainTextMuted, marginTop: 12 }}>Gallery load ho rahi hai...</div>
+        <div style={{ ...styles.plainTextMuted, marginTop: 12 }}>{t('Gallery load ho rahi hai...')}</div>
       </div>
     );
   }
@@ -3390,7 +3386,7 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Design Gallery Manager</div>
-      <div style={styles.plainTextMuted}>Categories add/remove karne ke liye Settings mein jaayein.</div>
+      <div style={styles.plainTextMuted}>{t('Categories add/remove karne ke liye Settings mein jaayein.')}</div>
 
       <div style={styles.chipRow}>
         <button
@@ -3414,7 +3410,7 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
         <button style={styles.linkBtn2} onClick={() => setShowBulk((s) => !s)}>{showBulk ? 'Hide bulk add' : 'Bulk add (many URLs at once) ->'}</button>
         {showBulk && (
           <div style={{ marginTop: 8 }}>
-            <textarea style={{ ...styles.input, minHeight: 100, resize: 'vertical' }} placeholder={['Ek line mein ek URL daalein (Google Drive links bhi chalenge):', 'https://example.com/1.jpg', 'https://drive.google.com/file/d/.../view'].join(NEWLINE)} value={bulkText} onChange={(e) => setBulkText(e.target.value)} />
+            <textarea style={{ ...styles.input, minHeight: 100, resize: 'vertical' }} placeholder={[t('Ek line mein ek URL daalein (Google Drive links bhi chalenge):'), 'https://example.com/1.jpg', 'https://drive.google.com/file/d/.../view'].join(NEWLINE)} value={bulkText} onChange={(e) => setBulkText(e.target.value)} />
             <button style={styles.addBtn} onClick={addBulk}><Plus size={14} /> Add all URLs</button>
           </div>
         )}
@@ -3423,7 +3419,7 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
       {allPhotos.length > 6 && (
         <div style={{ ...styles.searchWrap, marginTop: 16 }}>
           <Search size={15} color={BRAND.textMuted} />
-          <input style={styles.searchInput} placeholder='Caption se search karein...' value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input style={styles.searchInput} placeholder={t('Caption se search karein...')} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
       )}
 
@@ -3505,7 +3501,7 @@ function AdminReviews({ jobs, setJobs, archivedReviews, setArchivedReviews, show
   const toggleFeatured = (job) => {
     const next = jobs.map((j) => (j.id === job.id ? { ...j, review: { ...j.review, featured: !j.review.featured } } : j));
     setJobs(next);
-    showToast(job.review.featured ? 'Review featured list se hataya gaya' : 'Review featured list mein add ho gaya');
+    showToast(job.review.featured ? t('Review featured list se hataya gaya') : t('Review featured list mein add ho gaya'));
   };
 
   const saveEdit = (job, newRating, newText) => {
@@ -3523,7 +3519,7 @@ function AdminReviews({ jobs, setJobs, archivedReviews, setArchivedReviews, show
         <StatCard icon={<MessageSquare size={16} />} label='Total Reviews' value={reviewed.length} />
       </div>
       <div style={styles.plainTextMuted}>{featuredCount} review{featuredCount !== 1 ? 's' : ''} customers ko dikh rahe hain (featured)</div>
-      {reviewed.length === 0 && <div style={styles.empty}>Abhi tak koi review nahi mila.</div>}
+      {reviewed.length === 0 && <div style={styles.empty}>{t('Abhi tak koi review nahi mila.')}</div>}
       {reviewed.map((j) => (
         <div key={j.id} style={styles.reviewCard}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -3541,7 +3537,7 @@ function AdminReviews({ jobs, setJobs, archivedReviews, setArchivedReviews, show
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button style={styles.cardActionBtn} onClick={() => setEditingJobId(j.id)}><Edit3 size={12} /> Edit</button>
                 <button style={{ ...styles.cardActionBtn, ...(j.review.featured ? styles.cardActionBtnActive : {}) }} onClick={() => toggleFeatured(j)}>
-                  <Star size={12} fill={j.review.featured ? '#FFF' : 'none'} /> {j.review.featured ? 'Featured' : 'Feature karein'}
+                  <Star size={12} fill={j.review.featured ? '#FFF' : 'none'} /> {j.review.featured ? 'Featured' : t('Feature karein')}
                 </button>
               </div>
             </>
@@ -3551,8 +3547,8 @@ function AdminReviews({ jobs, setJobs, archivedReviews, setArchivedReviews, show
 
       {(archivedReviews || []).length > 0 && (
         <div style={{ marginTop: 18 }}>
-          <div style={styles.fieldLabel}>Archived Reviews (customer delete ho chuke hain)</div>
-          <div style={styles.plainTextMuted}>Ye reviews un customers ke hain jo delete ho chuke hain - marketing ke liye surakshit rakhe gaye hain.</div>
+          <div style={styles.fieldLabel}>{t('Archived Reviews (customer delete ho chuke hain)')}</div>
+          <div style={styles.plainTextMuted}>{t('Ye reviews un customers ke hain jo delete ho chuke hain - marketing ke liye surakshit rakhe gaye hain.')}</div>
           {archivedReviews.map((r) => (
             <div key={r.id} style={styles.reviewCard}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -3563,7 +3559,7 @@ function AdminReviews({ jobs, setJobs, archivedReviews, setArchivedReviews, show
               </div>
               {r.text && <div style={{ ...styles.plainText, marginTop: 6 }}>{r.text}</div>}
               <div style={styles.itemSub}>{formatDate(r.date)}</div>
-              <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => removeArchivedReview(r.id)}><Trash2 size={12} /> Hamesha Ke Liye Hataein</button>
+              <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => removeArchivedReview(r.id)}><Trash2 size={12} />{t('Hamesha Ke Liye Hataein')}</button>
             </div>
           ))}
         </div>
@@ -3712,13 +3708,13 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
     const activeTotal = activePayeeEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
     return (
       <div style={{ padding: '12px 16px' }}>
-        <button style={styles.backLink} onClick={() => setActivePayee(null)}><ArrowLeft size={13} /> Sab log</button>
+        <button style={styles.backLink} onClick={() => setActivePayee(null)}><ArrowLeft size={13} />{t('Sab log')}</button>
         <div style={styles.catTitle}>{activePayeeDisplayName}</div>
         <div style={{ ...styles.payStrip, marginTop: 10 }}>
           <MoneyBit label='Total Diya' value={currency(activeTotal)} highlight />
           <MoneyBit label='Entries' value={String(activePayeeEntries.length)} muted />
         </div>
-        <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Poori history</div>
+        <div style={{ ...styles.fieldLabel, marginTop: 14 }}>{t('Poori history')}</div>
         {activePayeeEntries.map((e) => (
           <div key={e.id} style={styles.itemRow}>
             <div style={{ flex: 1 }}>
@@ -3743,7 +3739,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
           <button style={styles.linkBtn2} onClick={() => setShowProfitReport(true)}>Project Profit Report</button>
         </div>
       </div>
-      <div style={styles.plainTextMuted}>Customer se aayi payment alag, karigar/company kharch alag track hota hai.</div>
+      <div style={styles.plainTextMuted}>{t('Customer se aayi payment alag, karigar/company kharch alag track hota hai.')}</div>
 
       <div style={styles.statRow2}>
         <StatCard icon={<IndianRupee size={16} />} label='Collected' value={currency(totalCollected)} />
@@ -3753,7 +3749,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
 
       {payeeSummary.length > 0 && (
         <div style={{ marginTop: 16 }}>
-          <div style={styles.fieldLabel}>Person-wise total (kisko kitna diya)</div>
+          <div style={styles.fieldLabel}>{t('Person-wise total (kisko kitna diya)')}</div>
           {payeeSummary.map((g) => (
             <button key={g.displayName} style={{ ...styles.staffRow, background: 'none', border: 'none', width: '100%', cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => setActivePayee(g.displayName.trim().toLowerCase())}>
               <div style={{ flex: 1, textAlign: 'left' }}>
@@ -3774,11 +3770,11 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
             <button key={t} onClick={() => setType(t)} style={{ ...styles.chip, ...(type === t ? styles.chipActive : {}) }}>{t}</button>
           ))}
         </div>
-        <input style={{ ...styles.input, marginTop: 10 }} placeholder={type === 'Karigar Payment' ? 'Karigar ka naam' : 'Kisko / kya'} value={payee} onChange={(e) => setPayee(e.target.value)} />
+        <input style={{ ...styles.input, marginTop: 10 }} placeholder={type === 'Karigar Payment' ? 'Karigar ka naam' : t('Kisko / kya')} value={payee} onChange={(e) => setPayee(e.target.value)} />
         <input style={{ ...styles.input, marginTop: 8 }} placeholder='Amount ₹' inputMode='decimal' value={amount} onChange={(e) => setAmount(e.target.value)} />
         <input style={{ ...styles.input, marginTop: 8 }} placeholder='Note (optional)' value={note} onChange={(e) => setNote(e.target.value)} />
         <select style={{ ...styles.input, marginTop: 8 }} value={linkedJobId} onChange={(e) => setLinkedJobId(e.target.value)}>
-          <option value=''>Kisi project se link nahi (general expense)</option>
+          <option value=''>{t('Kisi project se link nahi (general expense)')}</option>
           {visibleJobs.filter((j) => j.status === 'in_progress').map((j) => <option key={j.id} value={j.id}>{j.customerName}</option>)}
         </select>
         <button style={styles.addBtn} onClick={addExpense}><Plus size={14} /> Add expense</button>
@@ -3790,7 +3786,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
       </div>
 
       <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Expense history ({filtered.length})</div>
-      {filtered.length === 0 && <div style={styles.emptySmall}>Koi expense record nahi hai.</div>}
+      {filtered.length === 0 && <div style={styles.emptySmall}>{t('Koi expense record nahi hai.')}</div>}
       {filtered.map((e) => (
         <div key={e.id} style={styles.itemRow}>
           <div style={{ flex: 1 }}>
@@ -3912,7 +3908,7 @@ function AdminJobStatusList({ jobs, statuses, title, onOpenJob }) {
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>{title}</div>
       <div style={styles.plainTextMuted}>{rows.length} customer{rows.length !== 1 ? 's' : ''}</div>
-      {rows.length === 0 && <div style={styles.emptySmall}>Koi customer nahi hai.</div>}
+      {rows.length === 0 && <div style={styles.emptySmall}>{t('Koi customer nahi hai.')}</div>}
       {rows.map((j) => (
         <button key={j.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(j.id)}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -3943,14 +3939,14 @@ function AdminDuePaymentsList({ jobs, expenses, onOpenJob }) {
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Due Payments</div>
-      <div style={styles.plainTextMuted}>Jin projects mein kaam shuru ho chuka hai aur payment abhi bhi baaki hai.</div>
+      <div style={styles.plainTextMuted}>{t('Jin projects mein kaam shuru ho chuka hai aur payment abhi bhi baaki hai.')}</div>
 
       <div style={styles.statRow2}>
         <StatCard icon={<AlertCircle size={16} />} label='Total Due' value={currency(totalDue)} accent />
         <StatCard icon={<User size={16} />} label='Customers' value={rows.length} />
       </div>
 
-      {rows.length === 0 && <div style={styles.emptySmall}>Koi payment due nahi hai.</div>}
+      {rows.length === 0 && <div style={styles.emptySmall}>{t('Koi payment due nahi hai.')}</div>}
       {rows.map((r) => (
         // The row is a div rather than a button now: it holds the
         // WhatsApp link, and a link inside a button is invalid markup
@@ -4003,7 +3999,7 @@ function AdminServiceDueList({ jobs, onSaveJob, onOpenJob, showToast }) {
   const markDone = (job, visit) => {
     const done = [...(job.serviceVisits || []), { n: visit.n, at: new Date().toISOString(), note: '' }];
     let next = { ...job, serviceVisits: done };
-    next = logActivity(next, 'Free service visit (' + visit.label + ') ho gaya');
+    next = logActivity(next, 'Free service visit (' + visit.label + ') completed');
     onSaveJob(next);
     if (showToast) showToast('Service visit mark ho gaya');
   };
@@ -4019,11 +4015,11 @@ function AdminServiceDueList({ jobs, onSaveJob, onOpenJob, showToast }) {
       </div>
 
       <div style={styles.statRow2}>
-        <StatCard icon={<AlertCircle size={16} />} label='Abhi due' value={rows.length} accent />
+        <StatCard icon={<AlertCircle size={16} />} label={t('Abhi due')} value={rows.length} accent />
         <StatCard icon={<Calendar size={16} />} label='Aage aane wale' value={upcoming.length} />
       </div>
 
-      {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi service visit due nahi hai.</div>}
+      {rows.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi service visit due nahi hai.')}</div>}
       {rows.map((r) => (
         <div key={r.job.id} style={styles.reviewCard}>
           <button
@@ -4049,11 +4045,9 @@ function AdminServiceDueList({ jobs, onSaveJob, onOpenJob, showToast }) {
               rel='noopener noreferrer'
               style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', display: 'inline-flex' }}
             >
-              <Send size={13} /> Visit Offer Bhejein
-            </a>
+              <Send size={13} />{t('Visit Offer Bhejein')}</a>
             <button style={styles.cardActionBtn} onClick={() => markDone(r.job, r.visit)}>
-              <CheckCircle2 size={13} /> Ho gaya
-            </button>
+              <CheckCircle2 size={13} />{t('Ho gaya')}</button>
           </div>
         </div>
       ))}
@@ -4127,11 +4121,11 @@ function AdminProfitReport({ jobs, expenses }) {
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Project-wise Profit Report</div>
-      <div style={styles.plainTextMuted}>Har project mein kitna collect hua, kitna expense laga, aur profit kitna hai.</div>
+      <div style={styles.plainTextMuted}>{t('Har project mein kitna collect hua, kitna expense laga, aur profit kitna hai.')}</div>
 
       {availableYears.length > 0 && (
         <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-          <button style={{ ...styles.chip, ...(selectedYear === 'all' ? styles.chipActive : {}) }} onClick={() => setSelectedYear('all')}>Sab Milaake</button>
+          <button style={{ ...styles.chip, ...(selectedYear === 'all' ? styles.chipActive : {}) }} onClick={() => setSelectedYear('all')}>{t('Sab Milaake')}</button>
           {availableYears.map((y) => (
             <button key={y} style={{ ...styles.chip, ...(selectedYear === y ? styles.chipActive : {}) }} onClick={() => setSelectedYear(y)}>{y}</button>
           ))}
@@ -4151,7 +4145,7 @@ function AdminProfitReport({ jobs, expenses }) {
       )}
 
       <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Project-wise breakdown</div>
-      {rows.length === 0 && <div style={styles.emptySmall}>Abhi koi payment ya linked expense record nahi hai.</div>}
+      {rows.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi payment ya linked expense record nahi hai.')}</div>}
       {rows.map((r) => (
         <div key={r.job.id} style={styles.reviewCard}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -4310,17 +4304,17 @@ function DataCheckPanel({ gallery, showToast }) {
       } else if (p.auth && !p.auth.ok && denied) {
         verdict = 'Login fail + reads blocked. Firebase Console -> Authentication -> Sign-in method -> Anonymous ko Enable kijiye. Data safe hai.';
       } else if (denied) {
-        verdict = 'Firestore Rules reads block kar rahe hain. Data safe hai, rules theek karne par wapas aa jayega.';
+        verdict = t('Firestore Rules reads block kar rahe hain. Data safe hai, rules theek karne par wapas aa jayega.');
       } else if (!p.online) {
-        verdict = 'Device offline hai - dobara online hokar check kijiye.';
+        verdict = t('Device offline hai - dobara online hokar check kijiye.');
       } else if (!anyData) {
         verdict = 'Reads chal rahe hain lekin is project mein data nahi mila. Firebase Console -> Firestore Database dekhiye.';
       } else {
-        verdict = 'Data padha ja raha hai.';
+        verdict = t('Data padha ja raha hai.');
       }
       add('NATIJA', verdict);
     } catch (e) {
-      add('Check fail ho gaya', String((e && e.message) || e));
+      add(t('Check fail ho gaya'), String((e && e.message) || e));
     }
     setReport(lines);
     setRunning(false);
@@ -4347,7 +4341,7 @@ function DataCheckPanel({ gallery, showToast }) {
         dikhata hai. Agar data gayab lage to ye chala kar result bhej dijiye.
       </div>
       <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={run} disabled={running}>
-        {running ? 'Check kar rahe hain...' : 'Data check karein'}
+        {running ? t('Check kar rahe hain...') : t('Data check karein')}
       </button>
       {report && (
         <div style={{ marginTop: 12 }}>
@@ -4357,7 +4351,7 @@ function DataCheckPanel({ gallery, showToast }) {
               <span style={{ fontSize: 13, fontWeight: 700, textAlign: 'right' }}>{String(l.value)}</span>
             </div>
           ))}
-          <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={copy}>Result copy karein</button>
+          <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={copy}>{t('Result copy karein')}</button>
         </div>
       )}
     </div>
@@ -4594,7 +4588,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
             // number of retries will conjure one - say so plainly instead
             // of letting it fail as a mystery on every run.
             if (typeof p.url === 'string' && p.url.startsWith('data:') && p.url.length < 2000) {
-              throw new Error('Photo ka data adhoora hai - ise dobara upload karna hoga');
+              throw new Error(t('Photo ka data adhoora hai - ise dobara upload karna hoga'));
             }
             const fullDataUri = await loadImageAsDataUrl(p.url);
             const thumbDataUri = await generateThumbnail(fullDataUri);
@@ -4654,10 +4648,10 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     for (const cat of Object.keys(gallery || {})) {
       for (const p of (gallery[cat] || [])) {
         if (!p.url) {
-          photoIssues.push({ cat, id: p.id, caption: p.caption, kind: 'missing', detail: 'URL bilkul missing hai' });
+          photoIssues.push({ cat, id: p.id, caption: p.caption, kind: 'missing', detail: t('URL bilkul missing hai') });
         } else if (p.url.startsWith('data:')) {
           const looksTruncated = p.url.length < 2000;
-          photoIssues.push({ cat, id: p.id, caption: p.caption, kind: 'data-uri', detail: looksTruncated ? 'Purana data corrupt/adhoora hai - dobara upload karna hoga' : 'Storage par upload nahi ho payi thi - retry se theek ho sakti hai' });
+          photoIssues.push({ cat, id: p.id, caption: p.caption, kind: 'data-uri', detail: looksTruncated ? t('Purana data corrupt/adhoora hai - dobara upload karna hoga') : t('Storage par upload nahi ho payi thi - retry se theek ho sakti hai') });
         }
       }
     }
@@ -4665,9 +4659,9 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     const brochureIssues = [];
     for (const b of (brochures || [])) {
       if (!b.url) {
-        brochureIssues.push({ id: b.id, name: b.name, detail: 'URL missing hai - dobara upload karna hoga' });
+        brochureIssues.push({ id: b.id, name: b.name, detail: t('URL missing hai - dobara upload karna hoga') });
       } else if (b.url.startsWith('data:')) {
-        brochureIssues.push({ id: b.id, name: b.name, detail: 'Upload poora nahi hua tha - dobara upload karna hoga' });
+        brochureIssues.push({ id: b.id, name: b.name, detail: t('Upload poora nahi hua tha - dobara upload karna hoga') });
       }
     }
 
@@ -4784,8 +4778,8 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
   };
 
   const change = async () => {
-    if (next1.length < 4) { setError('Naya PIN kam se kam 4 digit ka hona chahiye'); return; }
-    if (next1 !== next2) { setError('Dono naye PIN match nahi karte'); return; }
+    if (next1.length < 4) { setError(t('Naya PIN kam se kam 4 digit ka hona chahiye')); return; }
+    if (next1 !== next2) { setError(t('Dono naye PIN match nahi karte')); return; }
     if (changingPin) return;
     setChangingPin(true);
     try {
@@ -4794,10 +4788,10 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       if (res.unconfigured) {
         // No server session to verify against, so the old local check is
         // the only one there is.
-        if (current !== adminPin) { setError('Current PIN galat hai'); return; }
+        if (current !== adminPin) { setError(t('Current PIN galat hai')); return; }
         setAdminPin(next1);
       } else if (!res.ok) {
-        setError(res.error || 'PIN change nahi ho paya');
+        setError(res.error || t('PIN change nahi ho paya'));
         return;
       } else {
         setAdminPin(next1, true);
@@ -4814,14 +4808,14 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
   // to the server and never into app_data/staff, which every signed-in
   // user can read. hasPin is what the screen shows instead.
   const addStaff = async () => {
-    if (!newStaffName.trim()) { setStaffError('Staff ka naam daalein'); return; }
+    if (!newStaffName.trim()) { setStaffError(t('Staff ka naam daalein')); return; }
     if (newStaffPin.length < 4) { setStaffError('PIN kam se kam 4 digit ka ho'); return; }
     // A first pass against what this device can still see. The complete
     // check is on the server, which is the only thing that knows every
     // PIN now - it answers 409 and the message below shows that.
     const visiblePins = [adminPin, partnerPin, dhPartnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
-    if (visiblePins.includes(newStaffPin)) { setStaffError('Ye PIN pehle se use ho raha hai - alag PIN chunein'); return; }
-    if (newStaffRole === 'regional_partner' && (!newCommissionPercent || Number(newCommissionPercent) <= 0)) { setStaffError('Commission percentage daalein'); return; }
+    if (visiblePins.includes(newStaffPin)) { setStaffError(t('Ye PIN pehle se use ho raha hai - alag PIN chunein')); return; }
+    if (newStaffRole === 'regional_partner' && (!newCommissionPercent || Number(newCommissionPercent) <= 0)) { setStaffError(t('Commission percentage daalein')); return; }
     if (addingStaff) return;
     setAddingStaff(true);
     try {
@@ -4841,7 +4835,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         // logins do not stop working on a half-configured deploy.
         setStaff([...staff, { ...member, pin: newStaffPin }]);
       } else {
-        setStaffError((res && res.error) || 'PIN set nahi ho paya');
+        setStaffError((res && res.error) || t('PIN set nahi ho paya'));
         return;
       }
       setNewStaffName(''); setNewStaffPin(''); setNewStaffRole('admin'); setNewCommissionPercent(''); setStaffError('');
@@ -4872,36 +4866,36 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       setStaff(staff.map((m) => (m.id === member.id ? { ...m, pin: next } : m)));
       showToast('PIN badal gaya');
     } else {
-      showToast((res && res.error) || 'PIN badla nahi ja saka', true);
+      showToast((res && res.error) || t('PIN badla nahi ja saka'), true);
     }
   };
 
   const savePartnerPin = async () => {
     if (newPartnerPin.length < 4) { setPartnerPinError('PIN kam se kam 4 digit ka ho'); return; }
     const allPins = [adminPin, dhPartnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
-    if (allPins.includes(newPartnerPin)) { setPartnerPinError('Ye PIN pehle se use ho raha hai - alag PIN chunein'); return; }
+    if (allPins.includes(newPartnerPin)) { setPartnerPinError(t('Ye PIN pehle se use ho raha hai - alag PIN chunein')); return; }
     const res = await changePinVia('partner', '', newPartnerPin, setPartnerPin);
-    if (!res.ok) { setPartnerPinError(res.error || 'PIN set nahi ho paya'); return; }
+    if (!res.ok) { setPartnerPinError(res.error || t('PIN set nahi ho paya')); return; }
     setNewPartnerPin(''); setPartnerPinError('');
     showToast('Partner PIN set ho gaya');
   };
   const removePartnerPin = async () => {
     const res = await changePinVia('partner', '', '', setPartnerPin);
-    if (!res.ok) { setPartnerPinError(res.error || 'Hataya nahi ja saka'); return; }
+    if (!res.ok) { setPartnerPinError(res.error || t('Hataya nahi ja saka')); return; }
     showToast('Partner access hata diya gaya');
   };
   const saveDhPartnerPin = async () => {
     if (newDhPartnerPin.length < 4) { setDhPartnerPinError('PIN kam se kam 4 digit ka ho'); return; }
     const allPins = [adminPin, partnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
-    if (allPins.includes(newDhPartnerPin)) { setDhPartnerPinError('Ye PIN pehle se use ho raha hai - alag PIN chunein'); return; }
+    if (allPins.includes(newDhPartnerPin)) { setDhPartnerPinError(t('Ye PIN pehle se use ho raha hai - alag PIN chunein')); return; }
     const res = await changePinVia('dh_partner', '', newDhPartnerPin, setDhPartnerPin);
-    if (!res.ok) { setDhPartnerPinError(res.error || 'PIN set nahi ho paya'); return; }
+    if (!res.ok) { setDhPartnerPinError(res.error || t('PIN set nahi ho paya')); return; }
     setNewDhPartnerPin(''); setDhPartnerPinError('');
     showToast('DH Home Decor PIN set ho gaya');
   };
   const removeDhPartnerPin = async () => {
     const res = await changePinVia('dh_partner', '', '', setDhPartnerPin);
-    if (!res.ok) { setDhPartnerPinError(res.error || 'Hataya nahi ja saka'); return; }
+    if (!res.ok) { setDhPartnerPinError(res.error || t('Hataya nahi ja saka')); return; }
     showToast('DH Home Decor access hata diya gaya');
   };
 
@@ -5047,15 +5041,15 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
             )}
           </div>
         </div>
-        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Team members ko alag PIN dein taaki wo bhi access kar sakein.</div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>{t('Team members ko alag PIN dein taaki wo bhi access kar sakein.')}</div>
 
-        {staff.length === 0 && <div style={styles.emptySmall}>Abhi koi staff member add nahi kiya.</div>}
+        {staff.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi staff member add nahi kiya.')}</div>}
         {staff.map((s) => (
           <div key={s.id} style={styles.staffRow}>
             <div style={{ flex: 1 }}>
               <div style={styles.itemDesc}>{s.name} <span style={styles.reqCatBadge}>{s.role === 'karigar' ? 'Karigar' : (s.role === 'regional_partner' ? 'Regional Partner' : 'Admin')}</span></div>
               <div style={styles.itemSub}>
-                {s.pin ? ('PIN: ' + s.pin) : 'PIN set hai (surakshit)'}
+                {s.pin ? ('PIN: ' + s.pin) : t('PIN set hai (surakshit)')}
                 {s.role === 'regional_partner' && s.commissionPercent ? (' - Commission: ' + s.commissionPercent + '%') : ''}
               </div>
               <button style={{ ...styles.previewLinkBtn, marginTop: 6 }} onClick={() => resetStaffPin(s)}>PIN badlein</button>
@@ -5069,11 +5063,11 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <input style={{ ...styles.input, marginTop: 8 }} placeholder='PIN set karein (4+ digit)' inputMode='numeric' type='password' value={newStaffPin} onChange={(e) => { setNewStaffPin(e.target.value); setStaffError(''); }} />
           <div style={styles.chipRow}>
             <button onClick={() => setNewStaffRole('admin')} style={{ ...styles.chip, ...(newStaffRole === 'admin' ? styles.chipActive : {}) }}>Admin Access</button>
-            <button onClick={() => setNewStaffRole('karigar')} style={{ ...styles.chip, ...(newStaffRole === 'karigar' ? styles.chipActive : {}) }}>Karigar (sirf assigned kaam)</button>
+            <button onClick={() => setNewStaffRole('karigar')} style={{ ...styles.chip, ...(newStaffRole === 'karigar' ? styles.chipActive : {}) }}>{t('Karigar (sirf assigned kaam)')}</button>
             <button onClick={() => setNewStaffRole('regional_partner')} style={{ ...styles.chip, ...(newStaffRole === 'regional_partner' ? styles.chipActive : {}) }}>Regional Partner (Dusre Sheher)</button>
           </div>
           {newStaffRole === 'regional_partner' && (
-            <input style={{ ...styles.input, marginTop: 8 }} inputMode='decimal' placeholder='Commission % (jaise 15)' value={newCommissionPercent} onChange={(e) => { setNewCommissionPercent(e.target.value); setStaffError(''); }} />
+            <input style={{ ...styles.input, marginTop: 8 }} inputMode='decimal' placeholder={t('Commission % (jaise 15)')} value={newCommissionPercent} onChange={(e) => { setNewCommissionPercent(e.target.value); setStaffError(''); }} />
           )}
           {staffError && <div style={styles.errorText}>{staffError}</div>}
           <button style={styles.addBtn} onClick={addStaff}><UserPlus size={14} /> Add staff login</button>
@@ -5085,7 +5079,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <Calendar size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Appointment Checklist</div>
         </div>
-        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Customer appointment book karte waqt kaunse work-items dikhne chahiye, select karein.</div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>{t('Customer appointment book karte waqt kaunse work-items dikhne chahiye, select karein.')}</div>
         <div style={{ marginTop: 4 }}>
           {appointmentItemOptions.map((cat) => (
             <div key={cat} style={styles.staffRow}>
@@ -5093,8 +5087,8 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
               <button style={styles.iconBtnSmall} onClick={() => removeApptItem(cat)}><Trash2 size={14} color='#C7CCDC' /></button>
             </div>
           ))}
-          <input style={{ ...styles.input, marginTop: 10 }} placeholder='Naya item add karein (jaise "Painting")' value={newApptItem} onChange={(e) => setNewApptItem(e.target.value)} />
-          <button style={styles.addBtn} onClick={addApptItem}><Plus size={14} /> Item add karein</button>
+          <input style={{ ...styles.input, marginTop: 10 }} placeholder={t('Naya item add karein (jaise "Painting")')} value={newApptItem} onChange={(e) => setNewApptItem(e.target.value)} />
+          <button style={styles.addBtn} onClick={addApptItem}><Plus size={14} />{t('Item add karein')}</button>
         </div>
       </div>
 
@@ -5103,7 +5097,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <Grid3x3 size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Gallery Categories</div>
         </div>
-        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Design gallery mein kaunse categories dikhein, add/remove karein.</div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>{t('Design gallery mein kaunse categories dikhein, add/remove karein.')}</div>
         <div style={{ marginTop: 4 }}>
           {galleryCategoriesForSettings.map((cat) => (
             <div key={cat} style={styles.staffRow}>
@@ -5111,8 +5105,8 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
               <button style={styles.iconBtnSmall} onClick={() => removeGalleryCategory(cat)}><Trash2 size={14} color='#C7CCDC' /></button>
             </div>
           ))}
-          <input style={{ ...styles.input, marginTop: 10 }} placeholder='Nayi category ka naam' value={newGalleryCategory} onChange={(e) => setNewGalleryCategory(e.target.value)} />
-          <button style={styles.addBtn} onClick={addGalleryCategory}><Plus size={14} /> Category add karein</button>
+          <input style={{ ...styles.input, marginTop: 10 }} placeholder={t('Nayi category ka naam')} value={newGalleryCategory} onChange={(e) => setNewGalleryCategory(e.target.value)} />
+          <button style={styles.addBtn} onClick={addGalleryCategory}><Plus size={14} />{t('Category add karein')}</button>
         </div>
       </div>
 
@@ -5121,7 +5115,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <HelpCircle size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>FAQ / Help</div>
         </div>
-        <div style={styles.plainTextMuted}>Customer ki Help screen mein dikhne wale common sawaal-jawab.</div>
+        <div style={styles.plainTextMuted}>{t('Customer ki Help screen mein dikhne wale common sawaal-jawab.')}</div>
         {(faqs || []).map((f, i) => (
           <div key={f.id} style={{ ...styles.formCard, marginTop: 10 }}>
             {editingFaqId === f.id ? (
@@ -5147,10 +5141,10 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           </div>
         ))}
         <div style={{ ...styles.formCard, marginTop: 10, background: '#FFF9EE', borderColor: BRAND.gold }}>
-          <div style={styles.fieldLabel}>Naya FAQ Add Karein</div>
-          <input style={{ ...styles.input, marginTop: 6 }} placeholder='Sawaal (jaise: PVC furniture waterproof hai?)' value={newFaqQuestion} onChange={(e) => setNewFaqQuestion(e.target.value)} />
+          <div style={styles.fieldLabel}>{t('Naya FAQ Add Karein')}</div>
+          <input style={{ ...styles.input, marginTop: 6 }} placeholder={t('Sawaal (jaise: PVC furniture waterproof hai?)')} value={newFaqQuestion} onChange={(e) => setNewFaqQuestion(e.target.value)} />
           <textarea style={{ ...styles.input, marginTop: 8, minHeight: 70, resize: 'vertical' }} placeholder='Jawab' value={newFaqAnswer} onChange={(e) => setNewFaqAnswer(e.target.value)} />
-          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addFaq}><Plus size={14} /> FAQ Add Karein</button>
+          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addFaq}><Plus size={14} />{t('FAQ Add Karein')}</button>
         </div>
       </div>
 
@@ -5159,7 +5153,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <ShieldCheck size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Material Specifications</div>
         </div>
-        <div style={styles.plainTextMuted}>Aapke material ki khasiyat - customer ko dikhti hain, unki app ke ek dedicated screen par.</div>
+        <div style={styles.plainTextMuted}>{t('Aapke material ki khasiyat - customer ko dikhti hain, unki app ke ek dedicated screen par.')}</div>
         {(materialSpecs || []).map((s, i) => (
           <div key={s.id} style={{ ...styles.formCard, marginTop: 10 }}>
             {editingSpecId === s.id ? (
@@ -5185,19 +5179,19 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           </div>
         ))}
         <div style={{ ...styles.formCard, marginTop: 10, background: '#FFF9EE', borderColor: BRAND.gold }}>
-          <div style={styles.fieldLabel}>Nayi Specification Add Karein</div>
-          <input style={{ ...styles.input, marginTop: 6 }} placeholder='Title (jaise: 100% Virgin PVC)' value={newSpecTitle} onChange={(e) => setNewSpecTitle(e.target.value)} />
-          <textarea style={{ ...styles.input, marginTop: 8, minHeight: 60, resize: 'vertical' }} placeholder='Detail (jaise: Termite-proof, waterproof, koi warping nahi)' value={newSpecDesc} onChange={(e) => setNewSpecDesc(e.target.value)} />
-          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addMaterialSpec}><Plus size={14} /> Specification Add Karein</button>
+          <div style={styles.fieldLabel}>{t('Nayi Specification Add Karein')}</div>
+          <input style={{ ...styles.input, marginTop: 6 }} placeholder={t('Title (jaise: 100% Virgin PVC)')} value={newSpecTitle} onChange={(e) => setNewSpecTitle(e.target.value)} />
+          <textarea style={{ ...styles.input, marginTop: 8, minHeight: 60, resize: 'vertical' }} placeholder={t('Detail (jaise: Termite-proof, waterproof, koi warping nahi)')} value={newSpecDesc} onChange={(e) => setNewSpecDesc(e.target.value)} />
+          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addMaterialSpec}><Plus size={14} />{t('Specification Add Karein')}</button>
         </div>
       </div>
 
       <div style={{ ...styles.card, marginTop: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <ThumbsUp size={16} color={BRAND.gold} />
-          <div style={{ fontWeight: 800, fontSize: 14 }}>Hamare Saath Judne Ke Fayde</div>
+          <div style={{ fontWeight: 800, fontSize: 14 }}>{t('Hamare Saath Judne Ke Fayde')}</div>
         </div>
-        <div style={styles.plainTextMuted}>Aapki company ke saath kaam karne ke benefits - customer ko same screen par dikhte hain.</div>
+        <div style={styles.plainTextMuted}>{t('Aapki company ke saath kaam karne ke benefits - customer ko same screen par dikhte hain.')}</div>
         {(companyBenefits || []).map((b, i) => (
           <div key={b.id} style={{ ...styles.formCard, marginTop: 10 }}>
             {editingBenefitId === b.id ? (
@@ -5223,10 +5217,10 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           </div>
         ))}
         <div style={{ ...styles.formCard, marginTop: 10, background: '#FFF9EE', borderColor: BRAND.gold }}>
-          <div style={styles.fieldLabel}>Naya Benefit Add Karein</div>
+          <div style={styles.fieldLabel}>{t('Naya Benefit Add Karein')}</div>
           <input style={{ ...styles.input, marginTop: 6 }} placeholder='Title (jaise: 5+ Years Experience)' value={newBenefitTitle} onChange={(e) => setNewBenefitTitle(e.target.value)} />
           <textarea style={{ ...styles.input, marginTop: 8, minHeight: 60, resize: 'vertical' }} placeholder='Detail (jaise: 500+ khush customers poore Ahmedabad mein)' value={newBenefitDesc} onChange={(e) => setNewBenefitDesc(e.target.value)} />
-          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addCompanyBenefit}><Plus size={14} /> Benefit Add Karein</button>
+          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addCompanyBenefit}><Plus size={14} />{t('Benefit Add Karein')}</button>
         </div>
       </div>
 
@@ -5235,8 +5229,8 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <Bell size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Push Notifications</div>
         </div>
-        <div style={styles.plainTextMuted}>App band ho tab bhi (naye appointment, estimate approve, waghera) turant notification mile - is device par on karein.</div>
-        <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={enableAdminPushNotifications}><Bell size={14} /> Is Device Par Notifications On Karein</button>
+        <div style={styles.plainTextMuted}>{t('App band ho tab bhi (naye appointment, estimate approve, waghera) turant notification mile - is device par on karein.')}</div>
+        <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={enableAdminPushNotifications}><Bell size={14} />{t('Is Device Par Notifications On Karein')}</button>
         {adminPushTokens.length > 0 && (
           <div style={{ ...styles.itemSub, marginTop: 8 }}>{adminPushTokens.length} device(s) par notifications on hain</div>
         )}
@@ -5249,19 +5243,19 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         </div>
         <div style={styles.plainTextMuted}>Gallery photos, brochure PDFs, aur customer records check karta hai - jo automatically fix ho sakta hai, karta hai; baaki clearly bata deta hai.</div>
         <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={runSystemCheck} disabled={scanning}>
-          <Search size={14} /> {scanning ? 'Check ho raha hai...' : 'Poori App Check Karein'}
+          <Search size={14} /> {scanning ? t('Check ho raha hai...') : t('Poori App Check Karein')}
         </button>
 
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
-          <div style={styles.fieldLabel}>Missing Gallery Categories Recover Karein</div>
+          <div style={styles.fieldLabel}>{t('Missing Gallery Categories Recover Karein')}</div>
           <div style={styles.plainTextMuted}>Agar koi purani category (jaise "Study Table", "Washbasin") ki photos dikhna band ho gayi hain, is button se dhoondke wapas la sakte hain - photo data kabhi delete nahi hota, sirf list se hat jaata hai.</div>
           <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={recoverMissingCategories} disabled={recoveringCategories}>
-            <Search size={14} /> {recoveringCategories ? 'Dhoondh raha hai...' : 'Missing Categories Recover Karein'}
+            <Search size={14} /> {recoveringCategories ? t('Dhoondh raha hai...') : t('Missing Categories Recover Karein')}
           </button>
         </div>
 
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
-          <div style={styles.fieldLabel}>Purani Photos Ke Liye Thumbnails Banayein</div>
+          <div style={styles.fieldLabel}>{t('Purani Photos Ke Liye Thumbnails Banayein')}</div>
           <div style={styles.plainTextMuted}>Naye upload ki photos automatically fast hoti hain, lekin purani photos ke liye ye ek baar chalana hoga - poori Gallery fast ho jayegi.</div>
           <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={backfillThumbnails} disabled={backfillingThumbnails}>
             <Search size={14} /> {backfillingThumbnails ? (backfillProgress ? ('Ban rahi hain... (' + backfillProgress.done + '/' + backfillProgress.total + ')') : 'Shuru ho raha hai...') : 'Thumbnails Banayein'}
@@ -5298,13 +5292,13 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         {pendingGalleryPhotos && pendingGalleryPhotos.length > 0 && (
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
             <div style={styles.fieldLabel}>Regional Partner Ki Gallery Photos ({pendingGalleryPhotos.length})</div>
-            <div style={styles.plainTextMuted}>Partner ne poore kiye kaam ki photos bheji hain - approve karne par hi customer-facing gallery mein dikhengi.</div>
+            <div style={styles.plainTextMuted}>{t('Partner ne poore kiye kaam ki photos bheji hain - approve karne par hi customer-facing gallery mein dikhengi.')}</div>
             {pendingGalleryPhotos.map((p) => (
               <div key={p.id} style={{ ...styles.formCard, marginTop: 8 }}>
                 <SmartImg src={p.url} origUrl={p.origUrl} alt={p.customerName} style={{ width: '100%', height: 160, objectFit: 'cover', borderRadius: 6 }} />
                 <div style={{ ...styles.itemSub, marginTop: 6 }}>{p.category} - {p.submittedBy} ne bheja{p.customerName ? (' (' + p.customerName + ')') : ''}</div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => approveGalleryPhoto(p)}><CheckCircle2 size={13} /> Approve Karein</button>
+                  <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => approveGalleryPhoto(p)}><CheckCircle2 size={13} />{t('Approve Karein')}</button>
                   <button style={styles.cancelBtn} onClick={() => rejectGalleryPhoto(p.id)}>Reject</button>
                 </div>
               </div>
@@ -5320,8 +5314,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
             <div style={{ marginTop: 10 }}>
               {totalIssues === 0 ? (
                 <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32' }}>
-                  <CheckCircle2 size={14} /> Sab kuch theek hai - koi masla nahi mila
-                </div>
+                  <CheckCircle2 size={14} />{t('Sab kuch theek hai - koi masla nahi mila')}</div>
               ) : (
                 <div style={{ ...styles.estimateStatusBanner, background: '#FFF3E0', color: '#E65100' }}>
                   <AlertCircle size={14} /> {totalIssues} masle mile
@@ -5329,7 +5322,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
               )}
               {hasRetryable && (
                 <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={retryBrokenUploads} disabled={retrying}>
-                  <Send size={14} /> {retrying ? 'Retry ho raha hai...' : 'Automatic Retry Karein'}
+                  <Send size={14} /> {retrying ? t('Retry ho raha hai...') : t('Automatic Retry Karein')}
                 </button>
               )}
 
@@ -5368,8 +5361,8 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
                   {scanResults.orphanedJobs.map((j) => (
                     <div key={j.id} style={{ ...styles.itemRow, marginTop: 6 }}>
                       <div style={{ flex: 1 }}>
-                        <div style={styles.itemDesc}>{j.customerName || 'Naam nahi hai'}</div>
-                        <div style={styles.itemSub}>Customer record nahi mila</div>
+                        <div style={styles.itemDesc}>{j.customerName || t('Naam nahi hai')}</div>
+                        <div style={styles.itemSub}>{t('Customer record nahi mila')}</div>
                       </div>
                     </div>
                   ))}
@@ -5402,9 +5395,9 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         ))}
 
         <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed ' + BRAND.line }}>
-          <div style={styles.fieldLabel}>Naya Rate Type</div>
+          <div style={styles.fieldLabel}>{t('Naya Rate Type')}</div>
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-            <input style={{ ...styles.input, flex: 1.3 }} placeholder='Naam (jaise Basket)' value={newRateName} onChange={(e) => setNewRateName(e.target.value)} />
+            <input style={{ ...styles.input, flex: 1.3 }} placeholder={t('Naam (jaise Basket)')} value={newRateName} onChange={(e) => setNewRateName(e.target.value)} />
             <input style={{ ...styles.input, flex: 1 }} inputMode='decimal' placeholder={newRateUnit === 'piece' ? '₹/piece' : '₹/sqft'} value={newRateValue} onChange={(e) => setNewRateValue(e.target.value)} />
           </div>
           <div style={{ ...styles.chipRow, marginTop: 6 }}>
@@ -5412,11 +5405,11 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
             <button onClick={() => setNewRateUnit('piece')} style={{ ...styles.chip, ...(newRateUnit === 'piece' ? styles.chipActive : {}) }}>Per Piece (Nang)</button>
           </div>
         </div>
-        <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addRateType}><Plus size={14} /> Naya Rate Type Add Karein</button>
-        <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={saveRates}><CheckCircle2 size={14} /> Sab Rates Save Karein</button>
+        <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addRateType}><Plus size={14} />{t('Naya Rate Type Add Karein')}</button>
+        <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={saveRates}><CheckCircle2 size={14} />{t('Sab Rates Save Karein')}</button>
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
           <div style={styles.fieldLabel}>Price List PDF</div>
-          <div style={styles.plainTextMuted}>Saare rates ka ek professional PDF - customer ko WhatsApp par bhej sakte hain.</div>
+          <div style={styles.plainTextMuted}>{t('Saare rates ka ek professional PDF - customer ko WhatsApp par bhej sakte hain.')}</div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', flex: 1 }} onClick={() => sharePriceListPdf(estimateRates, showToast)}><Send size={13} /> WhatsApp</button>
             <button style={{ ...styles.cardActionBtn, flex: 1 }} onClick={() => generatePriceListPdf(estimateRates, showToast)}><FileText size={13} /> Download</button>
@@ -5441,7 +5434,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <Download size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Backup Data</div>
         </div>
-        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Sab customers, jobs, gallery, aur staff ka data ek JSON file mein download karein.</div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>{t('Sab customers, jobs, gallery, aur staff ka data ek JSON file mein download karein.')}</div>
         <button style={styles.addBtn} onClick={downloadBackup}><Download size={14} /> Download backup</button>
       </div>
 
@@ -5523,7 +5516,7 @@ function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
       const dataUri = await fileToDataUri(file);
       const sizeBytes = dataUriByteSize(dataUri);
       if (sizeBytes > MAX_BROCHURE_BYTES) {
-        showToast('PDF bahut badi hai (' + (sizeBytes / (1024 * 1024)).toFixed(1) + 'MB) - ' + (MAX_BROCHURE_BYTES / (1024 * 1024)).toFixed(0) + 'MB se choti file try karein', true);
+        showToast('PDF bahut badi hai (' + (sizeBytes / (1024 * 1024)).toFixed(1) + 'MB) - ' + (MAX_BROCHURE_BYTES / (1024 * 1024)).toFixed(0) + t('MB se choti file try karein'), true);
         return;
       }
       const nameLower = file.name.toLowerCase();
@@ -5549,7 +5542,7 @@ function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
 
   return (
     <div>
-      <div style={styles.fieldLabel}>PDF Kis Type Ki Hai</div>
+      <div style={styles.fieldLabel}>{t('PDF Kis Type Ki Hai')}</div>
       <div style={styles.chipRow}>
         <button onClick={() => { setDocType('profile'); setCompany(''); }} style={{ ...styles.chip, ...(docType === 'profile' ? styles.chipActive : {}) }}>Company Details</button>
         <button onClick={() => { setDocType('fluted'); setCompany(''); }} style={{ ...styles.chip, ...(docType === 'fluted' ? styles.chipActive : {}) }}>Fluted Catalog</button>
@@ -5565,7 +5558,7 @@ function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
               ))}
             </div>
           )}
-          <input style={{ ...styles.input, marginTop: 8 }} placeholder='Company ka naam (jaise Kaka)' value={company} onChange={(e) => setCompany(e.target.value)} />
+          <input style={{ ...styles.input, marginTop: 8 }} placeholder={t('Company ka naam (jaise Kaka)')} value={company} onChange={(e) => setCompany(e.target.value)} />
         </>
       )}
       <input ref={fileInputRef} type='file' accept='application/pdf' style={{ display: 'none' }} onChange={handleFilePicked} />

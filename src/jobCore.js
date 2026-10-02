@@ -139,8 +139,8 @@ export function finalizeEstimateDraft(job, draft, by, byName) {
     },
   };
   return logActivity(next, by === 'customer'
-    ? 'Customer ne "' + draft.label + '" option choose kiya - final estimate ban gaya'
-    : (byName || 'Admin') + ' ne "' + draft.label + '" option final kiya');
+    ? 'Customer chose the "' + draft.label + '" option - it is now the final estimate'
+    : (byName || 'Admin') + ' made "' + draft.label + '" the final estimate');
 }
 
 // A category picker seeds its selection from categories[0] at mount

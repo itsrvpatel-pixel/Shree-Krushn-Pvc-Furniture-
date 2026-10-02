@@ -33,10 +33,10 @@ import { useBackToClose } from './useBackToClose.js';
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
 import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary } from './jobCore.js';
-import { t, tf, LANGUAGES, getLanguage, setLanguageValue, readStoredLanguage } from './i18n.js';
+import { t, tf } from './i18n.js';
 
 export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary };
-export { t, tf, LANGUAGES, getLanguage };
+export { t, tf };
 
 const DEFAULT_CATEGORIES = ['Kitchen', 'Wardrobe', 'Dressing Table', 'Bathroom Cabinet', 'TV Unit', 'Bed', 'Color/POP Work', 'Electrical Work', 'Other'];
 
@@ -74,7 +74,7 @@ const COMPLAINT_STAGES = {
   // language, so a t() call HERE would freeze the label in whichever
   // language happened to be active at import time and never follow a
   // later switch. It is translated where it is rendered instead.
-  in_progress: { label: 'Repair Ho Raha Hai', color: '#A8975F', icon: Hammer },
+  in_progress: { label: t('Repair Ho Raha Hai'), color: '#A8975F', icon: Hammer },
   resolved: { label: 'Resolved', color: '#2F7D4F', icon: CheckCircle2 },
 };
 const COMPLAINT_STAGE_ORDER = ['open', 'in_progress', 'resolved'];
@@ -290,12 +290,12 @@ export function timeAgo(iso) {
   if (!iso) return '';
   const diff = Date.now() - new Date(iso).getTime();
   const min = Math.floor(diff / 60000);
-  if (min < 1) return 'abhi';
-  if (min < 60) return min + 'm pehle';
+  if (min < 1) return 'just now';
+  if (min < 60) return min + 'm ago';
   const hr = Math.floor(min / 60);
-  if (hr < 24) return hr + 'h pehle';
+  if (hr < 24) return hr + 'h ago';
   const day = Math.floor(hr / 24);
-  if (day < 7) return day + 'd pehle';
+  if (day < 7) return day + 'd ago';
   return formatDate(iso);
 }
 export const BUSINESS = {
@@ -1835,17 +1835,6 @@ export function BrochureList({ brochures, showToast, canManage, onDelete }) {
 /* ===================== ROOT ===================== */
 export default function App() {
   const [loaded, setLoaded] = useState(false);
-  // The ONE piece of language state in the app. t() itself reads a
-  // module variable (see i18n.js - a lot of this app's text is built
-  // outside any component, where a hook cannot run), so this state's
-  // only job is to repaint: nothing below App is memoised, so setting
-  // it re-renders every screen with the new language. The initial
-  // value is read lazily so the stored choice is picked up before the
-  // first paint rather than flashing Hinglish and then switching.
-  const [language, setLanguageState] = useState(() => setLanguageValue(readStoredLanguage()));
-  const changeLanguage = useCallback((next) => {
-    setLanguageState(setLanguageValue(next));
-  }, []);
   // Offline, Firestore does not reject - it retries for as long as you
   // let it. The start-up load therefore never settles, its `finally`
   // never runs, `loaded` stays false, and the app sits on "Loading..."
@@ -2508,7 +2497,7 @@ export default function App() {
     persistCustomers(next);
     for (const c of birthdaysToday) {
       const relatedJob = jobs.find((j) => j.customerId === c.id);
-      pushNotification('customer_birthday', c.name + ' ka aaj birthday hai - WhatsApp wish bhejein', relatedJob ? relatedJob.id : null);
+      pushNotification('customer_birthday', tf('{name} ka aaj birthday hai - WhatsApp wish bhejein', { name: c.name }), relatedJob ? relatedJob.id : null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
@@ -3018,7 +3007,7 @@ export default function App() {
       // download URL. Only that URL - not the PDF's raw data - gets saved
       // in the small 'brochures' metadata list.
       const uploadResult = await window.fileStorage.upload('brochure_' + meta.id, dataUri);
-      if (!uploadResult || uploadResult.error) { showToast('Brochure upload fail ho gaya: ' + (uploadResult?.error || 'Firebase Storage abhi tak activate nahi hua ho sakta hai'), true); return false; }
+      if (!uploadResult || uploadResult.error) { showToast('Brochure upload fail ho gaya: ' + (uploadResult?.error || t('Firebase Storage abhi tak activate nahi hua ho sakta hai')), true); return false; }
       const next = [{ ...meta, url: uploadResult.url }, ...brochures];
       setBrochures(next);
       await window.storage.set('brochures', JSON.stringify(next), true);
@@ -3090,8 +3079,6 @@ export default function App() {
           partnerPin={partnerPin}
           dhPartnerPin={dhPartnerPin}
           staff={staff}
-          language={language}
-          onChangeLanguage={changeLanguage}
           onCustomerLogin={(cust) => {
             // Seed the record we already fetched. The customer list is
             // loaded per session now, and that load is async - without
@@ -3116,7 +3103,7 @@ export default function App() {
             // invisible unless admin happened to check the Customers
             // tab. jobId is the empty job just created above, so tapping
             // this notification takes admin straight to that customer.
-            pushNotification('new_customer_registered', cust.name + ' ne naya account banaya hai', job.id);
+            pushNotification('new_customer_registered', tf('{name} ne naya account banaya hai', { name: cust.name }), job.id);
           }}
           onAdminLogin={(staffName, role, staffId) => setSession({ role: role || 'admin', staffName, staffId })}
         />
@@ -3362,8 +3349,6 @@ export default function App() {
       <ErrorBoundary scope='customer'>
       <CustomerApp
         customer={customer}
-        language={language}
-        onChangeLanguage={changeLanguage}
         gallery={gallery}
         loadGalleryData={loadGalleryData} galleryLoading={galleryLoading}
         job={myJob}
@@ -3406,16 +3391,16 @@ export default function App() {
           const wasRequested = prevJob?.appointment?.status === 'requested';
           const isRequested = j.appointment?.status === 'requested';
           if (isRequested && (!prevJob?.appointment || !wasRequested)) {
-            pushNotification('new_appointment', j.customerName + ' ne appointment request ki hai', j.id);
+            pushNotification('new_appointment', tf('{name} ne appointment request ki hai', { name: j.customerName }), j.id);
           }
           // Estimate response (approve / change request / cancel): only
           // fires the moment estimateStatus actually changes, so editing
           // other job fields afterward doesn't re-trigger a stale alert.
           if (j.estimateStatus && j.estimateStatus !== prevJob?.estimateStatus) {
             if (j.estimateStatus === 'approved') {
-              pushNotification('estimate_approved', j.customerName + ' ne estimate approve kiya - kaam shuru karein', j.id);
+              pushNotification('estimate_approved', tf('{name} ne estimate approve kiya - kaam shuru karein', { name: j.customerName }), j.id);
             } else if (j.estimateStatus === 'change_requested') {
-              pushNotification('estimate_change_request', j.customerName + ' ne estimate mein change maanga hai', j.id);
+              pushNotification('estimate_change_request', tf('{name} ne estimate mein change maanga hai', { name: j.customerName }), j.id);
             } else if (j.estimateStatus === 'cancelled') {
               pushNotification('estimate_cancelled', j.customerName + ' ne estimate cancel kar diya', j.id);
             }
@@ -3430,7 +3415,7 @@ export default function App() {
           for (const item of (j.extraWork || [])) {
             const prevItem = prevExtraWork.find((p) => p.id === item.id);
             if (!prevItem && item.status === 'pending_admin_price') {
-              pushNotification('extra_work_requested', j.customerName + ' ne extra kaam request kiya: ' + item.desc, j.id);
+              pushNotification('extra_work_requested', tf('{name} ne extra kaam request kiya: {item}', { name: j.customerName, item: item.desc }), j.id);
             } else if (prevItem && prevItem.status !== item.status) {
               if (item.status === 'approved') {
                 pushNotification('extra_work_approved', j.customerName + ' ne extra kaam approve kiya: ' + item.desc + ' - Naya total: ' + currency(jobTotal(j)), j.id);
@@ -3637,43 +3622,7 @@ export class ErrorBoundary extends React.Component {
   }
 }
 
-/* Two buttons rather than a dropdown: there are exactly two languages,
-   and a <select> on a phone opens a native picker for a choice that is
-   faster to make by tapping. `language` is passed in rather than read
-   from getLanguage() so the buttons re-render with the rest of the app
-   when it changes - getLanguage() is not React state and would leave
-   the highlight stuck on the old choice. */
-export function LanguageToggle({ language, onChange, compact }) {
-  return (
-    <div style={{ display: 'inline-flex', gap: 2, padding: 2, borderRadius: 999, background: 'rgba(0,0,0,0.06)' }}>
-      {LANGUAGES.map((l) => {
-        const active = language === l.code;
-        return (
-          <button
-            key={l.code}
-            type='button'
-            onClick={() => onChange(l.code)}
-            aria-label={'Language: ' + l.name}
-            aria-pressed={active}
-            style={{
-              border: 'none',
-              cursor: 'pointer',
-              borderRadius: 999,
-              padding: compact ? '3px 9px' : '5px 13px',
-              fontSize: compact ? 11 : 12.5,
-              fontWeight: 700,
-              lineHeight: 1.4,
-              background: active ? BRAND.navy : 'transparent',
-              color: active ? '#FFF' : BRAND.navy,
-            }}
-          >{l.label}</button>
-        );
-      })}
-    </div>
-  );
-}
-
-function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, staff, onCustomerLogin, onRegister, onAdminLogin, language, onChangeLanguage }) {
+function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, staff, onCustomerLogin, onRegister, onAdminLogin }) {
   const [mode, setMode] = useState('choose');
   const [name, setName] = useState('');
   const [referredBy, setReferredBy] = useState('');
@@ -3826,12 +3775,6 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
   return (
     <div style={styles.loginWrap}>
       <div style={styles.loginBgAccent} />
-      {/* Offered before sign-in, not only inside the app: someone who
-          cannot read the Hinglish needs the switch on the first screen
-          they are shown, not after they have worked out how to log in. */}
-      <div style={{ position: 'relative', display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
-        <LanguageToggle language={language} onChange={onChangeLanguage} />
-      </div>
       <div style={styles.loginBrand}>
         <img src='/icon-512.png' alt='Shree Krushn PVC Furniture logo' style={styles.loginLogo} />
         <div style={styles.brandName}>SHREE KRUSHN</div>
@@ -4247,7 +4190,7 @@ function HelpScreen({ faqs, job, onSaveJob, pushNotification, customer, showToas
     if (ok) {
       setQuestionText(''); setShowAskForm(false);
       showToast('Sawaal bhej diya, jaldi jawab milega');
-      if (pushNotification) pushNotification('follow_up_needed', (customer?.name || job.customerName) + ' ne ek sawaal poocha hai', job.id);
+      if (pushNotification) pushNotification('follow_up_needed', tf('{name} ne ek sawaal poocha hai', { name: customer?.name || job.customerName }), job.id);
     }
   };
 
@@ -4326,7 +4269,7 @@ const CUSTOMER_TAB_PARENT = {
   instant_estimate: 'home',
 };
 
-function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, faqs, materialSpecs, companyBenefits, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast, language, onChangeLanguage }) {
+function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, faqs, materialSpecs, companyBenefits, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
   // Registers this customer's own device for push notifications
   // (visit confirmed, payment due, etc.) - the token is stored
   // directly on their job record, since that's what pushNotification
@@ -4396,7 +4339,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
             )}
           </div>
           <a
-            href={whatsAppShareUrl(null, 'Namaste! Maine ' + BUSINESS.name + ' ki app use ki hai - PVC furniture ke liye bahut achhi hai. Aap bhi dekho: https://' + BUSINESS.website)}
+            href={whatsAppShareUrl(null, tf('Namaste! Maine {business} ki app use ki hai - PVC furniture ke liye bahut achhi hai. Aap bhi dekho: https://{site}', { business: BUSINESS.name, site: BUSINESS.website }))}
             target='_blank' rel='noopener noreferrer'
             style={{ ...styles.addBtn, marginTop: 12, textDecoration: 'none' }}
           >
@@ -4417,7 +4360,6 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
         hideLogout
         right={
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <LanguageToggle language={language} onChange={onChangeLanguage} compact />
             <FavoritesButton job={job} onSaveJob={onSaveJob} showToast={showToast} categories={categories} gallery={gallery} />
             <NotificationBell
               // Only customer-facing types (things admin/karigar did that
@@ -4473,7 +4415,7 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
           { key: 'home', label: 'Home', icon: <Home size={18} /> },
           { key: 'gallery', label: 'Designs', icon: <Grid3x3 size={18} /> },
           { key: 'estimate', label: 'Estimate', icon: <FileText size={18} /> },
-          { key: 'progress', label: 'Kaam', icon: <Hammer size={18} /> },
+          { key: 'progress', label: t('Kaam'), icon: <Hammer size={18} /> },
         ]}
       />
     </div>
@@ -4500,7 +4442,7 @@ export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout
       <div style={styles.heroCard}>
         <div style={styles.heroTop}>
           <div>
-            <div style={styles.heroGreeting}>Namaste, {customer?.name?.split(' ')[0] || 'Customer'} 👋</div>
+            <div style={styles.heroGreeting}>Hello, {customer?.name?.split(' ')[0] || 'there'} 👋</div>
             <div style={styles.heroSub}>{t('Aapke order ki current stage')}</div>
           </div>
           <StageBadge status={job.status} />
@@ -4513,7 +4455,7 @@ export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout
           <div style={styles.homeRingTxt}>
             {latestLine
               ? <><span style={styles.homeRingStrong}>{latestLine}</span>
-                  {latest && <><br />Din {latest.dayNumber}{photoCount > 0 ? ' \u00b7 ' + photoCount + ' photo' : ''}</>}</>
+                  {latest && <><br />Day {latest.dayNumber}{photoCount > 0 ? ' \u00b7 ' + photoCount + (photoCount === 1 ? ' photo' : ' photos') : ''}</>}</>
               : <span style={styles.homeRingStrong}>{st.label}</span>}
           </div>
         </div>
@@ -4521,7 +4463,7 @@ export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout
           <div style={{ ...styles.progressFill, width: pct + '%', background: BRAND.gold }} />
         </div>
         <button style={styles.homeHeroBtn} onClick={() => setTab('progress')}>
-          {diary.length > 0 ? 'Kaam ki diary dekhein' : 'Kaam ki jaankari'}
+          {diary.length > 0 ? t('Kaam ki diary dekhein') : t('Kaam ki jaankari')}
         </button>
       </div>
 
@@ -4530,13 +4472,13 @@ export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout
         const dateText = formatDate(job.expectedCompletionDate);
         let mainText;
         if (job.status === 'delivered') {
-          mainText = <span>{t('Deliver ho chuka hai:')}<b>{dateText}</b></span>;
+          mainText = <span>Delivered on <b>{dateText}</b></span>;
         } else if (days === 0) {
-          mainText = <span><b>Aaj</b> delivery ka din hai! 🎉</span>;
+          mainText = <span>Delivery is <b>today</b>! 🎉</span>;
         } else if (days === 1) {
-          mainText = <span><b>Kal</b> delivery ka din hai - {dateText}</span>;
+          mainText = <span>Delivery is <b>tomorrow</b> - {dateText}</span>;
         } else if (days > 1) {
-          mainText = <span><b>{days} din</b> baaki hain - {dateText}</span>;
+          mainText = <span><b>{days} days</b> to go - {dateText}</span>;
         } else {
           // Date has already passed while still in_progress - shown
           // plainly rather than with alarming "delayed" language, since
@@ -4576,7 +4518,7 @@ export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout
               {(job.items || []).length > 3 && (
                 <div style={styles.homeEstimateMore}>+{(job.items || []).length - 3} aur item...</div>
               )}
-              <div style={styles.homeEstimateViewAll}>Poora Estimate Dekhein &rarr;</div>
+              <div style={styles.homeEstimateViewAll}>{t('Poora Estimate Dekhein')} &rarr;</div>
             </div>
           )}
         </button>
@@ -4590,21 +4532,21 @@ export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout
       <div style={styles.homeActions}>
         {!hasVisit && (
           <HomeAction icon={<Calendar size={17} color={BRAND.navy} />} title={t('Visit Book Karein')}
-            sub='Ghar par aakar measurement karenge' onClick={() => setTab('appointment')} />
+            sub={t('Ghar par aakar measurement karenge')} onClick={() => setTab('appointment')} />
         )}
-        <HomeAction icon={<Grid3x3 size={17} color={BRAND.navy} />} title='Designs dekhein'
-          sub='Pasand aaye to star dabakar save karein' onClick={() => setTab('gallery')} />
+        <HomeAction icon={<Grid3x3 size={17} color={BRAND.navy} />} title={t('Designs dekhein')}
+          sub={t('Pasand aaye to star dabakar save karein')} onClick={() => setTab('gallery')} />
         <HomeAction icon={<Edit3 size={17} color={BRAND.navy} />} title={t('Aapki Requirements')}
-          sub={reqCount > 0 ? reqCount + ' add ki hain' : 'Kya banwana hai, likh dein'}
+          sub={reqCount > 0 ? tf('{n} add ki hain', { n: reqCount }) : t('Kya banwana hai, likh dein')}
           onClick={() => setTab('requirements')} />
         {total === 0 && (
           <HomeAction icon={<Calculator size={17} color={BRAND.navy} />} title='Instant estimate'
-            sub='Apne naap se khud andaza lagayein' onClick={onOpenCalculator} />
+            sub={t('Apne naap se khud andaza lagayein')} onClick={onOpenCalculator} />
         )}
         {(job.status === 'delivered' || job.status === 'paid') && (
           <HomeAction icon={<Star size={17} color={BRAND.navy} />}
             title={job.review ? t('Aapka Review') : t('Review Dein')}
-            sub={job.review ? 'Badalna ho to yahan se' : 'Aapka anubhav kaisa raha?'}
+            sub={job.review ? t('Badalna ho to yahan se') : t('Aapka anubhav kaisa raha?')}
             onClick={() => setTab('review')} />
         )}
       </div>
@@ -5149,7 +5091,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
   const confirmReschedule = () => {
     const base = jobRef.current;
     let next = { ...base, appointment: { ...base.appointment, status: 'confirmed' } };
-    next = logActivity(next, 'Customer ne rescheduled time confirm kiya: ' + formatDate(appt.confirmedDate) + (appt.confirmedTime ? (', ' + appt.confirmedTime) : ''));
+    next = logActivity(next, 'Customer confirmed the rescheduled time: ' + formatDate(appt.confirmedDate) + (appt.confirmedTime ? (', ' + appt.confirmedTime) : ''));
     saveJob(next);
     showToast('Time confirm ho gaya');
   };
@@ -5253,7 +5195,7 @@ function AppointmentPanel({ job, onSave, showToast, itemOptions }) {
         </div>
 
         <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Address *</div>
-        <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder='Poora address - house/flat no, area, landmark, city' />
+        <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder={t('Poora address - house/flat no, area, landmark, city')} />
 
         {BUSINESS.branches.length > 1 && (
           <>
@@ -5300,7 +5242,7 @@ function AdditionalVisitsPanel({ job, onSave, showToast }) {
     const entry = { id: uid(), reason: reason.trim(), preferredDate, preferredTime, status: 'requested', requestedAt: new Date().toISOString() };
     const base = jobRef.current;
     let next = { ...base, additionalVisits: [entry, ...(base.additionalVisits || [])] };
-    next = logActivity(next, 'Customer ne naya visit request kiya: ' + entry.reason);
+    next = logActivity(next, 'Customer requested another visit: ' + entry.reason);
     jobRef.current = next;
     onSave(next);
     setReason(''); setPreferredDate(''); setPreferredTime('');
@@ -5485,7 +5427,7 @@ export function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorNa
     const approvedNote = baseNotes.find((n) => n.id === id);
     let nextJob = { ...base, projectNotes: baseNotes.map((n) => (n.id === id ? { ...n, locked: true } : n)) };
     if (approvedNote) {
-      nextJob = logActivity(nextJob, (approvedNote.category || 'Design') + ' final ho gaya: ' + (approvedNote.text || approvedNote.noteType));
+      nextJob = logActivity(nextJob, (approvedNote.category || 'Design') + ' finalised: ' + (approvedNote.text || approvedNote.noteType));
     }
     jobRef.current = nextJob;
     const ok = await onSave(nextJob);
@@ -5514,7 +5456,7 @@ export function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorNa
       <div style={styles.plainTextMuted}>{t('Planning, measurements, ya reference photos yahan save karein - item wise organize hoga.')}</div>
 
       <div style={styles.formCard}>
-        <div style={styles.hintText}>Kis item ke liye hai:</div>
+        <div style={styles.hintText}>{t('Kis item ke liye hai:')}</div>
         <div style={styles.chipRow}>
           {itemOptions.map((c) => (
             <button key={c} onClick={() => setNoteCategory(c)} style={{ ...styles.chip, ...(noteCategory === c ? styles.chipActive : {}) }}>{c}</button>
@@ -5526,7 +5468,7 @@ export function ProjectNotesPanel({ job, onSave, showToast, authorRole, authorNa
             <button key={t} onClick={() => setNoteType(t)} style={{ ...styles.chip, ...(noteType === t ? styles.chipActive : {}) }}>{t}</button>
           ))}
         </div>
-        <textarea style={{ ...styles.input, minHeight: 60, marginTop: 8 }} placeholder='Note likhein...' value={text} onChange={(e) => setText(e.target.value)} />
+        <textarea style={{ ...styles.input, minHeight: 60, marginTop: 8 }} placeholder={t('Note likhein...')} value={text} onChange={(e) => setText(e.target.value)} />
         {pendingPhoto ? (
           <div style={{ ...styles.previewWrap, marginTop: 8 }}>
             <img src={pendingPhoto} alt='attachment preview' style={styles.previewImg} />
@@ -5718,7 +5660,7 @@ function InstantEstimateCalculator({ estimateRates, showToast, onBack }) {
           ))}
         </div>
         {calcIsPieceType ? (
-          <input style={{ ...styles.input, marginTop: 8 }} inputMode='numeric' placeholder='Kitne piece (nang)' value={calcQty} onChange={(e) => setCalcQty(e.target.value)} />
+          <input style={{ ...styles.input, marginTop: 8 }} inputMode='numeric' placeholder={t('Kitne piece (nang)')} value={calcQty} onChange={(e) => setCalcQty(e.target.value)} />
         ) : (
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <input style={styles.input} inputMode='decimal' placeholder='Length (inch)' value={calcLength} onChange={(e) => setCalcLength(e.target.value)} />
@@ -6047,10 +5989,10 @@ function EstimateView({ job, onSave, showToast }) {
   const respondToEstimate = (status, note) => {
     let next = { ...jobRef.current, estimateStatus: status, estimateResponseNote: note || null, estimateRespondedAt: new Date().toISOString() };
     const activityText = status === 'approved'
-      ? 'Customer ne estimate approve kiya - kaam shuru karein'
+      ? t('Customer ne estimate approve kiya - kaam shuru karein')
       : status === 'change_requested'
         ? 'Customer ne estimate mein change maanga: ' + (note || '')
-        : 'Customer ne estimate cancel kiya';
+        : t('Customer ne estimate cancel kiya');
     next = logActivity(next, activityText);
     jobRef.current = next;
     onSave(next);
@@ -6309,7 +6251,7 @@ export function WorkDiary({ job, onOpenPhoto }) {
     <div>
       {days.map((d, i) => {
         const last = i === days.length - 1;
-        const label = d.isToday ? 'Aaj' : d.isYesterday ? 'Kal' : formatDate(d.date);
+        const label = d.isToday ? 'Today' : d.isYesterday ? 'Yesterday' : formatDate(d.date);
         return (
           <div key={d.key} style={styles.diaryDay}>
             <div style={styles.diaryRail}>
@@ -6317,12 +6259,12 @@ export function WorkDiary({ job, onOpenPhoto }) {
               {!last && <span style={styles.diaryLine} />}
             </div>
             <div style={styles.diaryBody}>
-              <div style={styles.diaryDayLabel}>{label} &middot; Din {d.dayNumber}</div>
+              <div style={styles.diaryDayLabel}>{label} &middot; Day {d.dayNumber}</div>
               {d.events.map((e) => (
                 <div key={e.id} style={styles.diaryText}>{e.text}</div>
               ))}
               {d.events.length === 0 && d.photos.length > 0 && (
-                <div style={styles.diaryText}>{d.photos.length} nayi photo</div>
+                <div style={styles.diaryText}>{d.photos.length} new photo{d.photos.length === 1 ? '' : 's'}</div>
               )}
               {d.photos.length > 0 && (
                 <div style={styles.diaryPics}>
@@ -6386,7 +6328,7 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
       setComplaintText(''); setComplaintPhotoDataUri(null);
       setShowComplaintForm(false);
       showToast('Complaint darj ho gayi, admin ko bata diya gaya hai');
-      if (pushNotification) pushNotification('complaint_reported', (customer?.name || job.customerName) + ' ne ek problem report ki hai', job.id);
+      if (pushNotification) pushNotification('complaint_reported', tf('{name} ne ek problem report ki hai', { name: customer?.name || job.customerName }), job.id);
     }
   };
   const [uploadingComplaintPhoto, setUploadingComplaintPhoto] = useState(false);
@@ -6422,7 +6364,7 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
     const entry = { id: uid(), desc: extraWorkDesc.trim(), amount: null, addedBy: 'customer', status: 'pending_admin_price', createdAt: new Date().toISOString() };
     const base = jobRef.current;
     let next = { ...base, extraWork: [entry, ...(base.extraWork || [])] };
-    next = logActivity(next, 'Customer ne extra kaam request kiya: ' + entry.desc);
+    next = logActivity(next, 'Customer requested extra work: ' + entry.desc);
     saveJob(next);
     setExtraWorkDesc('');
     setShowExtraWorkForm(false);
@@ -6443,7 +6385,7 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
     if (approve && next.status === 'paid' && jobDue(next) > 0) {
       next = { ...next, status: 'delivered' };
     }
-    saveJob(logActivity(next, 'Customer ne extra kaam ' + (approve ? 'approve' : 'reject') + ' kiya: ' + item.desc));
+    saveJob(logActivity(next, 'Customer ' + (approve ? 'approved' : 'rejected') + ' extra work: ' + item.desc));
     showToast(approve ? t('Extra kaam approve ho gaya') : t('Extra kaam reject kar diya gaya'));
   };
 
@@ -6471,7 +6413,7 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
       {(job.workPercent || 0) > 0 && (
         <div style={styles.deliveryDateBanner}>
           <Hammer size={15} color={BRAND.gold} />
-          <span>Kaam <b>{job.workPercent}%</b>{t('complete ho gaya hai')}</span>
+          <span>{t('Kaam')}<b>{job.workPercent}%</b>{t('complete ho gaya hai')}</span>
         </div>
       )}
 
@@ -6554,7 +6496,7 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
             <div key={e.id} style={styles.extraWorkCard}>
               <div style={styles.itemDesc}>{e.desc}</div>
               <div style={styles.itemSub}>
-                {e.addedBy === 'admin' ? 'Admin ne add kiya' : t('Aapne request kiya')} - {formatDate(e.createdAt)}
+                {e.addedBy === 'admin' ? t('Admin ne add kiya') : t('Aapne request kiya')} - {formatDate(e.createdAt)}
               </div>
               {e.status === 'pending_admin_price' && (
                 <div style={{ ...styles.estimateStatusBanner, background: '#FFF3E0', color: '#E65100', marginTop: 8 }}>
@@ -6600,7 +6542,7 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
           photo grid and, further down, a flat list of lines - so a
           customer could see THAT eleven photos existed but not which
           day's work any of them was. */}
-      <div style={{ ...styles.fieldLabel, marginTop: 20 }}>Kaam ki diary</div>
+      <div style={{ ...styles.fieldLabel, marginTop: 20 }}>{t('Kaam ki diary')}</div>
       <WorkDiary job={job} onOpenPhoto={(dayPhotos, index) => setLightbox({ photos: dayPhotos, index })} />
 
       {lightbox && <Lightbox data={lightbox} onClose={() => setLightbox(null)} setLightbox={setLightbox} />}
@@ -6743,7 +6685,7 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
   };
 
   const markWorkComplete = (job) => {
-    pushNotification('work_completed_by_karigar', staffName + ' ne ' + job.customerName + ' ka kaam complete bataya hai', job.id);
+    pushNotification('work_completed_by_karigar', tf('{staff} ne {customer} ka kaam complete bataya hai', { staff: staffName, customer: job.customerName }), job.id);
     showToast('Admin ko bata diya gaya - wo confirm karke status update karenge');
   };
 
@@ -6756,8 +6698,7 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
         <div style={{ padding: '12px 16px' }}>
           {activeJob.status === 'in_progress' && (
             <button style={{ ...styles.addBtn, marginBottom: 16 }} onClick={() => markWorkComplete(activeJob)}>
-              <CheckCircle2 size={14} /> Kaam Complete - Admin ko Batayein
-            </button>
+              <CheckCircle2 size={14} />{t('Kaam Complete - Admin ko Batayein')}</button>
           )}
 
           <div style={styles.sectionTitle}>Progress Photos</div>
@@ -6849,9 +6790,9 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
       <div style={{ padding: '12px 16px' }}>
         <div style={styles.attendanceCard}>
           <div>
-            <div style={styles.itemDesc}>{todaysRecord ? (todaysRecord.checkedOutAt ? 'Aaj ka kaam complete' : 'Checked in') : 'Abhi check-in nahi kiya'}</div>
+            <div style={styles.itemDesc}>{todaysRecord ? (todaysRecord.checkedOutAt ? t('Aaj ka kaam complete') : 'Checked in') : t('Abhi check-in nahi kiya')}</div>
             <div style={styles.itemSub}>
-              {todaysRecord ? ('In: ' + new Date(todaysRecord.checkedInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) + (todaysRecord.checkedOutAt ? (' - Out: ' + new Date(todaysRecord.checkedOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })) : '')) : 'Din shuru karne ke liye check-in karein'}
+              {todaysRecord ? ('In: ' + new Date(todaysRecord.checkedInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) + (todaysRecord.checkedOutAt ? (' - Out: ' + new Date(todaysRecord.checkedOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })) : '')) : 'Check in to start the day'}
             </div>
           </div>
           {(!todaysRecord || !todaysRecord.checkedOutAt) && (
@@ -6860,7 +6801,7 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
         </div>
 
         <div style={styles.sectionTitle}>Aapke assigned kaam ({jobs.length})</div>
-        {jobs.length === 0 && <div style={styles.emptySmall}>Abhi koi kaam assign nahi hua hai.</div>}
+        {jobs.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi kaam assign nahi hua hai.')}</div>}
         {jobs.map((j) => (
           <button key={j.id} style={styles.miniRowClickArea} onClick={() => setActiveJobId(j.id)}>
             <div style={{ flex: 1, textAlign: 'left' }}>
@@ -7006,7 +6947,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
     };
     const base = jobRef.current || job;
     let next = { ...base, appointment: nextAppt, address: apptAddress.trim() };
-    next = logActivity(next, staffName + ' (Regional Partner) ne appointment book ki: ' + formatDate(apptDate) + (apptTime ? (', ' + formatTime12h(apptTime)) : ''));
+    next = logActivity(next, staffName + ' (regional partner) booked an appointment: ' + formatDate(apptDate) + (apptTime ? (', ' + formatTime12h(apptTime)) : ''));
     saveJob(next);
     pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(apptDate) + (apptTime ? (' - ' + formatTime12h(apptTime)) : '') + ' ke liye book ho gayi hai', job.id);
     setApptDate(''); setApptTime(''); setApptAddress('');
@@ -7021,7 +6962,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
     const base = jobRef.current || job;
     const nextAppt = { ...base.appointment, status: 'confirmed', confirmedDate: apptDate, confirmedTime: apptTime };
     let next = { ...base, appointment: nextAppt };
-    next = logActivity(next, staffName + ' (Regional Partner) ne appointment confirm ki: ' + formatDate(apptDate) + (apptTime ? (', ' + formatTime12h(apptTime)) : ''));
+    next = logActivity(next, staffName + ' (regional partner) confirmed the appointment: ' + formatDate(apptDate) + (apptTime ? (', ' + formatTime12h(apptTime)) : ''));
     saveJob(next);
     pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(apptDate) + (apptTime ? (' - ' + formatTime12h(apptTime)) : '') + ' ke liye confirm ho gayi hai', job.id);
     setApptDate(''); setApptTime('');
@@ -7029,11 +6970,11 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
   };
 
   const markVisitDone = (job) => {
-    pushNotification('follow_up_needed', staffName + ' (Regional Partner) ne ' + job.customerName + ' ka visit complete kiya hai', job.id);
+    pushNotification('follow_up_needed', tf('{staff} (Regional Partner) ne {customer} ka visit complete kiya hai', { staff: staffName, customer: job.customerName }), job.id);
     showToast('Admin ko bata diya gaya');
   };
   const markWorkComplete = (job) => {
-    pushNotification('work_completed_by_karigar', staffName + ' (Regional Partner) ne ' + job.customerName + ' ka kaam complete bataya hai', job.id);
+    pushNotification('work_completed_by_karigar', tf('{staff} (Regional Partner) ne {customer} ka kaam complete bataya hai', { staff: staffName, customer: job.customerName }), job.id);
     showToast('Admin ko bata diya gaya - wo confirm karke status update karenge');
   };
   // Same auto-status-to-paid logic as AdminJobDetail's addPayment -
@@ -7046,13 +6987,13 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
     if (!newPaymentAmount) { showToast('Amount daalein', true); return; }
     const base = jobRef.current || job;
     let nextJob = { ...base, payments: [...(base.payments || []), { id: uid(), amount: newPaymentAmount, note: newPaymentNote.trim(), date: new Date().toISOString(), collectedBy: staffName + ' (Regional Partner)' }] };
-    nextJob = logActivity(nextJob, staffName + ' (Regional Partner) ne payment collect ki: ' + currency(newPaymentAmount));
+    nextJob = logActivity(nextJob, staffName + ' (regional partner) collected a payment: ' + currency(newPaymentAmount));
     const justCompletedPayment = jobTotal(nextJob) > 0 && jobDue(nextJob) <= 0 && nextJob.status !== 'paid';
     if (justCompletedPayment) nextJob.status = 'paid';
     saveJob(nextJob);
     pushNotification('payment_received', staffName + ' (Regional Partner) ne ' + job.customerName + ' se ' + currency(newPaymentAmount) + ' collect kiya hai', job.id);
     if (justCompletedPayment) {
-      pushNotification('payment_completed', 'Aapka poora payment ho gaya hai - ' + BUSINESS.name + ' ki taraf se dhanyavaad! Hume aapke saath kaam karke khushi hui.', job.id);
+      pushNotification('payment_completed', tf('Aapka poora payment ho gaya hai - {business} ki taraf se dhanyavaad! Hume aapke saath kaam karke khushi hui.', { business: BUSINESS.name }), job.id);
     }
     setNewPaymentAmount(''); setNewPaymentNote('');
     showToast('Payment record ho gayi');
@@ -7089,7 +7030,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
           </div>
 
           <div style={{ ...styles.formCard, marginTop: 12, background: '#FFF9EE', borderColor: BRAND.gold }}>
-            <div style={styles.fieldLabel}>Aapka Commission (Is Job Par)</div>
+            <div style={styles.fieldLabel}>{t('Aapka Commission (Is Job Par)')}</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: BRAND.navy }}>{currency(myCommission)}</div>
             <div style={styles.itemSub}>{commissionPercent}% of {currency(jobPaid(activeJob))} collected</div>
           </div>
@@ -7097,7 +7038,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
           {!activeJob.appointment && (
             <div style={{ ...styles.formCard, marginTop: 12 }}>
               <div style={styles.fieldLabel}>{t('Visit Book Karein')}</div>
-              <div style={styles.plainTextMuted}>Abhi tak koi appointment nahi hai - customer se baat karke date/address confirm karein.</div>
+              <div style={styles.plainTextMuted}>{t('Abhi tak koi appointment nahi hai - customer se baat karke date/address confirm karein.')}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <input style={styles.input} type='date' value={apptDate} onChange={(e) => setApptDate(e.target.value)} />
                 <input style={styles.input} type='time' value={apptTime} onChange={(e) => setApptTime(e.target.value)} />
@@ -7122,14 +7063,14 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
           {activeJob.appointment && (activeJob.appointment.status === 'confirmed' || activeJob.appointment.status === 'rescheduled') && (
             <div style={{ ...styles.formCard, marginTop: 12 }}>
               <div style={styles.fieldLabel}>Visit Details</div>
-              <div style={styles.itemDesc}>{activeJob.appointment.address || activeJob.address || 'Address customer se poochhein'}</div>
+              <div style={styles.itemDesc}>{activeJob.appointment.address || activeJob.address || t('Address customer se poochhein')}</div>
               {activeJob.appointment.confirmedDate && (
                 <div style={styles.itemSub}>{formatDate(activeJob.appointment.confirmedDate)}{activeJob.appointment.confirmedTime ? (' - ' + formatTime12h(activeJob.appointment.confirmedTime)) : ''}</div>
               )}
               {activeJob.phone && (
-                <a href={'tel:+91' + activeJob.phone} style={{ ...styles.addBtn, marginTop: 8, textDecoration: 'none' }}><Phone size={14} /> Customer ko Call Karein</a>
+                <a href={'tel:+91' + activeJob.phone} style={{ ...styles.addBtn, marginTop: 8, textDecoration: 'none' }}><Phone size={14} />{t('Customer ko Call Karein')}</a>
               )}
-              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => markVisitDone(activeJob)}><CheckCircle2 size={14} /> Visit Complete - Admin ko Batayein</button>
+              <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => markVisitDone(activeJob)}><CheckCircle2 size={14} />{t('Visit Complete - Admin ko Batayein')}</button>
             </div>
           )}
 
@@ -7256,8 +7197,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
 
           {activeJob.status === 'in_progress' && (
             <button style={{ ...styles.addBtn, marginTop: 16 }} onClick={() => markWorkComplete(activeJob)}>
-              <CheckCircle2 size={14} /> Kaam Complete - Admin ko Batayein
-            </button>
+              <CheckCircle2 size={14} />{t('Kaam Complete - Admin ko Batayein')}</button>
           )}
 
           <div style={{ ...styles.sectionTitle, marginTop: 20 }}>Progress Photos</div>
@@ -7309,7 +7249,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
               <div style={{ fontSize: 18, fontWeight: 800, color: BRAND.navy }}>{currency(totalCommission)}</div>
             </div>
             <div>
-              <div style={styles.itemSub}>Mila</div>
+              <div style={styles.itemSub}>{t('Mila')}</div>
               <div style={{ fontSize: 18, fontWeight: 800, color: '#2F7D4F' }}>{currency(totalPaidOut)}</div>
             </div>
             <div>
@@ -7349,7 +7289,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
                 </div>
               </div>
             ) : (
-              <button style={styles.addBtn} onClick={() => setShowAddCustomer(true)}><UserPlus size={14} /> Apna Naya Customer Add Karein</button>
+              <button style={styles.addBtn} onClick={() => setShowAddCustomer(true)}><UserPlus size={14} />{t('Apna Naya Customer Add Karein')}</button>
             )}
           </div>
         )}
@@ -7361,15 +7301,15 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
             <input style={styles.searchInput} placeholder='Customer naam se dhundein' value={jobQuery} onChange={(e) => setJobQuery(e.target.value)} />
           </div>
         )}
-        {jobs.length === 0 && <div style={styles.emptySmall}>Abhi koi kaam assign nahi hua hai.</div>}
+        {jobs.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi kaam assign nahi hua hai.')}</div>}
         {commissionByJob.filter(({ job: j }) => !jobQuery.trim() || j.customerName.toLowerCase().includes(jobQuery.trim().toLowerCase())).map(({ job: j, commission }) => (
           <button key={j.id} style={styles.miniRowClickArea} onClick={() => setActiveJobId(j.id)}>
             <div style={{ flex: 1, textAlign: 'left' }}>
               <div style={styles.itemDesc}>{j.customerName}</div>
               <div style={styles.itemSub}>
                 {STATUS[j.status]?.label || j.status} - Commission: {currency(commission)}
-                {!j.appointment && ' - Visit book karna baaki hai'}
-                {j.appointment && j.appointment.status === 'requested' && ' - Visit confirm karna baaki hai'}
+                {!j.appointment && ' - ' + t('Visit book karna baaki hai')}
+                {j.appointment && j.appointment.status === 'requested' && ' - ' + t('Visit confirm karna baaki hai')}
                 {j.appointment && (j.appointment.status === 'confirmed' || j.appointment.status === 'rescheduled') && j.appointment.confirmedDate && (' - Visit: ' + formatDate(j.appointment.confirmedDate))}
               </div>
             </div>
@@ -7387,7 +7327,7 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
       {tab === 'notifications' && (
         <div style={{ padding: '12px 16px' }}>
           <div style={styles.sectionTitle}>Recent Activity</div>
-          <div style={styles.plainTextMuted}>Aapke saare assigned jobs mein jo bhi hua hai, ek jagah.</div>
+          <div style={styles.plainTextMuted}>{t('Aapke saare assigned jobs mein jo bhi hua hai, ek jagah.')}</div>
           {(() => {
             // Combines job.activity (already logged by every save
             // throughout the app) across every job assigned to this
@@ -7651,14 +7591,14 @@ function PhotoUrlInput({ value, onChange, placeholder }) {
       <div style={{ position: 'relative' }}>
         <input
           style={{ ...styles.input, paddingRight: 32 }}
-          placeholder={placeholder || 'Image URL ya Google Drive link paste karein'}
+          placeholder={placeholder || t('Image URL ya Google Drive link paste karein')}
           value={value}
           onChange={(e) => onChange(e.target.value)}
         />
         <Link2 size={14} color='#C7CCDC' style={{ position: 'absolute', right: 10, top: 12 }} />
       </div>
       {isDrive && (
-        <div style={styles.convertedTag}><Check size={11} /> Google Drive link - preview neeche check karein</div>
+        <div style={styles.convertedTag}><Check size={11} />{t('Google Drive link - preview neeche check karein')}</div>
       )}
       {value.trim() && (
         <div style={styles.previewWrap}>
@@ -7672,7 +7612,7 @@ function PhotoUrlInput({ value, onChange, placeholder }) {
       )}
       {isDrive && (
         <div style={styles.hintText}>
-          Agar preview nahi dikh raha: Drive file ko 'Anyone with the link' pe share karein (Viewer access).
+          If the preview does not appear, share the Drive file with 'Anyone with the link' (Viewer access).
         </div>
       )}
     </div>
@@ -7830,7 +7770,7 @@ export function PhotoAddPanel({ onAdd, addLabel, showToast }) {
 
       {mode === 'link' && (
         <div style={{ marginTop: 12 }}>
-          <PhotoUrlInput value={linkValue} onChange={setLinkValue} placeholder='Image URL ya Google Drive link paste karein' />
+          <PhotoUrlInput value={linkValue} onChange={setLinkValue} placeholder={t('Image URL ya Google Drive link paste karein')} />
           <input style={{ ...styles.input, marginTop: 8 }} placeholder='Caption (optional)' value={caption} onChange={(e) => setCaption(e.target.value)} />
           <button style={styles.addBtn} onClick={addFromLink}><Plus size={14} /> {addLabel || 'Add photo'}</button>
         </div>

@@ -69,11 +69,11 @@ check('who chose is recorded, for each of the two paths', () => {
 
 check('the activity log names the right person', () => {
   const c = finalizeEstimateDraft(job, job.estimateDrafts[0], 'customer');
-  assert.match(c.activity[0].text, /^Customer ne "Kaka 7kg laminate"/);
+  assert.match(c.activity[0].text, /^Customer chose the "Kaka 7kg laminate"/);
   const a = finalizeEstimateDraft(job, job.estimateDrafts[0], 'admin', 'Ravi');
-  assert.match(a.activity[0].text, /^Ravi ne "Kaka 7kg laminate"/);
+  assert.match(a.activity[0].text, /^Ravi made "Kaka 7kg laminate"/);
   const n = finalizeEstimateDraft(job, job.estimateDrafts[0], 'admin');
-  assert.match(n.activity[0].text, /^Admin ne /, 'no name should fall back to Admin');
+  assert.match(n.activity[0].text, /^Admin made /, 'no name should fall back to Admin');
 });
 
 check('the earlier history is kept, newest first', () => {

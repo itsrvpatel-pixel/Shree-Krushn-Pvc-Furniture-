@@ -1,62 +1,23 @@
-/* --- Two-language support (Hinglish + English) ---------------------
-   Hinglish stays the source text in the JSX. t('...') looks that exact
-   Hinglish string up in the English dictionary and returns the
-   translation when English is selected; with no entry it returns what
-   it was given. That fallback is the whole point of keying on the
-   sentence rather than on an invented id: a string nobody has
-   translated yet still renders as readable Hinglish instead of a bare
-   key like 'favorites.empty', and a typo in a call site degrades to
-   the original text rather than to nothing. It also means the app
-   keeps working while the dictionary is only partly filled.
+/* --- English copy ---------------------------------------------------
+   The app ships in English only. The Hinglish sentences in the JSX are
+   the SOURCE text: t('...') looks each one up here and returns its
+   English wording. Keying on the sentence rather than on an invented
+   id means a string with no entry yet still renders as readable
+   Hinglish instead of a bare key like 'favorites.empty', and a typo in
+   a call site degrades to the original text rather than to nothing -
+   which is what makes it safe to convert a file this size in passes.
 
-   The current language lives in a module variable, not in React state,
-   because a large share of this app's text is produced OUTSIDE any
-   component - toast messages, activity-log lines, WhatsApp share text,
-   PDF labels - and those are plain functions that cannot call a hook.
-   React still repaints correctly: App holds one piece of `language`
-   state, and nothing below it is memoised (there is no React.memo in
-   this codebase), so changing it re-renders every screen. setLanguage
-   keeps the module variable and that state in step.
+   t() is a plain function, not a hook, because a lot of this app's
+   text is produced outside any component: toasts, activity-log lines,
+   WhatsApp share text, PDF labels.
 ------------------------------------------------------------------- */
 
 import { EN } from './translations.js';
 
-export const LANGUAGES = [
-  { code: 'hi', label: 'हिं', name: 'Hinglish' },
-  { code: 'en', label: 'EN', name: 'English' },
-];
-
-const STORE_KEY = 'app_language';
-
-// Hinglish is the default: it is what every existing user already sees,
-// so an upgrade must not silently switch their app to another language.
-let current = 'hi';
-
-export function readStoredLanguage() {
-  try {
-    const v = localStorage.getItem(STORE_KEY);
-    if (v === 'en' || v === 'hi') return v;
-  } catch (e) {
-    // Private windows and blocked site data throw on access rather than
-    // returning null. The default is correct in that case.
-  }
-  return 'hi';
-}
-
-export function getLanguage() {
-  return current;
-}
-
-// Called by App's language state setter, and once at startup from the
-// stored value, so the module variable and the React state never drift.
-export function setLanguageValue(lang) {
-  current = lang === 'en' ? 'en' : 'hi';
-  try { localStorage.setItem(STORE_KEY, current); } catch (e) { /* see above */ }
-  return current;
-}
-
+// The app is English only. There is no switch and no stored
+// preference: the Hinglish strings in the JSX are the SOURCE text that
+// t() translates, not a language anyone can choose.
 export function t(text) {
-  if (current !== 'en') return text;
   if (typeof text !== 'string') return text;
   const hit = EN[text];
   return hit === undefined ? text : hit;
