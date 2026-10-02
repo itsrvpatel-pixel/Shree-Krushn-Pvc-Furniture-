@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build && node tools/assemble-site.mjs",
     "preview": "vite preview",
-    "test": "node test/partnerCategories.test.mjs && node test/arrivalIntent.test.mjs && node test/estimateDrafts.test.mjs && node test/resolveCategory.test.mjs && node test/pdfPages.test.mjs"
+    "test": "node test/partnerCategories.test.mjs && node test/arrivalIntent.test.mjs && node test/estimateDrafts.test.mjs && node test/resolveCategory.test.mjs && node test/pdfPages.test.mjs && node test/workDiary.test.mjs"
   },
   "dependencies": {
     "react": "^18.2.0",

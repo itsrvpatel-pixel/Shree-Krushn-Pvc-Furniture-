@@ -203,3 +203,71 @@ export function planPdfPages(contentHeight, pageHeight, breaks, minFillRatio = 0
   }
   return pages;
 }
+
+// --- The work diary -------------------------------------------------
+//
+// Groups everything that already happens on a job into days, newest
+// first, so the customer can follow their own work the way they would
+// follow a conversation. Nothing new has to be entered for this: the
+// progress photos the karigar already uploads, the payments already
+// recorded and the activity lines already written are the diary. The
+// customer is shown job.activity on their home screen today, so this
+// surfaces nothing they could not already read.
+//
+// `now` is injected rather than read from the clock so this can be
+// tested, and so "Aaj" means the same thing for every entry in one
+// render.
+function dayKeyOf(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  // Local date, not UTC: a photo uploaded at 9pm IST belongs to that
+  // evening's entry, not to the next day.
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return d.getFullYear() + '-' + m + '-' + day;
+}
+
+export function buildWorkDiary(job, now = new Date()) {
+  const byDay = new Map();
+  const touch = (iso) => {
+    const key = dayKeyOf(iso);
+    if (!key) return null;
+    if (!byDay.has(key)) byDay.set(key, { key, date: iso, photos: [], events: [] });
+    const entry = byDay.get(key);
+    // Keep the earliest timestamp of the day as the entry's own, so
+    // sorting within a day stays stable.
+    if (new Date(iso) < new Date(entry.date)) entry.date = iso;
+    return entry;
+  };
+
+  for (const p of (job && job.progressPhotos) || []) {
+    const e = touch(p.date);
+    if (e) e.photos.push(p);
+  }
+  for (const a of (job && job.activity) || []) {
+    const e = touch(a.date);
+    if (e) e.events.push({ id: a.id, text: a.text, date: a.date });
+  }
+
+  const days = [...byDay.values()].sort((a, b) => new Date(b.date) - new Date(a.date));
+  if (days.length === 0) return [];
+
+  // Day 1 is the oldest day that has anything on it, so "Din 12" means
+  // twelve days of this job's own record - not twelve days since some
+  // unrelated created-at stamp.
+  const firstKey = days[days.length - 1].key;
+  const firstDate = new Date(firstKey + 'T00:00:00');
+  const todayKey = dayKeyOf(now.toISOString());
+  const yesterdayKey = dayKeyOf(new Date(now.getTime() - 86400000).toISOString());
+
+  return days.map((d) => {
+    const dayDate = new Date(d.key + 'T00:00:00');
+    return {
+      ...d,
+      dayNumber: Math.round((dayDate - firstDate) / 86400000) + 1,
+      isToday: d.key === todayKey,
+      isYesterday: d.key === yesterdayKey,
+      events: d.events.slice().sort((a, b) => new Date(b.date) - new Date(a.date)),
+    };
+  });
+}

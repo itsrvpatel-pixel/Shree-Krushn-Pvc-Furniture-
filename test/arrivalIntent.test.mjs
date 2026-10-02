@@ -1,18 +1,29 @@
 // The website's buttons name a screen - "Book a free visit", "Instant
 // estimate" - and carry ?do=visit / ?do=estimate so the app opens there.
-// The mapping is only as good as the tab keys it points at, and those
-// live in App.jsx's BottomNav. Rename a tab and the button would quietly
-// go back to doing nothing; this test is the tripwire for that.
+// The mapping is only as good as the screen keys it points at. It used
+// to check those against the BottomNav's tabs, but the bar is down to
+// four and 'appointment' is no longer one of them - it is reached from
+// the home screen and by exactly this deep link. So the check is now
+// against the screens CustomerApp actually RENDERS, which is what the
+// link really depends on, plus the bar highlighting a tab for each.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { ARRIVAL_TABS } from '../src/arrivalIntent.js';
 
 const app = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 
-// The customer's BottomNav - the one holding a 'review' tab; the admin's
-// does not.
+// The customer's BottomNav - the one holding a 'Designs' tab; the
+// admin's and the partner's do not.
 const navs = [...app.matchAll(/items=\{\[([\s\S]*?)\]\}/g)].map((m) => m[1]);
-const customerNav = navs.find((n) => /key: 'review'/.test(n));
+const customerNav = navs.find((n) => /key: 'gallery', label: 'Designs'/.test(n));
+
+// Every screen CustomerApp renders, from its own `tab === '...'` guards.
+const customerApp = app.slice(app.indexOf('function CustomerApp('), app.indexOf('function CustomerHome('));
+const screens = new Set([...customerApp.matchAll(/tab === '([a-z_]+)'/g)].map((m) => m[1]));
+
+// Sub-screens with no tab of their own must still light a tab up.
+const parentBlock = app.slice(app.indexOf('const CUSTOMER_TAB_PARENT'), app.indexOf('function CustomerApp('));
+const parents = Object.fromEntries([...parentBlock.matchAll(/(\w+): '([a-z_]+)'/g)].map((m) => [m[1], m[2]]));
 
 let failed = 0;
 const check = (name, fn) => {
@@ -24,11 +35,22 @@ check('the customer tab bar was found in App.jsx', () => {
   assert.ok(customerNav, 'no BottomNav with a review tab - has the nav moved?');
 });
 
-check('every screen a website button points at is a real tab', () => {
-  const keys = [...customerNav.matchAll(/key: '([a-z]+)'/g)].map((m) => m[1]);
-  assert.deepEqual(keys, ['home', 'appointment', 'gallery', 'estimate', 'progress', 'review']);
+check('the bar is four tabs, so it cannot scroll sideways', () => {
+  const keys = [...customerNav.matchAll(/key: '([a-z_]+)'/g)].map((m) => m[1]);
+  assert.deepEqual(keys, ['home', 'gallery', 'estimate', 'progress']);
+});
+
+check('every screen a website button points at is really rendered', () => {
   for (const [param, tab] of Object.entries(ARRIVAL_TABS)) {
-    assert.ok(keys.includes(tab), '?do=' + param + ' points at "' + tab + '", which is not a tab');
+    assert.ok(screens.has(tab), '?do=' + param + ' opens "' + tab + '", which CustomerApp does not render');
+  }
+});
+
+check('arriving on a tabless screen still highlights a tab', () => {
+  const keys = new Set([...customerNav.matchAll(/key: '([a-z_]+)'/g)].map((m) => m[1]));
+  for (const [param, tab] of Object.entries(ARRIVAL_TABS)) {
+    const lit = keys.has(tab) ? tab : parents[tab];
+    assert.ok(lit && keys.has(lit), '?do=' + param + ' opens "' + tab + '" with no tab lit up');
   }
 });
 

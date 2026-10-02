@@ -32,10 +32,10 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary } from './jobCore.js';
 import { t, tf, LANGUAGES, getLanguage, setLanguageValue, readStoredLanguage } from './i18n.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary };
 export { t, tf, LANGUAGES, getLanguage };
 
 const DEFAULT_CATEGORIES = ['Kitchen', 'Wardrobe', 'Dressing Table', 'Bathroom Cabinet', 'TV Unit', 'Bed', 'Color/POP Work', 'Electrical Work', 'Other'];
@@ -4313,6 +4313,19 @@ function HelpScreen({ faqs, job, onSaveJob, pushNotification, customer, showToas
   );
 }
 
+// Screens the customer reaches from the home screen (or from a
+// website deep link such as /app?do=visit) rather than from the bar.
+// They are real screens with no tab of their own, so the bar would
+// otherwise show nothing selected while one is open - including right
+// after someone taps "Free site visit" on the website. Highlighting
+// the tab they belong under keeps the bar honest.
+const CUSTOMER_TAB_PARENT = {
+  appointment: 'home',
+  requirements: 'home',
+  review: 'home',
+  instant_estimate: 'home',
+};
+
 function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, faqs, materialSpecs, companyBenefits, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast, language, onChangeLanguage }) {
   // Registers this customer's own device for push notifications
   // (visit confirmed, payment due, etc.) - the token is stored
@@ -4449,26 +4462,38 @@ function CustomerApp({ customer, gallery, loadGalleryData, galleryLoading, job, 
       {tab === 'review' && <ReviewPanel job={job} onSave={onSaveJob} showToast={showToast} />}
 
       <BottomNav
-        tab={tab} setTab={setTab}
+        tab={CUSTOMER_TAB_PARENT[tab] || tab} setTab={setTab}
+        /* Four, so the bar fits the phone and stops scrolling
+           sideways - six tabs at 390px overflowed, which hid whichever
+           ones happened to fall off the right edge. Visit and Review
+           are not permanent destinations: each matters at one point in
+           the job and both are offered on the home screen exactly
+           then. They stay reachable by setTab, so nothing is lost. */
         items={[
           { key: 'home', label: 'Home', icon: <Home size={18} /> },
-          { key: 'appointment', label: 'Visit', icon: <Calendar size={18} /> },
           { key: 'gallery', label: 'Designs', icon: <Grid3x3 size={18} /> },
           { key: 'estimate', label: 'Estimate', icon: <FileText size={18} /> },
-          { key: 'progress', label: 'Progress', icon: <Hammer size={18} /> },
-          { key: 'review', label: 'Review', icon: <Star size={18} /> },
+          { key: 'progress', label: 'Kaam', icon: <Hammer size={18} /> },
         ]}
       />
     </div>
   );
 }
 
-function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout }) {
+export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout }) {
   const st = STATUS[job.status] || STATUS.appointment;
   const total = jobTotal(job);
   const due = jobDue(job);
   const curIdx = STATUS_ORDER.indexOf(job.status);
   const pct = Math.round(((curIdx + 1) / STATUS_ORDER.length) * 100);
+  const reqCount = (job.requirements || []).length;
+  const hasVisit = !!(job.appointment && job.appointment.date);
+  // The newest line of the diary, shown on the card so the home screen
+  // answers "what happened" without the customer opening anything.
+  const diary = buildWorkDiary(job);
+  const latest = diary.length > 0 ? diary[0] : null;
+  const latestLine = latest && latest.events.length > 0 ? latest.events[0].text : null;
+  const photoCount = (job.progressPhotos || []).length;
 
   return (
     <div style={{ padding: '12px 16px' }}>
@@ -4480,16 +4505,24 @@ function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout }) {
           </div>
           <StageBadge status={job.status} />
         </div>
+        {/* A ring instead of the thin bar and six squeezed-up labels:
+            at phone width those labels were four characters each and
+            told the customer less than the stage name does. */}
+        <div style={styles.homeRing}>
+          <ProgressRing pct={pct} />
+          <div style={styles.homeRingTxt}>
+            {latestLine
+              ? <><span style={styles.homeRingStrong}>{latestLine}</span>
+                  {latest && <><br />Din {latest.dayNumber}{photoCount > 0 ? ' \u00b7 ' + photoCount + ' photo' : ''}</>}</>
+              : <span style={styles.homeRingStrong}>{st.label}</span>}
+          </div>
+        </div>
         <div style={styles.progressTrack}>
           <div style={{ ...styles.progressFill, width: pct + '%', background: BRAND.gold }} />
         </div>
-        <div style={styles.progressLabels}>
-          {STATUS_ORDER.map((s, i) => (
-            <span key={s} style={{ fontWeight: i <= curIdx ? 800 : 600, color: i <= curIdx ? '#FDFCF8' : '#5A6690' }}>
-              {STATUS[s].label.split(' ')[0]}
-            </span>
-          ))}
-        </div>
+        <button style={styles.homeHeroBtn} onClick={() => setTab('progress')}>
+          {diary.length > 0 ? 'Kaam ki diary dekhein' : 'Kaam ki jaankari'}
+        </button>
       </div>
 
       {job.expectedCompletionDate && (job.status === 'in_progress' || job.status === 'delivered') && (() => {
@@ -4549,32 +4582,60 @@ function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout }) {
         </button>
       )}
 
-      <div style={styles.quickGrid}>
-        <QuickTile icon={<Calendar size={20} color={BRAND.navy} />} label='Book Visit' onClick={() => setTab('appointment')} />
-        <QuickTile icon={<Calculator size={20} color={BRAND.navy} />} label='Instant Estimate' onClick={onOpenCalculator} />
-        <QuickTile icon={<Grid3x3 size={20} color={BRAND.navy} />} label='Browse Designs' onClick={() => setTab('gallery')} />
-        <QuickTile icon={<Edit3 size={20} color={BRAND.navy} />} label='Add Requirement' onClick={() => setTab('requirements')} />
-        <QuickTile icon={<Hammer size={20} color={BRAND.navy} />} label='Work Progress' onClick={() => setTab('progress')} />
+      {/* The six equal tiles are gone. They asked the customer to pick
+          from a menu on every visit, with nothing marked as the thing
+          to do next. These are the same destinations in the order they
+          actually come up, and the one that matters right now is the
+          gold button inside the card above. */}
+      <div style={styles.homeActions}>
+        {!hasVisit && (
+          <HomeAction icon={<Calendar size={17} color={BRAND.navy} />} title={t('Visit Book Karein')}
+            sub='Ghar par aakar measurement karenge' onClick={() => setTab('appointment')} />
+        )}
+        <HomeAction icon={<Grid3x3 size={17} color={BRAND.navy} />} title='Designs dekhein'
+          sub='Pasand aaye to star dabakar save karein' onClick={() => setTab('gallery')} />
+        <HomeAction icon={<Edit3 size={17} color={BRAND.navy} />} title={t('Aapki Requirements')}
+          sub={reqCount > 0 ? reqCount + ' add ki hain' : 'Kya banwana hai, likh dein'}
+          onClick={() => setTab('requirements')} />
+        {total === 0 && (
+          <HomeAction icon={<Calculator size={17} color={BRAND.navy} />} title='Instant estimate'
+            sub='Apne naap se khud andaza lagayein' onClick={onOpenCalculator} />
+        )}
         {(job.status === 'delivered' || job.status === 'paid') && (
-          <QuickTile icon={<Star size={20} color={BRAND.navy} />} label={job.review ? t('Aapka Review') : t('Review Dein')} onClick={() => setTab('review')} />
+          <HomeAction icon={<Star size={17} color={BRAND.navy} />}
+            title={job.review ? t('Aapka Review') : t('Review Dein')}
+            sub={job.review ? 'Badalna ho to yahan se' : 'Aapka anubhav kaisa raha?'}
+            onClick={() => setTab('review')} />
         )}
       </div>
-
-      {(job.activity || []).length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <div style={styles.fieldLabel}>Recent Activity</div>
-          {job.activity.slice(0, 8).map((a) => (
-            <div key={a.id} style={styles.activityRow}>
-              <div style={styles.activityDot} />
-              <div style={{ flex: 1 }}>
-                <div style={styles.activityText}>{a.text}</div>
-                <div style={styles.itemSub}>{timeAgo(a.date)}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
+  );
+}
+
+export function ProgressRing({ pct }) {
+  const r = 26;
+  const c = 2 * Math.PI * r;
+  const safe = Math.max(0, Math.min(100, pct || 0));
+  return (
+    <svg width='62' height='62' viewBox='0 0 62 62' role='img' aria-label={safe + '% complete'} style={{ flex: 'none' }}>
+      <circle cx='31' cy='31' r={r} fill='none' stroke='rgba(253,252,248,.22)' strokeWidth='7' />
+      <circle cx='31' cy='31' r={r} fill='none' stroke={BRAND.gold} strokeWidth='7' strokeLinecap='round'
+        strokeDasharray={c} strokeDashoffset={c * (1 - safe / 100)} transform='rotate(-90 31 31)' />
+      <text x='31' y='35.5' textAnchor='middle' fill='#FDFCF8' fontSize='15' fontWeight='800'>{safe}%</text>
+    </svg>
+  );
+}
+
+function HomeAction({ icon, title, sub, onClick }) {
+  return (
+    <button style={styles.homeAction} onClick={onClick}>
+      <span style={styles.homeActionIc}>{icon}</span>
+      <span style={styles.homeActionTx}>
+        <span style={{ ...styles.homeActionT1, display: 'block' }}>{title}</span>
+        <span style={{ ...styles.homeActionT2, display: 'block' }}>{sub}</span>
+      </span>
+      <span style={styles.homeActionChev}>&rsaquo;</span>
+    </button>
   );
 }
 
@@ -6229,9 +6290,61 @@ export function ComplaintStageStepper({ status }) {
   );
 }
 
+/* --- The work diary -------------------------------------------------
+   Day by day, newest first, built from what the job already records
+   (see buildWorkDiary) - no new step for whoever is on site. The point
+   is that someone whose own home is being built has a reason to open
+   the app most days, and until now the only thing waiting for them was
+   a grid of photos with no sense of when or why. */
+export function WorkDiary({ job, onOpenPhoto }) {
+  const days = buildWorkDiary(job);
+  if (days.length === 0) {
+    return (
+      <div style={styles.emptyBlock}>
+        <p style={styles.emptyBlockText}>{t('Kaam shuru hone ke baad yahan progress photos dikhengi.')}</p>
+      </div>
+    );
+  }
+  return (
+    <div>
+      {days.map((d, i) => {
+        const last = i === days.length - 1;
+        const label = d.isToday ? 'Aaj' : d.isYesterday ? 'Kal' : formatDate(d.date);
+        return (
+          <div key={d.key} style={styles.diaryDay}>
+            <div style={styles.diaryRail}>
+              <span style={d.isToday ? styles.diaryDotNow : styles.diaryDot} />
+              {!last && <span style={styles.diaryLine} />}
+            </div>
+            <div style={styles.diaryBody}>
+              <div style={styles.diaryDayLabel}>{label} &middot; Din {d.dayNumber}</div>
+              {d.events.map((e) => (
+                <div key={e.id} style={styles.diaryText}>{e.text}</div>
+              ))}
+              {d.events.length === 0 && d.photos.length > 0 && (
+                <div style={styles.diaryText}>{d.photos.length} nayi photo</div>
+              )}
+              {d.photos.length > 0 && (
+                <div style={styles.diaryPics}>
+                  {d.photos.map((p, pi) => (
+                    <button key={p.id} style={styles.diaryPicBtn}
+                      onClick={() => onOpenPhoto(d.photos, pi)}
+                      aria-label={p.caption || 'Progress photo'}>
+                      <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption || ''} style={styles.diaryPicImg} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProgressView({ job, onSave, showToast, customer, categories, pushNotification }) {
   const [lightbox, setLightbox] = useState(null);
-  const photos = job.progressPhotos || [];
   // Same stale-prop fix as AdminJobDetail (see its matching comment) -
   // protects the complaint-reporting flow below from a rapid second
   // action overwriting a not-yet-synced first one.
@@ -6482,38 +6595,13 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
         </div>
       )}
 
-      <div style={{ ...styles.fieldLabel, marginTop: 20 }}>Progress Photos ({photos.length})</div>
-      {photos.length === 0 && <div style={styles.emptySmall}>{t('Kaam shuru hone ke baad yahan progress photos dikhengi.')}</div>}
-      <div style={styles.photoGrid}>
-        {photos.map((p, i) => (
-          <button key={p.id} style={styles.photoThumb} onClick={() => setLightbox({ photos, index: i })}>
-            <SmartImg src={p.url} origUrl={p.origUrl} alt={p.caption} style={styles.photoImg} />
-          </button>
-        ))}
-      </div>
-
-      {/* Project timeline: "design final ho gaya", "50% kaam complete",
-          a change request, an extra-work approval - every logActivity()
-          entry for this job, in one place. This is the same data
-          CustomerHome's "Recent Activity" shows (capped to the latest
-          8), but here on the Progress tab it's the FULL history, since
-          this is where someone would naturally look to trace "what
-          happened with my project so far" rather than just the few most
-          recent updates. */}
-      {(job.activity || []).length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <div style={styles.fieldLabel}>Project History</div>
-          {job.activity.map((a) => (
-            <div key={a.id} style={styles.activityRow}>
-              <div style={styles.activityDot} />
-              <div style={{ flex: 1 }}>
-                <div style={styles.activityText}>{a.text}</div>
-                <div style={styles.itemSub}>{timeAgo(a.date)}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* The photos and the activity trail, merged into one day-by-day
+          record. They used to sit in two separate blocks - an undated
+          photo grid and, further down, a flat list of lines - so a
+          customer could see THAT eleven photos existed but not which
+          day's work any of them was. */}
+      <div style={{ ...styles.fieldLabel, marginTop: 20 }}>Kaam ki diary</div>
+      <WorkDiary job={job} onOpenPhoto={(dayPhotos, index) => setLightbox({ photos: dayPhotos, index })} />
 
       {lightbox && <Lightbox data={lightbox} onClose={() => setLightbox(null)} setLightbox={setLightbox} />}
     </div>
@@ -7796,7 +7884,7 @@ export const styles = {
   notifDot: { width: 7, height: 7, borderRadius: 4, background: BRAND.gold, flexShrink: 0, marginTop: 5 },
   iconBtnSmall: { background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0 },
 
-  bottomNav: { position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: BRAND.paper, borderTop: '2px solid ' + BRAND.navy, display: 'flex', padding: '8px 4px', zIndex: 30, overflowX: 'auto' },
+  bottomNav: { position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: BRAND.paper, borderTop: '2px solid ' + BRAND.navy, display: 'flex', padding: '8px 4px', zIndex: 30 },
   navBtn: { position: 'relative', flex: '1 0 62px', minWidth: 62, background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, cursor: 'pointer', padding: '4px 2px' },
   navLabel: { fontSize: 9.5, whiteSpace: 'nowrap' },
   navIndicator: { position: 'absolute', top: -8, left: '50%', transform: 'translateX(-50%)', width: 4, height: 4, borderRadius: 2, background: BRAND.gold },
@@ -7810,6 +7898,35 @@ export const styles = {
   progressLabels: { display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 9.5 },
 
   quickGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, margin: '14px 0' },
+
+  // --- Home: one card that answers "where is my work" --------------
+  // Replaces the tile grid. The tiles gave six equally sized doors and
+  // no answer; this leads with the answer and keeps the doors as a
+  // short list underneath, in the order they actually come up.
+  homeRing: { display: 'flex', alignItems: 'center', gap: 14, marginTop: 12 },
+  homeRingTxt: { fontSize: 12.5, lineHeight: 1.5, color: 'rgba(253,252,248,.82)', minWidth: 0 },
+  homeRingStrong: { color: '#FDFCF8', fontWeight: 800 },
+  homeHeroBtn: { width: '100%', marginTop: 13, background: BRAND.gold, color: '#1A1F2E', border: 'none', borderRadius: 11, padding: '11px 10px', fontSize: 13.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' },
+  homeActions: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 },
+  homeAction: { display: 'flex', alignItems: 'center', gap: 11, width: '100%', background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: '11px 12px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' },
+  homeActionIc: { width: 34, height: 34, borderRadius: 10, background: BRAND.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' },
+  homeActionTx: { flex: 1, minWidth: 0 },
+  homeActionT1: { fontSize: 13.5, fontWeight: 700, color: BRAND.navy },
+  homeActionT2: { fontSize: 11.5, color: BRAND.textMuted, marginTop: 1 },
+  homeActionChev: { color: BRAND.textMuted, flex: 'none', fontSize: 17, lineHeight: 1 },
+
+  // --- Work diary ---------------------------------------------------
+  diaryDay: { display: 'grid', gridTemplateColumns: '22px 1fr', gap: 11 },
+  diaryRail: { display: 'flex', flexDirection: 'column', alignItems: 'center' },
+  diaryDot: { width: 11, height: 11, borderRadius: '50%', background: BRAND.line, marginTop: 5, flex: 'none' },
+  diaryDotNow: { width: 11, height: 11, borderRadius: '50%', background: BRAND.gold, marginTop: 5, flex: 'none', boxShadow: '0 0 0 4px rgba(168,151,95,.22)' },
+  diaryLine: { flex: 1, width: 2, background: BRAND.line, margin: '4px 0' },
+  diaryBody: { paddingBottom: 16, minWidth: 0 },
+  diaryDayLabel: { fontSize: 10.5, letterSpacing: '.1em', textTransform: 'uppercase', color: BRAND.textMuted, fontWeight: 700 },
+  diaryText: { fontSize: 13, color: BRAND.navy, marginTop: 3, lineHeight: 1.5 },
+  diaryPics: { display: 'flex', gap: 7, marginTop: 8, flexWrap: 'wrap' },
+  diaryPicBtn: { width: 62, height: 48, borderRadius: 8, overflow: 'hidden', border: '1px solid ' + BRAND.line, padding: 0, background: BRAND.cream, cursor: 'pointer', flex: 'none' },
+  diaryPicImg: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
   quickTile: { background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 13, padding: '14px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, cursor: 'pointer', fontFamily: 'inherit' },
   quickTileLabel: { fontSize: 11.5, fontWeight: 700, color: BRAND.navy, textAlign: 'center' },
 
