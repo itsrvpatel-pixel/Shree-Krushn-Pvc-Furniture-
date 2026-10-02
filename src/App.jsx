@@ -32,10 +32,10 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages } from './jobCore.js';
 import { t, tf, LANGUAGES, getLanguage, setLanguageValue, readStoredLanguage } from './i18n.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages };
 export { t, tf, LANGUAGES, getLanguage };
 
 const DEFAULT_CATEGORIES = ['Kitchen', 'Wardrobe', 'Dressing Table', 'Bathroom Cabinet', 'TV Unit', 'Bed', 'Color/POP Work', 'Electrical Work', 'Other'];
@@ -1330,23 +1330,57 @@ async function buildEstimatePdfFromDom(elementId) {
     // old JPEG-at-scale-2 baseline (PNG has zero compression artifacts
     // at any resolution), while keeping the file a size a customer can
     // actually receive quickly over mobile data.
+    // Where a page is ALLOWED to end. Measured here, with the sheet
+    // already expanded to its full width above, because that expansion
+    // changes how rows wrap and therefore where they sit. Every table
+    // row's bottom edge is a legal cut; so is the bottom of any block
+    // marked data-pdf-block. Offsets are relative to the top of the
+    // captured element, in CSS pixels.
+    const elementTop = element.getBoundingClientRect().top;
+    const breakOffsetsCss = [];
+    element.querySelectorAll('tr, [data-pdf-block]').forEach((node) => {
+      const r = node.getBoundingClientRect();
+      if (r.height > 0) breakOffsetsCss.push(r.bottom - elementTop);
+    });
+
     const canvas = await window.html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
-    const imgData = canvas.toDataURL('image/png');
     const jsPDF = await loadJsPDF();
     const doc = new jsPDF('p', 'mm', 'a4');
     const pdfWidth = doc.internal.pageSize.getWidth();
     const pdfHeight = doc.internal.pageSize.getHeight();
-    const imgHeightMm = (canvas.height * pdfWidth) / canvas.width;
 
-    let heightLeft = imgHeightMm;
-    let position = 0;
-    doc.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeightMm);
-    heightLeft -= pdfHeight;
-    while (heightLeft > 0) {
-      position -= pdfHeight;
-      doc.addPage();
-      doc.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeightMm);
-      heightLeft -= pdfHeight;
+    // Derived from the canvas rather than assumed to be the scale: 2
+    // passed above, because html2canvas rounds the output dimensions.
+    const pxPerCssPx = canvas.height / (element.offsetHeight || 1);
+    const breaks = [...new Set(
+      breakOffsetsCss.map((o) => Math.round(o * pxPerCssPx)).filter((o) => o > 0 && o < canvas.height)
+    )].sort((a, b) => a - b);
+
+    // Previously each page placed the WHOLE tall image at a negative y
+    // offset, so pages fell on fixed A4 multiples wherever that landed
+    // - straight through the middle of a row, which is what cut item 9
+    // in half across pages 1 and 2. Now each page is cut as its own
+    // image, ending at the last row boundary that still fits.
+    const pageHeightPx = (pdfHeight * canvas.width) / pdfWidth;
+    const pages = planPdfPages(canvas.height, pageHeightPx, breaks);
+
+    const slice = document.createElement('canvas');
+    const sctx = slice.getContext('2d');
+    let pageIndex = 0;
+    for (const { start: y, end } of pages) {
+      const sliceHeight = Math.max(1, Math.round(end - y));
+      slice.width = canvas.width;
+      slice.height = sliceHeight;
+      // The slice canvas starts transparent, and PNG keeps that - it
+      // prints as a black band in some viewers. Paint the paper first.
+      sctx.fillStyle = '#ffffff';
+      sctx.fillRect(0, 0, slice.width, slice.height);
+      sctx.drawImage(canvas, 0, y, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
+
+      if (pageIndex > 0) doc.addPage();
+      doc.addImage(slice.toDataURL('image/png'), 'PNG', 0, 0, pdfWidth, (sliceHeight * pdfWidth) / canvas.width);
+
+      pageIndex++;
     }
     return doc;
   } finally {

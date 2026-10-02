@@ -160,3 +160,46 @@ export function resolveCategory(selected, categories) {
   const list = Array.isArray(categories) ? categories : [];
   return list.includes(selected) ? selected : (list[0] || '');
 }
+
+// Where to cut a tall estimate screenshot into A4 pages.
+//
+// The estimate PDF is one long image of the rendered document. Slicing
+// it at fixed page-height multiples cuts straight through whatever
+// happens to be at that offset - which is how a row of the item table
+// ended up half on one page and half on the next. `breaks` carries the
+// bottom edge of every table row (and of any block marked
+// data-pdf-block), so a page can be ended at the last row that still
+// fits instead of mid-row.
+//
+// minFillRatio stops the cut being clawed back too far: a block taller
+// than most of a page would otherwise leave a mostly blank page, and a
+// stretch with no legal break at all has to fall back to a hard cut
+// rather than make no progress and loop forever.
+//
+// Returns [{ start, end }] in the same units as the inputs.
+export function planPdfPages(contentHeight, pageHeight, breaks, minFillRatio = 0.35) {
+  const pages = [];
+  if (!(contentHeight > 0) || !(pageHeight > 0)) return pages;
+  const points = (Array.isArray(breaks) ? breaks : [])
+    .filter((b) => Number.isFinite(b) && b > 0 && b < contentHeight)
+    .sort((a, b) => a - b);
+  const minFill = pageHeight * minFillRatio;
+
+  let y = 0;
+  // contentHeight - 1 rather than contentHeight: a sub-pixel remainder
+  // left by rounding is not worth a whole extra page.
+  while (y < contentHeight - 1) {
+    let end = Math.min(y + pageHeight, contentHeight);
+    if (end < contentHeight) {
+      let safe = -1;
+      for (const b of points) {
+        if (b > y + minFill && b <= end) safe = b;
+      }
+      if (safe > 0) end = safe;
+    }
+    if (!(end > y)) end = Math.min(y + pageHeight, contentHeight);
+    pages.push({ start: y, end });
+    y = end;
+  }
+  return pages;
+}
