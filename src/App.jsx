@@ -32,9 +32,9 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory } from './jobCore.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory };
 
 const DEFAULT_CATEGORIES = ['Kitchen', 'Wardrobe', 'Dressing Table', 'Bathroom Cabinet', 'TV Unit', 'Bed', 'Color/POP Work', 'Electrical Work', 'Other'];
 
@@ -3858,7 +3858,11 @@ function FavoritesButton({ job, onSaveJob, showToast, categories, gallery }) {
   const [open, setOpen] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const [addingId, setAddingId] = useState(null);
-  const [addCategory, setAddCategory] = useState(categories[0]);
+  // Held loosely and resolved against the live list on every render -
+  // see resolveCategory for why seeding straight from categories[0]
+  // left this pointing at a category that does not exist.
+  const [addCategoryRaw, setAddCategory] = useState('');
+  const addCategory = resolveCategory(addCategoryRaw, categories);
   const savedDesigns = job.savedDesigns || [];
   // Same stale-prop fix as AdminJobDetail (see its matching comment).
   const jobRef = useRef(job);
@@ -3927,7 +3931,15 @@ function FavoritesButton({ job, onSaveJob, showToast, categories, gallery }) {
               <span>Favorites</span>
             </div>
             <div style={{ ...styles.notifList, padding: resolvedDesigns.length > 0 ? 10 : 0 }}>
-              {resolvedDesigns.length === 0 && <div style={styles.emptySmall}>Gallery mein photo ke star icon se favorite add karein.</div>}
+              {/* Favorites store only a photoId, so an entry whose photo
+                  the gallery has not produced yet (still loading) or no
+                  longer has (deleted) resolves to nothing. Showing the
+                  "add a favorite" line in that case contradicts the
+                  badge, which counts the raw saved entries - it reads as
+                  the favorites having been lost. Say which case it is
+                  instead. */}
+              {resolvedDesigns.length === 0 && savedDesigns.length === 0 && <div style={styles.emptySmall}>Gallery mein photo ke star icon se favorite add karein.</div>}
+              {resolvedDesigns.length === 0 && savedDesigns.length > 0 && <div style={styles.emptySmall}>Photo load ho rahi hain... Gallery khulne ke baad yahan dikhengi.</div>}
               {resolvedDesigns.length > 0 && (
                 <div style={styles.savedDesignGrid}>
                   {resolvedDesigns.map((d, i) => (
@@ -3944,7 +3956,7 @@ function FavoritesButton({ job, onSaveJob, showToast, categories, gallery }) {
                           <button style={styles.favAddConfirmBtn} onClick={() => addToProject(d)}><Check size={12} color='#FFF' /></button>
                         </div>
                       ) : (
-                        <button style={{ ...styles.savedDesignActions, border: 'none', cursor: 'pointer', width: '100%' }} onClick={() => { setAddingId(d.photoId); setAddCategory(categories[0]); }}>
+                        <button style={{ ...styles.savedDesignActions, border: 'none', cursor: 'pointer', width: '100%' }} onClick={() => { setAddingId(d.photoId); setAddCategory(resolveCategory('', categories)); }}>
                           <span style={styles.savedDesignAddBtn}>Add to Project</span>
                         </button>
                       )}
@@ -5586,7 +5598,9 @@ function InstantEstimateCalculator({ estimateRates, showToast, onBack }) {
 }
 
 function RequirementsPanel({ job, onSave, showToast, categories, customer, gallery }) {
-  const [category, setCategory] = useState(categories[0]);
+  // Resolved against the live list every render - see resolveCategory.
+  const [categoryRaw, setCategory] = useState('');
+  const category = resolveCategory(categoryRaw, categories);
   const [text, setText] = useState('');
   const [dimensions, setDimensions] = useState('');
   const [priority, setPriority] = useState('normal');

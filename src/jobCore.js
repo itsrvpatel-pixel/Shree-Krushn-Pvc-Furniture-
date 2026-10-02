@@ -142,3 +142,21 @@ export function finalizeEstimateDraft(job, draft, by, byName) {
     ? 'Customer ne "' + draft.label + '" option choose kiya - final estimate ban gaya'
     : (byName || 'Admin') + ' ne "' + draft.label + '" option final kiya');
 }
+
+// A category picker seeds its selection from categories[0] at mount
+// time. That list starts out as the SHIPPED defaults and is only
+// replaced once the real one arrives from Firestore a moment later -
+// and the live names are not the defaults (they are 'Color pop',
+// 'electric' and so on, the same mismatch isPartnerCategory exists to
+// absorb). A selection seeded from the defaults therefore names a
+// category that does not exist in the live list: a <select> renders
+// with no matching <option>, so it looks blank and unselectable, and
+// anything saved under that name is filed to a category no grouping
+// ever reads back - the entry is stored but never displayed.
+// Resolving the selection against the live list on every render keeps
+// it pointing at something real, and falls back to the first live
+// category rather than to undefined.
+export function resolveCategory(selected, categories) {
+  const list = Array.isArray(categories) ? categories : [];
+  return list.includes(selected) ? selected : (list[0] || '');
+}

@@ -115,6 +115,7 @@ import {
   phoneCharsOnly,
   readLastCrash,
   receiptNo,
+  resolveCategory,
   shareEstimatePdf,
   styles,
   timeAgo,
@@ -3234,7 +3235,16 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
     () => partnerCategories([...new Set([...(categories || []), ...Object.keys(gallery || {})])]),
     [categories, gallery]
   );
-  const [activeCat, setActiveCat] = useState(isDhPartner ? DH_PARTNER_CATEGORIES[0] : categories[0]);
+  // Seeding straight from categories[0] pinned this to a SHIPPED default
+  // name, which the live gallery does not use - the tab then showed zero
+  // photos for a category that has plenty. Resolved against the live
+  // list instead (see resolveCategory). 'Uncategorized' is a real tab
+  // here but never appears in `categories`, so it is kept explicitly.
+  const [activeCatRaw, setActiveCat] = useState('');
+  const catTabs = isDhPartner ? DH_PARTNER_CATEGORIES : categories;
+  const activeCat = activeCatRaw === UNCATEGORIZED
+    ? UNCATEGORIZED
+    : resolveCategory(activeCatRaw, catTabs);
   const [bulkText, setBulkText] = useState('');
   const [showBulk, setShowBulk] = useState(false);
   const [query, setQuery] = useState('');
