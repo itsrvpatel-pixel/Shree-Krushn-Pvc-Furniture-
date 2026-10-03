@@ -90,4 +90,33 @@ t('reading a profile does not modify the customer', () => {
   assert.equal(JSON.stringify(c), before);
 });
 
+// --- where the details actually surface -----------------------------
+// They were only on the customer LIST card and in the edit dialog.
+// Neither is where an admin works, so in practice the answers a
+// customer gave were invisible and looked like they had not saved.
+import fs from 'node:fs';
+const admin = fs.readFileSync(new URL('../src/AdminApp.jsx', import.meta.url), 'utf8');
+const app = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+
+t('the job detail screen shows the customer details', () => {
+  assert.ok(/function CustomerDetailsCard\(/.test(admin), 'no card component');
+  const detail = admin.slice(admin.indexOf('function AdminJobDetail('));
+  assert.ok(/<CustomerDetailsCard/.test(detail), 'the job detail does not render it');
+  assert.ok(/customer=\{customers\.find/.test(admin), 'the customer is never passed to the job detail');
+});
+
+t('an admin can fill the details in from the job screen', () => {
+  const card = admin.slice(admin.indexOf('function CustomerDetailsCard('), admin.indexOf('function AdminJobDetail('));
+  assert.ok(/<CustomerProfileFields/.test(card), 'the card has no editable fields');
+  assert.ok(/onSaveCustomer\(/.test(card), 'the card cannot save');
+});
+
+t('staff see customer changes without restarting the app', () => {
+  assert.ok(/customersStore\.subscribe\(/.test(app),
+    'the customer list is still fetched once per session and never updated');
+  const sub = app.slice(app.indexOf('customersStore.subscribe(') - 600, app.indexOf('customersStore.subscribe(') + 400);
+  assert.ok(/role === 'customer'/.test(sub), 'a customer must not subscribe to the whole customer list');
+  assert.ok(/customersWriteInFlightRef/.test(sub), 'a snapshot could revert a local write');
+});
+
 console.log(n + ' assertions passed\n');

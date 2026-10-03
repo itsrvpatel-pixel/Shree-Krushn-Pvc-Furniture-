@@ -2344,7 +2344,7 @@ export default function App() {
           return;
         }
         const all = await window.customersStore.loadAll();
-        if (!cancelled) { setCustomersLoadFailed(false); setCustomers(all); }
+        if (!cancelled) { setCustomersLoadFailed(false); customersRef.current = all; setCustomers(all); }
       } catch (e) {
         // The load FAILED - which says nothing about whether the
         // records exist. Leaving this as a silent console line is what
@@ -2357,6 +2357,22 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
+  }, [loaded, session]);
+
+  // Staff watch the customer list live. It used to be fetched once per
+  // session and never again, so a customer filling in their profile
+  // was invisible to an admin who already had the app open - which
+  // looked exactly like the details never saving at all. A customer
+  // needs no listener here: they hold only their own record.
+  useEffect(() => {
+    if (!loaded || !session || session.role === 'customer') return undefined;
+    const unsub = window.customersStore.subscribe((serverCustomers) => {
+      if (customersWriteInFlightRef.current.active) return;
+      customersRef.current = serverCustomers;
+      setCustomers(serverCustomers);
+      setCustomersLoadFailed(false);
+    });
+    return () => { try { unsub(); } catch (e) { /* already gone */ } };
   }, [loaded, session]);
 
   // A customer's own notification document, live. Only subscribed for a
@@ -2802,6 +2818,7 @@ export default function App() {
   // take the save down with it. One person editing one record of their
   // own has nothing to merge against.
   const saveOwnCustomer = useCallback(async (next) => {
+    customersWriteInFlightRef.current.enter();
     const prev = customersRef.current.find((c) => c.id === next.id);
     setCustomers((list) => list.map((c) => (c.id === next.id ? next : c)));
     try {
@@ -2811,18 +2828,23 @@ export default function App() {
       showToast('Could not save your details', true);
       if (prev) setCustomers((list) => list.map((c) => (c.id === next.id ? prev : c)));
       return false;
+    } finally {
+      customersWriteInFlightRef.current.leave();
     }
   }, []);
 
   const persistCustomers = useCallback(async (next) => {
+    customersWriteInFlightRef.current.enter();
     const prevLocalCustomers = customersRef.current;
     setCustomers(next);
     try {
       const merged = await mergeIdArrayWithFreshServer('customers', next, prevLocalCustomers, () => window.customersStore.loadAll());
       await window.customersStore.saveDiff(merged, prevLocalCustomers);
+      customersRef.current = merged;
       setCustomers(merged);
     }
     catch (e) { showToast('Save failed', true); }
+    finally { customersWriteInFlightRef.current.leave(); }
   }, []);
   // Tracks when the LOCAL app last wrote to `jobs` (a delete, an edit,
   // approving something, etc.) so the background poll below can tell the
@@ -2855,6 +2877,7 @@ export default function App() {
   // is, so a save always diffs against what the app actually has.
   // Non-null for a customer session: the only job document this
   // device may read or write. Staff leave it null and work on all.
+  const customersWriteInFlightRef = useRef(createInFlightCounter());
   const jobScopeIdsRef = useRef(null);
   const jobsRef = useRef(jobs);
   useEffect(() => { jobsRef.current = jobs; }, [jobs]);

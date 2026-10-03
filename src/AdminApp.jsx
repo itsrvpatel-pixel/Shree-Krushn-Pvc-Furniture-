@@ -122,6 +122,7 @@ import {
   normalizeProfile,
   profileSummary,
   profileCompleteness,
+  timelineLabel,
   shareEstimatePdf,
   styles,
   timeAgo,
@@ -519,7 +520,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
     return (
       <div style={{ paddingBottom: 20 }}>
         <TopBar title={activeJob.customerName} subtitle={isPartner ? 'Partner - Job detail' : (isDhPartner ? 'DH Home Decor - Job detail' : 'Admin - Job detail')} onBack={() => setActiveJobId(null)} hideLogout />
-        <AdminJobDetail key={activeJob.id} job={activeJob} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} pushNotification={pushNotification} categories={categories} gallery={gallery} />
+        <AdminJobDetail key={activeJob.id} job={activeJob} customer={customers.find((c) => c.id === activeJob.customerId) || null} onSaveCustomer={(c) => setCustomers(customers.map((x) => (x.id === c.id ? c : x)))} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} pushNotification={pushNotification} categories={categories} gallery={gallery} />
       </div>
     );
   }
@@ -2354,7 +2355,46 @@ function EstimateItemEditRow({ item, onSave, onCancel }) {
   );
 }
 
-function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates, pushNotification, categories, gallery }) {
+/* Shows what the customer told us, and lets an admin fill it in from
+   the same screen - usually while on the phone to them, which is when
+   the answers actually turn up. */
+export function CustomerDetailsCard({ customer, onSaveCustomer, showToast }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(() => normalizeProfile(customer));
+  if (!customer) return null;
+  const summary = profileSummary(customer);
+  const pct = profileCompleteness(customer);
+  return (
+    <div style={{ ...styles.formCard, marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ ...styles.fieldLabel, flex: 1, minWidth: 0 }}>Customer details</div>
+        <span style={{ fontSize: 11, fontWeight: 800, color: pct === 100 ? '#2F7D4F' : BRAND.gold }}>{pct}%</span>
+        <button
+          style={{ ...styles.cardActionBtn, padding: '3px 9px' }}
+          onClick={() => { setDraft(normalizeProfile(customer)); setEditing((e) => !e); }}
+        >{editing ? 'Cancel' : 'Edit'}</button>
+      </div>
+      {!editing && (
+        <div style={{ marginTop: 8 }}>
+          {summary
+            ? <div style={styles.itemDesc}>{summary}</div>
+            : <div style={styles.plainTextMuted}>Nothing given yet - tap Edit to fill it in, or ask on the next call.</div>}
+        </div>
+      )}
+      {editing && (
+        <div style={{ marginTop: 10 }}>
+          <CustomerProfileFields value={draft} onChange={setDraft} compact />
+          <button
+            style={{ ...styles.primaryBtn, marginTop: 14 }}
+            onClick={() => { onSaveCustomer({ ...customer, ...normalizeProfile(draft) }); setEditing(false); showToast('Customer details saved'); }}
+          >Save details</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdminJobDetail({ job, customer, onSaveCustomer, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates, pushNotification, categories, gallery }) {
   const [tab, setTab] = useState('status');
   const [resolvingComplaintId, setResolvingComplaintId] = useState(null);
   const [reqLightbox, setReqLightbox] = useState(null);
@@ -2730,7 +2770,12 @@ function AdminJobDetail({ job, onSave, showToast, staff, staffName, itemTemplate
 
         {tab === 'status' && (
           <div>
-            <div style={styles.fieldLabel}>Move job to stage</div>
+            {/* The four things the customer was asked at sign-up. They
+                were only on the customer LIST card and in the edit
+                dialog - neither of which is where an admin actually
+                works, so in practice nobody ever saw them. */}
+            <CustomerDetailsCard customer={customer} onSaveCustomer={onSaveCustomer} showToast={showToast} />
+            <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Move job to stage</div>
             <div style={styles.stageGrid}>
               {STATUS_ORDER.map((s) => {
                 const Icon = STATUS[s].icon;
