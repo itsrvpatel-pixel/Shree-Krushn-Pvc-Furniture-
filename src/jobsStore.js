@@ -269,14 +269,31 @@ export function createRecordStore(db, { collectionName, legacyKey, field, idOf }
   // customer who is still active - so a lookup that only tried the
   // convention would show that person an empty app. Falls back to a
   // single-field query, which needs no composite index.
-  async function findIdForOwner(ownerField, ownerId, conventionalId) {
+  // fallbackField/fallbackValue is the second way in, tried only when the
+  // first finds nothing. A customer has TWO identities - the random id
+  // the app generated for them, and their phone number - and the two
+  // drift apart whenever a record is created twice for one person:
+  // admin adds "Lavkumar Padhya" and builds a 24-item estimate against
+  // id A, the same man later registers himself and gets id B, and the
+  // job keyed to A becomes invisible to the account holding B. Phone is
+  // the only identity the two halves always share, so it is what finds
+  // the job when the ids disagree.
+  async function findIdForOwner(ownerField, ownerId, conventionalId, fallbackField, fallbackValue) {
     if (conventionalId) {
       const snap = await getDoc(doc(jobsCol, conventionalId));
       if (snap.exists()) return conventionalId;
     }
-    const q = query(jobsCol, where(field + '.' + ownerField, '==', ownerId), limit(1));
-    const found = await getDocs(q);
-    return found.empty ? null : found.docs[0].id;
+    if (ownerId) {
+      const q = query(jobsCol, where(field + '.' + ownerField, '==', ownerId), limit(1));
+      const found = await getDocs(q);
+      if (!found.empty) return found.docs[0].id;
+    }
+    if (fallbackField && fallbackValue) {
+      const q2 = query(jobsCol, where(field + '.' + fallbackField, '==', fallbackValue), limit(1));
+      const found2 = await getDocs(q2);
+      if (!found2.empty) return found2.docs[0].id;
+    }
+    return null;
   }
 
   // One document, live. The customer app uses this instead of the

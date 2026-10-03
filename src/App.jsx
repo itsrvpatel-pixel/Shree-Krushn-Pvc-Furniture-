@@ -32,11 +32,11 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration } from './jobCore.js';
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -2471,7 +2471,10 @@ export default function App() {
       (async () => {
         let id = 'job_' + session.customerId;
         try {
-          const found = await window.jobsStore.findIdForOwner('customerId', session.customerId, id);
+          // Phone is the last resort, and it is the one that saves the
+          // accounts where the ids disagree - see resolveRegistration
+          // in jobCore.js for how one person ends up with two ids.
+          const found = await window.jobsStore.findIdForOwner('customerId', session.customerId, id, 'phone', session.phone);
           if (found) id = found;
         } catch (e) {
           // Keep the conventional id: it is right for all but a
@@ -3261,22 +3264,48 @@ export default function App() {
             setCustomers([cust]);
             setSession({ role: 'customer', customerId: cust.id, phone: cust.phone });
           }}
-          onRegister={(cust) => {
+          onRegister={async (cust) => {
+            // Someone registering is not necessarily new to the
+            // business. Admin may have taken their number on a call
+            // months ago and quoted a whole estimate against it. If a
+            // job already exists for this phone, this registration
+            // joins it instead of opening a second, empty account
+            // beside it - which is what used to happen, and why work
+            // that had already been quoted was invisible to the
+            // customer who had been quoted it.
+            let existingJob = null;
+            try {
+              const foundId = await window.jobsStore.findIdForOwner('phone', cust.phone, null);
+              if (foundId) existingJob = await window.jobsStore.getOne(foundId);
+            } catch (e) {
+              // A lookup that failed is not proof there is no job, so
+              // this falls through to creating one rather than risking
+              // the registration itself. The phone fallback in the job
+              // listener picks the older job up on the next open.
+              console.error('looking for an existing job by phone failed', e);
+            }
+            const plan = resolveRegistration(cust, existingJob, (c) => emptyJob(c.id, c.name, c.phone));
+            cust = plan.customer;
             const next = [cust, ...customers];
             persistCustomers(next);
-            const job = emptyJob(cust.id, cust.name, cust.phone);
-            persistJobs([job, ...jobs]);
+            const job = plan.jobToCreate || existingJob;
+            if (plan.jobToCreate) persistJobs([plan.jobToCreate, ...jobs]);
             setSession({ role: 'customer', customerId: cust.id, phone: cust.phone });
-            showToast('Registered! Welcome ' + cust.name);
+            showToast(plan.adopted
+              ? 'Welcome back ' + cust.name + ' - aapka kaam mil gaya'
+              : 'Registered! Welcome ' + cust.name);
             // The registration moment itself is the very first signal a
             // brand-new lead exists - previously admin only found out
             // once that customer went further and booked an appointment
             // (which does notify separately), meaning someone who
             // registered but hadn't taken the next step yet was
             // invisible unless admin happened to check the Customers
-            // tab. jobId is the empty job just created above, so tapping
-            // this notification takes admin straight to that customer.
-            pushNotification('new_customer_registered', tf('{name} ne naya account banaya hai', { name: cust.name }), job.id);
+            // tab. jobId is the job this registration landed on - the
+            // empty one just created, or the one already on file - so
+            // tapping this takes admin straight to that customer.
+            pushNotification('new_customer_registered', plan.adopted
+              ? tf('{name} ne app par login kiya - inka kaam pehle se file mein hai', { name: cust.name })
+              : tf('{name} ne naya account banaya hai', { name: cust.name }), job.id);
           }}
           onAdminLogin={(staffName, role, staffId) => setSession({ role: role || 'admin', staffName, staffId })}
         />
@@ -3410,6 +3439,15 @@ export default function App() {
       const normalized = normalizeIndianPhone(phone);
       if (!name.trim()) { showToast('Naam daalein', true); return false; }
       if (!normalized) { showToast('Sahi 10-digit mobile number daalein', true); return false; }
+      // Same guard as AdminCustomers' addNewCustomer: customer
+      // documents are keyed by phone, so re-adding a number that is
+      // already on file overwrites that customer and orphans their job.
+      const clash = customers.find((c) => c.phone === normalized);
+      if (clash) {
+        const theirJob = jobs.find((j) => j.customerId === clash.id) || jobs.find((j) => j.phone === normalized);
+        showToast('Yeh number pehle se hai: ' + clash.name, true);
+        return theirJob ? theirJob.id : false;
+      }
       const newCustomer = { id: uid(), name: name.trim(), phone: normalized, createdAt: new Date().toISOString() };
       await persistCustomers([newCustomer, ...customers]);
       const newJob = emptyJob(newCustomer.id, newCustomer.name, newCustomer.phone);

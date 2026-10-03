@@ -344,3 +344,36 @@ export function mergeListWithServer(next, prevLocal, fresh, keyOf = listKeyOf) {
   }
   return out;
 }
+
+/* --- One person, one account -----------------------------------------
+   A customer is identified two different ways and nothing kept the two
+   in step. The app gives every customer a random internal id, and a job
+   points at that id; the customer DOCUMENT, though, is keyed by phone
+   number, because phone is the only thing the login screen knows before
+   it knows who you are.
+
+   So one person could end up as two records. Admin adds a number, quotes
+   a 24-item estimate against id A. The same man later registers himself,
+   gets a fresh id B, and his account opens empty - the estimate is still
+   sitting on A, and nothing looks for it. That is not a theory: it had
+   happened to four customers on the live database, and eight more had a
+   job with no customer record at all, so their number came back as "not
+   registered" when they tried to log in.
+
+   This decides, at the moment someone registers, whether they are
+   actually new. If a job already exists for their phone, they are not:
+   they adopt that job's customer id and that job, instead of being given
+   a blank second account beside it. Returns the customer to save, the
+   job to create (null when an existing one is adopted), and whether a
+   job was adopted, so the caller can say so.
+------------------------------------------------------------------- */
+export function resolveRegistration(customer, existingJob, makeJob) {
+  if (existingJob && existingJob.customerId) {
+    return {
+      customer: { ...customer, id: existingJob.customerId },
+      jobToCreate: null,
+      adopted: true,
+    };
+  }
+  return { customer, jobToCreate: makeJob(customer), adopted: false };
+}

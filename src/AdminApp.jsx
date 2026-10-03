@@ -1394,6 +1394,21 @@ function AdminCustomers({ customers, setCustomers, customersLoading, customersLo
     const normalized = normalizeIndianPhone(newCustPhone);
     if (!newCustName.trim()) { showToast('Naam daalein', true); return; }
     if (!normalized) { showToast('Sahi 10-digit mobile number daalein', true); return; }
+    // A customer document is keyed by phone, so adding a number that is
+    // already on file does not make a second customer - it OVERWRITES
+    // the first one, and the new record carries a new random id while
+    // the old customer's job still points at the old one. That is how
+    // Ravi's 16-item paid job was orphaned: two records for 9512318775,
+    // the later one won, and the job belonged to the id that lost.
+    // Opening the existing customer is what admin wanted anyway.
+    const clash = customersRef.current.find((c) => c.phone === normalized);
+    if (clash) {
+      const theirJob = jobsRef.current.find((j) => j.customerId === clash.id) || jobsRef.current.find((j) => j.phone === normalized);
+      setNewCustName(''); setNewCustPhone(''); setShowAddCustomer(false);
+      showToast('Yeh number pehle se hai: ' + clash.name, true);
+      if (theirJob) onOpenJob(theirJob.id);
+      return;
+    }
     const newCustomer = { id: uid(), name: newCustName.trim(), phone: normalized, createdAt: new Date().toISOString(), businessUnit: isDhPartner ? 'dh_home_decor' : undefined };
     const nextCustomers = [newCustomer, ...customersRef.current];
     customersRef.current = nextCustomers;
@@ -1488,7 +1503,13 @@ function AdminCustomers({ customers, setCustomers, customersLoading, customersLo
     // are worth keeping here since those are the ones actually being
     // used as marketing testimonials; an un-featured review had no
     // active use beyond the job record it lived on.
-    const customerJobs = jobsRef.current.filter((j) => j.customerId === deletingCustomer.id);
+    // Matched on phone as well as id. A job whose customerId had
+    // drifted from its customer's (see jobCore's resolveRegistration)
+    // survived the delete and became an orphan - a job for a person
+    // with no record, which is what made eight numbers come back as
+    // "not registered" on the live database.
+    const isTheirs = (j) => j.customerId === deletingCustomer.id || (deletingCustomer.phone && j.phone === deletingCustomer.phone);
+    const customerJobs = jobsRef.current.filter(isTheirs);
     const reviewsToArchive = customerJobs
       .filter((j) => j.review && j.review.featured)
       .map((j) => ({ id: uid(), customerName: j.customerName, rating: j.review.rating, text: j.review.text, date: j.review.date, featured: true }));
@@ -1498,7 +1519,7 @@ function AdminCustomers({ customers, setCustomers, customersLoading, customersLo
       setArchivedReviews(nextArchived);
     }
     setCustomers(customersRef.current.filter((c) => c.id !== deletingCustomer.id));
-    setJobs(jobsRef.current.filter((j) => j.customerId !== deletingCustomer.id));
+    setJobs(jobsRef.current.filter((j) => !isTheirs(j)));
     setDeletingCustomer(null);
     showToast('Customer deleted' + (reviewsToArchive.length > 0 ? ' (review surakshit rakha gaya)' : ''));
   };

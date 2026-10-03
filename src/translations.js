@@ -18,7 +18,7 @@ export const EN = {
   // --- Login and registration ---
   'Naye Customer - Register karein': 'New customer - register',
   'Pehle se registered? Login karein': 'Already registered? Log in',
-  'Ye number register nahi hai. Pehle register karein.': 'This number is not registered. Please register first.',
+  'Ye number register nahi hai. Pehle register karein.': 'This number is not registered yet. Tap Register - if we already have your details, your account opens with them.',
   'Sahi 10-digit mobile number daalein': 'Enter a valid 10-digit mobile number',
   'Sahi 10-digit mobile number daalein (jaise 98765 43210)': 'Enter a valid 10-digit mobile number (e.g. 98765 43210)',
   'Naam daalein': 'Enter your name',
