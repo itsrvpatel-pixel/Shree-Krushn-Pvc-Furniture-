@@ -41,6 +41,9 @@ import {
   deleteDoc,
   onSnapshot,
   writeBatch,
+  query,
+  where,
+  limit,
 } from 'firebase/firestore';
 
 
@@ -260,7 +263,38 @@ export function createRecordStore(db, { collectionName, legacyKey, field, idOf }
     return legacy.find((rec) => rec && String(idOf(rec)) === String(id)) || null;
   }
 
-  return { loadAll, loadLegacy, getOne, migrateLegacyIfNeeded, subscribe, saveDiff };
+  // Which document holds this customer's job. Almost every job is
+  // keyed 'job_<customerId>' (see emptyJob), but a handful created by
+  // an older path use a random id, and one of those belongs to a
+  // customer who is still active - so a lookup that only tried the
+  // convention would show that person an empty app. Falls back to a
+  // single-field query, which needs no composite index.
+  async function findIdForOwner(ownerField, ownerId, conventionalId) {
+    if (conventionalId) {
+      const snap = await getDoc(doc(jobsCol, conventionalId));
+      if (snap.exists()) return conventionalId;
+    }
+    const q = query(jobsCol, where(field + '.' + ownerField, '==', ownerId), limit(1));
+    const found = await getDocs(q);
+    return found.empty ? null : found.docs[0].id;
+  }
+
+  // One document, live. The customer app uses this instead of the
+  // collection listener: a customer has exactly one job, and listening
+  // to the collection meant every customer's device downloaded every
+  // other customer's phone number, address and payments.
+  function subscribeOne(id, onNext, onError) {
+    return onSnapshot(
+      doc(jobsCol, String(id)),
+      (snap) => { onNext(snap.exists() ? fromDoc(snap) : null); },
+      (err) => {
+        console.error('recordStore.subscribeOne failed:', collectionName, id, err);
+        if (onError) onError(err);
+      },
+    );
+  }
+
+  return { loadAll, loadLegacy, getOne, findIdForOwner, migrateLegacyIfNeeded, subscribe, subscribeOne, saveDiff };
 }
 
 export const createJobsStore = (db) => createRecordStore(db, {

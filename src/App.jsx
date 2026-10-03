@@ -212,7 +212,7 @@ function mergeJobFields(freshJob, localPrevJob, localNextJob) {
 // field-level merging (via mergeJobFields above) for any job that
 // someone else ALSO changed concurrently - see mergeJobFields for why
 // jobs specifically need this extra layer.
-async function mergeJobsWithFreshServer(next, prevLocal) {
+async function mergeJobsWithFreshServer(next, prevLocal, scopeIds) {
   const prevById = {};
   prevLocal.forEach((j) => { prevById[j.id] = j; });
   const nextById = {};
@@ -225,7 +225,17 @@ async function mergeJobsWithFreshServer(next, prevLocal) {
     // Reads the per-job documents, not the pre-split app_data/jobs one -
     // that document is left in place as a fallback copy but is no longer
     // the source of truth, so merging against it would resurrect old data.
-    freshJobs = await window.jobsStore.loadAll();
+    //
+    // scopeIds limits this to the documents the session may touch. A
+    // customer holds only their own job, so loading every job here
+    // would make `merged` 32 entries against a `prev` of one - and
+    // saveDiff would then rewrite every other customer's document.
+    if (scopeIds && scopeIds.length > 0) {
+      const got = await Promise.all(scopeIds.map((id) => window.jobsStore.getOne(id)));
+      freshJobs = got.filter(Boolean);
+    } else {
+      freshJobs = await window.jobsStore.loadAll();
+    }
   } catch (e) { /* fall back to this device's own local copy */ }
 
   const freshById = {};
@@ -2432,6 +2442,44 @@ export default function App() {
   // than re-reading every job in the business.
   useEffect(() => {
     if (!loaded) return;
+
+    // A customer listens to their OWN job document, not the collection.
+    // Listening to the collection meant every customer's device pulled
+    // down every other customer's job - 220KB carrying 32 phone
+    // numbers, 16 addresses and 5 payment histories - and the read
+    // count per app open grew with the business: 64 today, over 230
+    // at 200 customers, which is past what the free tier allows.
+    if (session && session.role === 'customer' && session.customerId) {
+      let cancelled = false;
+      let unsubOne = null;
+      (async () => {
+        let id = 'job_' + session.customerId;
+        try {
+          const found = await window.jobsStore.findIdForOwner('customerId', session.customerId, id);
+          if (found) id = found;
+        } catch (e) {
+          // Keep the conventional id: it is right for all but a
+          // handful of older jobs, and a job the customer saves under
+          // it is still their own.
+          console.error('resolving the customer job id failed', e);
+        }
+        if (cancelled) return;
+        jobScopeIdsRef.current = [id];
+        unsubOne = window.jobsStore.subscribeOne(id, (job) => {
+          if (jobsWriteInFlightRef.current.active) return;
+          const list = job ? [job] : [];
+          jobsRef.current = list;
+          setJobs(list);
+        });
+      })();
+      return () => {
+        cancelled = true;
+        jobScopeIdsRef.current = null;
+        if (unsubOne) { try { unsubOne(); } catch (e) { /* already gone */ } }
+      };
+    }
+
+    jobScopeIdsRef.current = null;
     const unsub = window.jobsStore.subscribe((serverJobs) => {
       // A local write that hasn't landed yet would otherwise be reverted by
       // the snapshot that still reflects the pre-write state - the same
@@ -2449,7 +2497,7 @@ export default function App() {
       }
     });
     return () => { try { unsub(); } catch (e) { /* already gone */ } };
-  }, [loaded]);
+  }, [loaded, session]);
 
   // Payment-due alerts: unlike the other notification triggers (which fire
   // on a specific customer action), an overdue payment is a standing
@@ -2805,6 +2853,9 @@ export default function App() {
   // computeJobDiff works out what to write, and what to DELETE, from
   // exactly that comparison. This ref is written everywhere jobs state
   // is, so a save always diffs against what the app actually has.
+  // Non-null for a customer session: the only job document this
+  // device may read or write. Staff leave it null and work on all.
+  const jobScopeIdsRef = useRef(null);
   const jobsRef = useRef(jobs);
   useEffect(() => { jobsRef.current = jobs; }, [jobs]);
   // Returns true/false so callers can tell whether the save genuinely
@@ -2847,12 +2898,19 @@ export default function App() {
     jobsRef.current = next;
     setJobs(next);
     try {
-      const merged = await mergeJobsWithFreshServer(next, prevLocalJobs);
+      const merged = await mergeJobsWithFreshServer(next, prevLocalJobs, jobScopeIdsRef.current);
       await window.jobsStore.saveDiff(merged, prevLocalJobs);
       jobsRef.current = merged;
       setJobs(merged);
       // Republish the public featured-review list only when it actually
       // changed, so a normal job edit doesn't rewrite it every time.
+      //
+      // Never from a customer session. That list is derived from EVERY
+      // job, and a customer now holds only their own - deriving from
+      // one job and writing the result would delete every other
+      // customer's testimonial. Staff sessions still keep it current,
+      // and the backfill on startup covers the rest.
+      if (jobScopeIdsRef.current) return true;
       const nextFeatured = deriveFeaturedReviews(merged);
       if (JSON.stringify(nextFeatured) !== JSON.stringify(deriveFeaturedReviews(prevLocalJobs))) {
         setFeaturedReviews(nextFeatured);
