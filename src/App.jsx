@@ -32,11 +32,11 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf } from './jobCore.js';
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -1835,6 +1835,15 @@ export function BrochureList({ brochures, showToast, canManage, onDelete }) {
 }
 
 /* ===================== ROOT ===================== */
+// Mirrors a piece of state into a ref so an async save can read what
+// the app holds NOW rather than whatever its closure captured. The
+// same hazard that let a stale jobs array drive a delete.
+function useLatestRef(value) {
+  const ref = useRef(value);
+  useEffect(() => { ref.current = value; }, [value]);
+  return ref;
+}
+
 export default function App() {
   const [loaded, setLoaded] = useState(false);
   // Offline, Firestore does not reject - it retries for as long as you
@@ -1927,6 +1936,27 @@ export default function App() {
   const [itemTemplates, setItemTemplatesRaw] = useState([]);
   const [attendance, setAttendanceRaw] = useState([]);
   const [brochures, setBrochures] = useState([]);
+
+  // Each shared list is ONE Firestore document holding the whole array,
+  // so saving it used to write this device's copy straight over
+  // whatever was there - destructive the moment two people are working
+  // at once. These refs let each save compare its own before and after
+  // and apply only that on top of the server's current copy. See
+  // persistSharedList and mergeListWithServer.
+  const estimateRatesRef = useLatestRef(estimateRates);
+  const faqsRef = useLatestRef(faqs);
+  const materialSpecsRef = useLatestRef(materialSpecs);
+  const companyBenefitsRef = useLatestRef(companyBenefits);
+  const itemTemplatesRef = useLatestRef(itemTemplates);
+  const attendanceRef = useLatestRef(attendance);
+  const pendingGalleryPhotosRef = useLatestRef(pendingGalleryPhotos);
+  const appointmentItemOptionsRef = useLatestRef(appointmentItemOptions);
+  const categoriesRef = useLatestRef(categories);
+  const brochuresRef = useLatestRef(brochures);
+  const notificationsRef = useLatestRef(notifications);
+  const expensesRef = useLatestRef(expenses);
+  const staffRef = useLatestRef(staff);
+  const archivedReviewsRef = useLatestRef(archivedReviews);
   const [featuredReviews, setFeaturedReviews] = useState([]);
   // A customer's own notifications, in their own document. The shared
   // 'notifications' list is written for staff and names other customers
@@ -2847,26 +2877,37 @@ export default function App() {
     try { await window.storage.set('admin_pin', pin, true); }
     catch (e) { showToast('PIN save failed', true); }
   }, []);
-  const persistEstimateRates = useCallback(async (rates) => {
-    setEstimateRatesRaw(rates);
-    try { await window.storage.set('estimate_rates', JSON.stringify(rates), true); }
-    catch (e) { showToast('Rates save failed', true); }
+  // Saves one shared list document without trampling anybody else's
+  // work: reads the server's current copy, applies only what THIS
+  // device changed on top of it, writes that back. If the read fails
+  // the local copy is used instead - the save still lands, which is
+  // the old behaviour and better than silently dropping the edit.
+  const persistSharedList = useCallback(async (key, next, prevLocal, setLocal, label) => {
+    setLocal(next);
+    let fresh = null;
+    try {
+      const raw = await window.storage.get(key, true);
+      if (raw && raw.value) fresh = JSON.parse(raw.value);
+    } catch (e) { /* fall back to this device's own copy below */ }
+    const merged = mergeListWithServer(next, prevLocal, Array.isArray(fresh) ? fresh : next);
+    try {
+      await window.storage.set(key, JSON.stringify(merged), true);
+      setLocal(merged);
+      return true;
+    } catch (e) {
+      showToast((label || 'Save') + ' failed', true);
+      return false;
+    }
   }, []);
-  const persistFaqs = useCallback(async (list) => {
-    setFaqsRaw(list);
-    try { await window.storage.set('faqs', JSON.stringify(list), true); }
-    catch (e) { showToast('FAQ save failed', true); }
-  }, []);
-  const persistMaterialSpecs = useCallback(async (list) => {
-    setMaterialSpecsRaw(list);
-    try { await window.storage.set('material_specs', JSON.stringify(list), true); }
-    catch (e) { showToast('Material specs save failed', true); }
-  }, []);
-  const persistCompanyBenefits = useCallback(async (list) => {
-    setCompanyBenefitsRaw(list);
-    try { await window.storage.set('company_benefits', JSON.stringify(list), true); }
-    catch (e) { showToast('Company benefits save failed', true); }
-  }, []);
+
+  const persistEstimateRates = useCallback((rates) => persistSharedList(
+    'estimate_rates', rates, estimateRatesRef.current, setEstimateRatesRaw, 'Rates save'), [persistSharedList]);
+  const persistFaqs = useCallback((list) => persistSharedList(
+    'faqs', list, faqsRef.current, setFaqsRaw, 'FAQ save'), [persistSharedList]);
+  const persistMaterialSpecs = useCallback((list) => persistSharedList(
+    'material_specs', list, materialSpecsRef.current, setMaterialSpecsRaw, 'Material specs save'), [persistSharedList]);
+  const persistCompanyBenefits = useCallback((list) => persistSharedList(
+    'company_benefits', list, companyBenefitsRef.current, setCompanyBenefitsRaw, 'Company benefits save'), [persistSharedList]);
   // localOnly is set when the PIN was just stored server-side, where no
   // browser may hold it. Writing it to Firestore here would put the
   // readable copy straight back - so the value updates on screen for
@@ -2887,13 +2928,10 @@ export default function App() {
     try { await window.storage.set('dh_partner_pin', pin, true); }
     catch (e) { showToast('DH Partner PIN save failed', true); }
   }, []);
-  const persistPendingGalleryPhotos = useCallback(async (next) => {
-    setPendingGalleryPhotos(next);
-    try { await window.storage.set('pending_gallery_photos', JSON.stringify(next), true); }
-    catch (e) { showToast('Save failed', true); }
-  }, []);
+  const persistPendingGalleryPhotos = useCallback((next) => persistSharedList(
+    'pending_gallery_photos', next, pendingGalleryPhotosRef.current, setPendingGalleryPhotos, 'Save'), [persistSharedList]);
   const persistExpenses = useCallback(async (next) => {
-    const prevLocalExpenses = expenses;
+    const prevLocalExpenses = expensesRef.current;
     setExpenses(next);
     try {
       const merged = await mergeIdArrayWithFreshServer('expenses', next, prevLocalExpenses);
@@ -2901,46 +2939,49 @@ export default function App() {
       setExpenses(merged);
     }
     catch (e) { showToast('Save failed', true); }
-  }, [expenses]);
-  const persistAppointmentItemOptions = useCallback(async (next) => {
-    setAppointmentItemOptions(next);
-    try { await window.storage.set('appointment_item_options', JSON.stringify(next), true); }
-    catch (e) { showToast('Save failed', true); }
   }, []);
+  const persistAppointmentItemOptions = useCallback((next) => persistSharedList(
+    'appointment_item_options', next, appointmentItemOptionsRef.current, setAppointmentItemOptions, 'Save'), [persistSharedList]);
   // Gallery categories are admin-editable (not a fixed list), so they're
   // persisted the same way as everything else the admin can add/remove.
-  const setCategories = useCallback(async (next) => {
-    setCategoriesRaw(next);
-    try { await window.storage.set('categories', JSON.stringify(next), true); }
-    catch (e) { showToast('Save failed', true); }
-  }, []);
+  const setCategories = useCallback((next) => persistSharedList(
+    'categories', next, categoriesRef.current, setCategoriesRaw, 'Save'), [persistSharedList]);
   // Reusable estimate items (e.g. "Wardrobe 8x7, rate 1000") admin builds
   // up over time - lets an estimate line be added with one tap instead
   // of retyping the same desc/rate combination for every new customer.
-  const setItemTemplates = useCallback(async (next) => {
-    setItemTemplatesRaw(next);
-    try { await window.storage.set('item_templates', JSON.stringify(next), true); }
-    catch (e) { showToast('Save failed', true); }
-  }, []);
+  const setItemTemplates = useCallback((next) => persistSharedList(
+    'item_templates', next, itemTemplatesRef.current, setItemTemplatesRaw, 'Save'), [persistSharedList]);
   // Attendance is a shared, capped log (like notifications) of every
   // karigar check-in/out - not scoped to a job, since a karigar's
   // workday isn't tied to just one project.
   const ATTENDANCE_CAP = 500;
-  const setAttendance = useCallback(async (next) => {
-    const capped = next.slice(0, ATTENDANCE_CAP);
-    setAttendanceRaw(capped);
-    try { await window.storage.set('attendance', JSON.stringify(capped), true); }
-    catch (e) { showToast('Save failed', true); }
-  }, []);
+  const setAttendance = useCallback((next) => persistSharedList(
+    'attendance', next.slice(0, ATTENDANCE_CAP), attendanceRef.current, setAttendanceRaw, 'Save'), [persistSharedList]);
   // Notifications are a single shared, capped list (see NOTIFICATION_CAP
   // below) rather than per-user inboxes, since every admin/staff/partner
   // sees the same operational events (new appointment, estimate response,
   // payment update). "Read" state is tracked per-viewer inside each
   // notification's own readBy array, so one staff member opening the bell
   // doesn't clear the unread badge for everyone else.
+  // Every write to the shared notification list goes through here.
+  // It used to serialise this device's array straight over the
+  // document, so two notifications raised at the same moment on
+  // different devices kept only one. Merged and re-sorted newest
+  // first, so an entry from elsewhere cannot be pushed past the cap by
+  // this device's copy being stale.
   const persistNotifications = useCallback(async (next) => {
+    const prev = notificationsRef.current;
     setNotificationsRaw(next);
-    try { await window.storage.set('notifications', JSON.stringify(next), true); }
+    let fresh = null;
+    try {
+      const raw = await window.storage.get('notifications', true);
+      if (raw && raw.value) fresh = JSON.parse(raw.value);
+    } catch (e) { /* fall back to this device's copy */ }
+    const merged = mergeListWithServer(next, prev, Array.isArray(fresh) ? fresh : next)
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, NOTIFICATION_CAP);
+    setNotificationsRaw(merged);
+    try { await window.storage.set('notifications', JSON.stringify(merged), true); }
     catch (e) { /* best effort - a failed notification save shouldn't block the action that triggered it */ }
   }, []);
   const NOTIFICATION_CAP = 200;
@@ -2957,11 +2998,7 @@ export default function App() {
   const CUSTOMER_BOUND_NOTIFICATION_TYPES = ['appointment_confirmed', 'payment_due', 'extra_work_approved', 'extra_work_rejected', 'complaint_in_progress', 'complaint_resolved', 'payment_completed', 'question_answered'];
   const pushNotification = useCallback((type, message, jobId) => {
     const entry = { id: uid(), type, message, jobId: jobId || null, createdAt: new Date().toISOString(), readBy: [] };
-    setNotificationsRaw((current) => {
-      const next = [entry, ...current].slice(0, NOTIFICATION_CAP);
-      window.storage.set('notifications', JSON.stringify(next), true).catch(() => {});
-      return next;
-    });
+    persistNotifications([entry, ...notificationsRef.current].slice(0, NOTIFICATION_CAP));
     // Anything addressed to a customer is also written to that customer's
     // own document, so their app can read just their own notifications
     // instead of the shared list. Staff keep reading the shared list.
@@ -3020,19 +3057,15 @@ export default function App() {
     return true;
   }, [adminPushTokens, showToast]);
   const markNotificationRead = useCallback((notificationId, viewerKey) => {
-    setNotificationsRaw((current) => {
-      const next = current.map((n) => (n.id === notificationId && !n.readBy.includes(viewerKey) ? { ...n, readBy: [...n.readBy, viewerKey] } : n));
-      window.storage.set('notifications', JSON.stringify(next), true).catch(() => {});
-      return next;
-    });
-  }, []);
+    persistNotifications(notificationsRef.current.map((n) => (
+      n.id === notificationId && !n.readBy.includes(viewerKey) ? { ...n, readBy: [...n.readBy, viewerKey] } : n
+    )));
+  }, [persistNotifications]);
   const markAllNotificationsRead = useCallback((viewerKey) => {
-    setNotificationsRaw((current) => {
-      const next = current.map((n) => (n.readBy.includes(viewerKey) ? n : { ...n, readBy: [...n.readBy, viewerKey] }));
-      window.storage.set('notifications', JSON.stringify(next), true).catch(() => {});
-      return next;
-    });
-  }, []);
+    persistNotifications(notificationsRef.current.map((n) => (
+      n.readBy.includes(viewerKey) ? n : { ...n, readBy: [...n.readBy, viewerKey] }
+    )));
+  }, [persistNotifications]);
   // Read state for a customer lives in their own document too, so marking
   // something read never writes to the shared staff list.
   const markCustomerNotificationRead = useCallback((notificationId, viewerKey) => {
@@ -3067,25 +3100,25 @@ export default function App() {
       // in the small 'brochures' metadata list.
       const uploadResult = await window.fileStorage.upload('brochure_' + meta.id, dataUri);
       if (!uploadResult || uploadResult.error) { showToast('Brochure upload fail ho gaya: ' + (uploadResult?.error || t('Firebase Storage abhi tak activate nahi hua ho sakta hai')), true); return false; }
-      const next = [{ ...meta, url: uploadResult.url }, ...brochures];
-      setBrochures(next);
-      await window.storage.set('brochures', JSON.stringify(next), true);
-      return true;
+      const prev = brochuresRef.current;
+      const next = [{ ...meta, url: uploadResult.url }, ...prev];
+      // Merged rather than written straight over: two admins adding a
+      // brochure at the same time would otherwise keep only one.
+      return await persistSharedList('brochures', next, prev, setBrochures, 'Brochure save');
     } catch (e) {
       showToast('Brochure save failed', true);
       return false;
     }
-  }, [brochures]);
+  }, [persistSharedList]);
   const removeBrochure = useCallback(async (id) => {
-    const next = brochures.filter((b) => b.id !== id);
-    setBrochures(next);
-    try {
-      await window.storage.set('brochures', JSON.stringify(next), true);
-      await window.fileStorage.delete('brochure_' + id);
-    } catch (e) { /* best effort */ }
-  }, [brochures]);
+    const prev = brochuresRef.current;
+    const next = prev.filter((b) => b.id !== id);
+    await persistSharedList('brochures', next, prev, setBrochures, 'Brochure save');
+    try { await window.fileStorage.delete('brochure_' + id); }
+    catch (e) { /* the file is orphaned, not lost data - best effort */ }
+  }, [persistSharedList]);
   const persistStaff = useCallback(async (next) => {
-    const prevLocalStaff = staff;
+    const prevLocalStaff = staffRef.current;
     setStaff(next);
     try {
       const merged = await mergeIdArrayWithFreshServer('staff', next, prevLocalStaff);
@@ -3093,9 +3126,9 @@ export default function App() {
       setStaff(merged);
     }
     catch (e) { showToast('Staff save failed', true); }
-  }, [staff]);
+  }, []);
   const persistArchivedReviews = useCallback(async (next) => {
-    const prevLocal = archivedReviews;
+    const prevLocal = archivedReviewsRef.current;
     setArchivedReviewsRaw(next);
     try {
       const merged = await mergeIdArrayWithFreshServer('archived_reviews', next, prevLocal);
@@ -3103,7 +3136,7 @@ export default function App() {
       setArchivedReviewsRaw(merged);
     }
     catch (e) { showToast('Review archive save failed', true); }
-  }, [archivedReviews]);
+  }, []);
 
   if (!loaded) {
     return (

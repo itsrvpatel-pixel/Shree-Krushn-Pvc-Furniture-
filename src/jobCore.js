@@ -295,3 +295,52 @@ export function createInFlightCounter() {
     get depth() { return count; },
   };
 }
+
+// --- Merging a shared list before writing it ------------------------
+//
+// Most of this app's shared data is one Firestore document holding one
+// list: the brochures, the FAQs, the rate card, a partner's pending
+// photo submissions, the karigar attendance log. Saving any of them
+// used to serialise this device's whole array over the top of
+// whatever was there. Two people working at once is then simply
+// destructive - a partner submits a photo while an admin approves a
+// different one, and whichever write lands second erases the other's,
+// with nothing on screen to say so.
+//
+// This works out what THIS device actually changed (by comparing its
+// own before and after), and applies only that on top of the server's
+// current copy. Anything another device added in the meantime
+// survives; anything this device deleted is still deleted.
+//
+// Order follows `next`, so the local edit's arrangement is kept, and
+// entries only the server knows about are appended rather than lost.
+export function listKeyOf(item) {
+  if (item && typeof item === 'object') return item.id != null ? String(item.id) : JSON.stringify(item);
+  return String(item);
+}
+
+export function mergeListWithServer(next, prevLocal, fresh, keyOf = listKeyOf) {
+  const nextList = Array.isArray(next) ? next : [];
+  const prevList = Array.isArray(prevLocal) ? prevLocal : [];
+  const freshList = Array.isArray(fresh) ? fresh : [];
+
+  const nextKeys = new Set(nextList.map(keyOf));
+  // Deleted HERE, deliberately - must not come back from the server copy.
+  const removed = new Set(prevList.map(keyOf).filter((k) => !nextKeys.has(k)));
+
+  const out = [];
+  const seen = new Set();
+  for (const item of nextList) {
+    const k = keyOf(item);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(item);
+  }
+  for (const item of freshList) {
+    const k = keyOf(item);
+    if (seen.has(k) || removed.has(k)) continue;
+    seen.add(k);
+    out.push(item);
+  }
+  return out;
+}
