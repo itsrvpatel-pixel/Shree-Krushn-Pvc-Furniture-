@@ -34,11 +34,11 @@ import { useBackToClose } from './useBackToClose.js';
 // forwarded: `export ... from` alone would not bind them in this file.
 import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf } from './jobCore.js';
 import { t, tf } from './i18n.js';
-import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
+import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
 export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf };
 export { t, tf };
-export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
+export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
 const DEFAULT_CATEGORIES = ['Kitchen', 'Wardrobe', 'Dressing Table', 'Bathroom Cabinet', 'TV Unit', 'Bed', 'Color/POP Work', 'Electrical Work', 'Other'];
 
@@ -3853,6 +3853,15 @@ export function CustomerProfileFields({ value, onChange, compact }) {
           {NEED_OPTIONS.map((x) => (
             <button key={x} type='button' onClick={() => toggleNeed(x)}
               style={{ ...styles.profileChip, ...(p.needs.includes(x) ? styles.profileChipOn : {}) }}>{x}</button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div style={styles.fieldLabel}>Rough budget</div>
+        <div style={styles.profileChips}>
+          {BUDGET_BANDS.map((x) => (
+            <button key={x.value} type='button' onClick={() => set({ budget: p.budget === x.value ? '' : x.value })}
+              style={{ ...styles.profileChip, ...(p.budget === x.value ? styles.profileChipOn : {}) }}>{x.label}</button>
           ))}
         </div>
       </div>

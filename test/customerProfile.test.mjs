@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
-  PROPERTY_TYPES, NEED_OPTIONS, TIMELINES,
-  normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel,
+  PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS,
+  normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel, budgetLabel,
 } from '../src/customerProfile.js';
 
 let n = 0;
@@ -12,7 +12,7 @@ console.log('customerProfile');
 t('a record saved before these fields existed reads as empty, not broken', () => {
   for (const c of [undefined, null, {}, { name: 'Ravi', phone: '99' }]) {
     const p = normalizeProfile(c);
-    assert.deepEqual(p, { area: '', propertyType: '', needs: [], timeline: '' });
+    assert.deepEqual(p, { area: '', propertyType: '', needs: [], timeline: '', budget: '' });
     assert.equal(profileCompleteness(c), 0);
     assert.equal(isProfileIncomplete(c), true);
     assert.equal(profileSummary(c), '');
@@ -20,9 +20,10 @@ t('a record saved before these fields existed reads as empty, not broken', () =>
 });
 
 t('a value that is not on the list is dropped rather than stored', () => {
-  const p = normalizeProfile({ propertyType: '7 BHK', timeline: 'whenever', needs: ['Wardrobe', 'Spaceship'] });
+  const p = normalizeProfile({ propertyType: '7 BHK', timeline: 'whenever', budget: 'a crore', needs: ['Wardrobe', 'Spaceship'] });
   assert.equal(p.propertyType, '');
   assert.equal(p.timeline, '');
+  assert.equal(p.budget, '');
   assert.deepEqual(p.needs, ['Wardrobe']);
 });
 
@@ -37,19 +38,20 @@ t('area is trimmed', () => {
   assert.equal(normalizeProfile({ area: 42 }).area, '');
 });
 
-t('completeness counts the four fields', () => {
-  assert.equal(profileCompleteness({ area: 'Nikol' }), 25);
-  assert.equal(profileCompleteness({ area: 'Nikol', propertyType: '3 BHK' }), 50);
-  assert.equal(profileCompleteness({ area: 'Nikol', propertyType: '3 BHK', needs: ['Wardrobe'] }), 75);
-  assert.equal(profileCompleteness({ area: 'Nikol', propertyType: '3 BHK', needs: ['Wardrobe'], timeline: 'now' }), 100);
+t('completeness counts every field', () => {
+  assert.equal(profileCompleteness({ area: 'Nikol' }), 20);
+  assert.equal(profileCompleteness({ area: 'Nikol', propertyType: '3 BHK' }), 40);
+  assert.equal(profileCompleteness({ area: 'Nikol', propertyType: '3 BHK', needs: ['Wardrobe'] }), 60);
+  assert.equal(profileCompleteness({ area: 'Nikol', propertyType: '3 BHK', needs: ['Wardrobe'], timeline: 'now' }), 80);
+  assert.equal(profileCompleteness({ area: 'Nikol', propertyType: '3 BHK', needs: ['Wardrobe'], timeline: 'now', budget: '1_2l' }), 100);
 });
 
 t('an empty needs array does not count as filled', () => {
-  assert.equal(profileCompleteness({ area: 'Nikol', needs: [] }), 25);
+  assert.equal(profileCompleteness({ area: 'Nikol', needs: [] }), 20);
 });
 
 t('a complete profile is not flagged as incomplete', () => {
-  const full = { area: 'Nava Naroda', propertyType: '2 BHK', needs: ['Full home'], timeline: 'now' };
+  const full = { area: 'Nava Naroda', propertyType: '2 BHK', needs: ['Full home'], timeline: 'now', budget: 'unsure' };
   assert.equal(isProfileIncomplete(full), false);
 });
 
@@ -67,6 +69,24 @@ t('a long needs list is capped so the card does not wrap away', () => {
   const s = profileSummary({ needs });
   assert.ok(s.includes('+3'), 'expected a +3 overflow marker, got: ' + s);
   assert.ok(s.split(',').length <= 3);
+});
+
+t('budget bands cover the real spread of this business\'s jobs', () => {
+  // 17 priced estimates run Rs 50,750 to Rs 6,31,655, median 2,72,500.
+  assert.ok(BUDGET_BANDS.length >= 5);
+  assert.equal(BUDGET_BANDS[0].value, 'unsure', 'the honest answer should come first');
+  assert.equal(new Set(BUDGET_BANDS.map((b) => b.value)).size, BUDGET_BANDS.length);
+  assert.equal(budgetLabel('2_35l'), '2 - 3.5 lakh');
+  assert.equal(budgetLabel('nonsense'), '');
+});
+
+t('the partner trades are offered, and sit after the furniture', () => {
+  // Colour/POP and electrical are DH Home Decor's work. A furniture
+  // customer may want them handled too; they are never the headline.
+  assert.ok(NEED_OPTIONS.includes('Colour / POP work'));
+  assert.ok(NEED_OPTIONS.includes('Electrical work'));
+  assert.ok(NEED_OPTIONS.indexOf('Colour / POP work') > NEED_OPTIONS.indexOf('Wardrobe'));
+  assert.equal(NEED_OPTIONS[0], 'Full home');
 });
 
 t('timelineLabel is safe for an unknown value', () => {

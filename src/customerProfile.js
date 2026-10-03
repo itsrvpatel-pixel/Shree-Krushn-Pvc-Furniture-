@@ -19,11 +19,39 @@ export const PROPERTY_TYPES = [
 // Matches the gallery's own categories closely enough to be useful for
 // filtering, with "Full home" for someone furnishing an empty flat -
 // by far the most valuable enquiry and the one worth spotting early.
+//
+// Colour/POP and electrical are DH Home Decor's trade, not this
+// business's. They sit at the end of the list, after the furniture,
+// because the point is to know whether a furniture customer ALSO
+// wants them handled - that is the "sab kaam ho jayega" convenience -
+// and never to tout for them on their own.
 export const NEED_OPTIONS = [
   'Full home', 'Wardrobe', 'Modular kitchen', 'TV unit', 'Pooja mandir',
   'Study table', 'Dressing table', 'Shoe rack', 'Washbasin cabinet',
   'Partition / elevation', 'Repair / service',
+  'Colour / POP work', 'Electrical work',
 ];
+
+// Bands drawn from this business's own 17 priced estimates, which run
+// from Rs 50,750 to Rs 6,31,655 with a median of Rs 2,72,500 - not from
+// round numbers picked out of the air. They split the real jobs 3 / 2 /
+// 6 / 5 / 1, so no band is a dead option and none swallows everything.
+// "Not decided yet" is first because for most people at enquiry stage
+// it is the honest answer, and forcing a guess would make the field
+// worse than useless.
+export const BUDGET_BANDS = [
+  { value: 'unsure', label: 'Not decided yet' },
+  { value: 'under_1l', label: 'Under 1 lakh' },
+  { value: '1_2l', label: '1 - 2 lakh' },
+  { value: '2_35l', label: '2 - 3.5 lakh' },
+  { value: '35_6l', label: '3.5 - 6 lakh' },
+  { value: 'over_6l', label: '6 lakh +' },
+];
+
+export function budgetLabel(value) {
+  const hit = BUDGET_BANDS.find((b) => b.value === value);
+  return hit ? hit.label : '';
+}
 
 export const TIMELINES = [
   { value: 'now', label: 'Ready to start' },
@@ -47,17 +75,18 @@ export function normalizeProfile(customer) {
     propertyType: PROPERTY_TYPES.includes(c.propertyType) ? c.propertyType : '',
     needs: Array.isArray(c.needs) ? c.needs.filter((n) => NEED_OPTIONS.includes(n)) : [],
     timeline: TIMELINES.some((t) => t.value === c.timeline) ? c.timeline : '',
+    budget: BUDGET_BANDS.some((b) => b.value === c.budget) ? c.budget : '',
   };
 }
 
-// 0-100. Each of the four counts the same: none is more essential than
+// 0-100. Each field counts the same: none is more essential than
 // another, and weighting them would only make the number harder to
 // read on a list of cards.
 export function profileCompleteness(customer) {
   const p = normalizeProfile(customer);
-  const filled = [p.area, p.propertyType, p.needs.length > 0 ? 'y' : '', p.timeline]
-    .filter((v) => v !== '' && v !== false).length;
-  return Math.round((filled / 4) * 100);
+  const fields = [p.area, p.propertyType, p.needs.length > 0 ? 'y' : '', p.timeline, p.budget];
+  const filled = fields.filter((v) => v !== '' && v !== false).length;
+  return Math.round((filled / fields.length) * 100);
 }
 
 export function isProfileIncomplete(customer) {
