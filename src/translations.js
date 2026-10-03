@@ -351,6 +351,7 @@ export const EN = {
   'Automatic Retry Karein': 'Retry automatically',
   'Result copy karein': 'Copy the result',
   'Missing Categories Recover Karein': 'Recover missing categories',
+  'Chhoote Hue Customer Wapas Jodein': 'Reconnect lost customers',
   'Missing Gallery Categories Recover Karein': 'Recover missing gallery categories',
   'Purani Photos Ke Liye Thumbnails Banayein': 'Build thumbnails for older photos',
   'Is Device Par Notifications On Karein': 'Turn on notifications on this device',

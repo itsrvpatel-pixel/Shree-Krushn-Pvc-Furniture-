@@ -2846,7 +2846,11 @@ export default function App() {
       customersRef.current = merged;
       setCustomers(merged);
     }
-    catch (e) { showToast('Save failed', true); }
+    // Says WHAT failed. A bare "Save failed" is how a customer write
+    // that had been throwing on every single add went unnoticed for
+    // weeks - the job beside it saved, the screen looked right, and
+    // the toast told nobody anything they could act on.
+    catch (e) { console.error('saving customers failed', e); showToast('Customer save failed: ' + (e.code || e.message || 'unknown error'), true); }
     finally { customersWriteInFlightRef.current.leave(); }
   }, []);
   // Tracks when the LOCAL app last wrote to `jobs` (a delete, an edit,

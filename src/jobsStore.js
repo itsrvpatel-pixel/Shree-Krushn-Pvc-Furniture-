@@ -50,6 +50,27 @@ import {
 // Firestore rejects a batch over 500 operations.
 const MAX_BATCH = 450;
 
+// Removes every undefined value, at any depth, so a record can never
+// take a whole save down with it. A key whose value is undefined is
+// dropped entirely - which is what the caller meant by undefined in the
+// first place - while null, 0, '' and false are all kept, since each of
+// those is a real stored value somebody chose. Arrays keep their length
+// and position: an undefined slot becomes null rather than shifting
+// everything after it up one.
+export function stripUndefined(value) {
+  if (Array.isArray(value)) return value.map((v) => (v === undefined ? null : stripUndefined(v)));
+  if (value === null || typeof value !== 'object') return value;
+  // Dates, and anything else with its own class, are passed through:
+  // rebuilding them as plain objects would corrupt them.
+  if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+  const out = {};
+  for (const key of Object.keys(value)) {
+    if (value[key] === undefined) continue;
+    out[key] = stripUndefined(value[key]);
+  }
+  return out;
+}
+
 // Works out the minimum set of documents to touch. Exported separately
 // from the Firestore calls so it can be tested on its own - getting this
 // wrong is how a save silently loses a job.
@@ -76,7 +97,19 @@ export function createRecordStore(db, { collectionName, legacyKey, field, idOf }
   // Every job is stored as { job: <the job object> } rather than spreading
   // the job's own fields into the document, so a job field named like a
   // Firestore reserved key can never collide with one.
-  const toDoc = (rec) => ({ [field]: rec, updatedAt: Date.now() });
+  //
+  // Undefined is stripped first, and that is not tidiness - it is a
+  // data-loss fix. Firestore REJECTS a write containing an undefined
+  // field value (ignoreUndefinedProperties is not set, deliberately:
+  // silently dropping fields hides bugs). "+ Naya Customer" built the
+  // record as { ..., businessUnit: isDhPartner ? 'dh_home_decor' :
+  // undefined }, so for an ordinary admin every single add threw here
+  // - while the JOB, written by a separate call with no undefined in
+  // it, saved perfectly. The result was a job with no customer behind
+  // it: that person disappeared from the Customers list and their own
+  // number came back as "not registered". Eight people on the live
+  // database were in exactly that state.
+  const toDoc = (rec) => ({ [field]: stripUndefined(rec), updatedAt: Date.now() });
   const fromDoc = (snap) => {
     const data = snap.data();
     return data && data[field] ? data[field] : null;

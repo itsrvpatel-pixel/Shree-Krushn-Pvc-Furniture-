@@ -1409,7 +1409,14 @@ function AdminCustomers({ customers, setCustomers, customersLoading, customersLo
       if (theirJob) onOpenJob(theirJob.id);
       return;
     }
-    const newCustomer = { id: uid(), name: newCustName.trim(), phone: normalized, createdAt: new Date().toISOString(), businessUnit: isDhPartner ? 'dh_home_decor' : undefined };
+    // businessUnit is SET, not set to undefined. Firestore rejects an
+    // undefined field value outright, so the old inline ternary meant
+    // every customer an ordinary admin added failed to save while their
+    // job saved fine - see stripUndefined in jobsStore.js. The store
+    // now strips undefined as a backstop; not creating it here is the
+    // actual fix.
+    const newCustomer = { id: uid(), name: newCustName.trim(), phone: normalized, createdAt: new Date().toISOString() };
+    if (isDhPartner) newCustomer.businessUnit = 'dh_home_decor';
     const nextCustomers = [newCustomer, ...customersRef.current];
     customersRef.current = nextCustomers;
     setCustomers(nextCustomers);
@@ -4624,6 +4631,57 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     }
   };
 
+  const [reconnectingCustomers, setReconnectingCustomers] = useState(false);
+
+  // The other half of the same bug. A job carries its customer's name
+  // and phone; the customer record is a separate document keyed by that
+  // phone. When the customer write failed and the job write did not
+  // (see stripUndefined in jobsStore.js), the job survived with nobody
+  // behind it - so that person vanished from the Customers list, which
+  // is built from customers and not from jobs, and their own number
+  // came back as "not registered" at the login screen.
+  //
+  // This rebuilds the missing half out of what the job already knows,
+  // reusing the JOB'S customerId rather than minting a new one: a fresh
+  // id would orphan the job all over again. It only ever adds - a phone
+  // that already has a customer record is left untouched - so pressing
+  // it twice does nothing the first press did not, and nothing is ever
+  // deleted or overwritten.
+  const reconnectLostCustomers = async () => {
+    setReconnectingCustomers(true);
+    try {
+      const [allJobs, allCustomers] = await Promise.all([
+        window.jobsStore.loadAll(),
+        window.customersStore.loadAll(),
+      ]);
+      const known = new Set((allCustomers || []).map((c) => c && c.phone).filter(Boolean));
+      const missing = [];
+      for (const j of allJobs || []) {
+        if (!j || !j.phone || !j.customerId) continue;
+        if (known.has(j.phone)) continue;
+        known.add(j.phone); // two jobs on one phone must not become two customers
+        const rebuilt = {
+          id: j.customerId,
+          name: j.customerName || 'Naam nahi',
+          phone: j.phone,
+          createdAt: j.createdAt || new Date().toISOString(),
+        };
+        if (j.businessUnit) rebuilt.businessUnit = j.businessUnit;
+        missing.push(rebuilt);
+      }
+      if (missing.length === 0) {
+        showToast('Koi customer chhoota hua nahi mila - sab jude hue hain');
+        return;
+      }
+      await window.customersStore.saveDiff(missing, []);
+      showToast(missing.length + ' customer wapas jud gaye: ' + missing.map((c) => c.name).join(', ') + ' - app band karke dobara kholein');
+    } catch (e) {
+      showToast('Reconnect mein dikkat aayi: ' + (e.code || e.message || 'unknown error'), true);
+    } finally {
+      setReconnectingCustomers(false);
+    }
+  };
+
   // Retroactively generates the small grid thumbnail for every EXISTING
   // photo that doesn't have one yet - photos uploaded before this
   // feature existed only have their full-quality file, so the grid
@@ -5347,6 +5405,14 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <div style={styles.plainTextMuted}>Agar koi purani category (jaise "Study Table", "Washbasin") ki photos dikhna band ho gayi hain, is button se dhoondke wapas la sakte hain - photo data kabhi delete nahi hota, sirf list se hat jaata hai.</div>
           <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={recoverMissingCategories} disabled={recoveringCategories}>
             <Search size={14} /> {recoveringCategories ? t('Dhoondh raha hai...') : t('Missing Categories Recover Karein')}
+          </button>
+        </div>
+
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
+          <div style={styles.fieldLabel}>{t('Chhoote Hue Customer Wapas Jodein')}</div>
+          <div style={styles.plainTextMuted}>Agar kisi customer ka kaam to file mein hai par wo Customers list mein nahi dikhta - ya unka number "register nahi hai" bata raha hai - to ye button unhe dhoondke wapas jod deta hai. Sirf jodta hai, kisi ka data badalta ya mitata nahi.</div>
+          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={reconnectLostCustomers} disabled={reconnectingCustomers}>
+            <Search size={14} /> {reconnectingCustomers ? t('Dhoondh raha hai...') : t('Chhoote Hue Customer Wapas Jodein')}
           </button>
         </div>
 
