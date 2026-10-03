@@ -32,11 +32,11 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter } from './jobCore.js';
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -2380,7 +2380,7 @@ export default function App() {
       try { cats = JSON.parse(value); } catch (e) { return; }
       categoryUnsubs.forEach((u) => { try { u(); } catch (e) { /* already gone */ } });
       categoryUnsubs = cats.map((cat) => window.storage.subscribe('gallery_cat_' + cat, (catValue) => {
-        if (galleryWriteInFlightRef.current || catValue == null) return;
+        if (galleryWriteInFlightRef.current.active || catValue == null) return;
         try {
           const photos = JSON.parse(catValue);
           setGallery((prev) => ({ ...prev, [cat]: photos }));
@@ -2406,7 +2406,8 @@ export default function App() {
       // A local write that hasn't landed yet would otherwise be reverted by
       // the snapshot that still reflects the pre-write state - the same
       // guard the old poll needed, for the same reason.
-      if (jobsWriteInFlightRef.current) return;
+      if (jobsWriteInFlightRef.current.active) return;
+      jobsRef.current = serverJobs;
       setJobs(serverJobs);
       if (featuredNeedsBackfillRef.current) {
         featuredNeedsBackfillRef.current = false;
@@ -2613,9 +2614,10 @@ export default function App() {
   // in flight" instead means the poll correctly waits for the ENTIRE
   // upload+save to finish - however long that takes - before it's ever
   // allowed to overwrite gallery state, regardless of batch size.
-  const galleryWriteInFlightRef = useRef(false);
+  // Counted for the same reason as jobsWriteInFlightRef.
+  const galleryWriteInFlightRef = useRef(createInFlightCounter());
   const persistGallery = useCallback(async (next) => {
-    galleryWriteInFlightRef.current = true;
+    galleryWriteInFlightRef.current.enter();
     const prevGallery = gallery;
     setGallery(next);
     try {
@@ -2706,9 +2708,14 @@ export default function App() {
       showToast('Save failed: ' + (e.message || t('internet check karein aur dobara try karein')), true);
       return false;
     } finally {
-      galleryWriteInFlightRef.current = false;
+      galleryWriteInFlightRef.current.leave();
     }
   }, [gallery]);
+  // Same reason as jobsRef: a save must diff against what the app has
+  // now, not against whatever the closure captured.
+  const customersRef = useRef(customers);
+  useEffect(() => { customersRef.current = customers; }, [customers]);
+
   // A customer editing their OWN record writes that one document
   // directly rather than going through persistCustomers. That path
   // re-reads every customer first (to avoid two admins clobbering each
@@ -2717,7 +2724,7 @@ export default function App() {
   // take the save down with it. One person editing one record of their
   // own has nothing to merge against.
   const saveOwnCustomer = useCallback(async (next) => {
-    const prev = customers.find((c) => c.id === next.id);
+    const prev = customersRef.current.find((c) => c.id === next.id);
     setCustomers((list) => list.map((c) => (c.id === next.id ? next : c)));
     try {
       await window.customersStore.saveDiff([next], prev ? [prev] : []);
@@ -2727,10 +2734,10 @@ export default function App() {
       if (prev) setCustomers((list) => list.map((c) => (c.id === next.id ? prev : c)));
       return false;
     }
-  }, [customers]);
+  }, []);
 
   const persistCustomers = useCallback(async (next) => {
-    const prevLocalCustomers = customers;
+    const prevLocalCustomers = customersRef.current;
     setCustomers(next);
     try {
       const merged = await mergeIdArrayWithFreshServer('customers', next, prevLocalCustomers, () => window.customersStore.loadAll());
@@ -2738,7 +2745,7 @@ export default function App() {
       setCustomers(merged);
     }
     catch (e) { showToast('Save failed', true); }
-  }, [customers]);
+  }, []);
   // Tracks when the LOCAL app last wrote to `jobs` (a delete, an edit,
   // approving something, etc.) so the background poll below can tell the
   // difference between "Firestore genuinely has nothing new" and "our
@@ -2755,7 +2762,21 @@ export default function App() {
   // Firestore document), but any slow network moment could still let
   // it run past a fixed time window, and a boolean guard removes that
   // possibility entirely regardless of how long a save takes.
-  const jobsWriteInFlightRef = useRef(false);
+  // Counted, not a boolean: two overlapping saves both raised the old
+  // flag and the FIRST to finish lowered it, so the snapshot that
+  // arrived while the second was still writing was no longer ignored -
+  // it put the pre-write server copy back and the second save's change
+  // vanished off the screen. See createInFlightCounter.
+  const jobsWriteInFlightRef = useRef(createInFlightCounter());
+  // persistJobs used to read `jobs` out of its own closure. That value
+  // is whatever it was when React last rebuilt the callback, so a live
+  // snapshot landing between a render and a save left the save
+  // comparing against a list that was already out of date - and
+  // computeJobDiff works out what to write, and what to DELETE, from
+  // exactly that comparison. This ref is written everywhere jobs state
+  // is, so a save always diffs against what the app actually has.
+  const jobsRef = useRef(jobs);
+  useEffect(() => { jobsRef.current = jobs; }, [jobs]);
   // Returns true/false so callers can tell whether the save genuinely
   // landed before announcing success of their own - see persistGallery's
   // matching comment for why this matters (a caller showing success
@@ -2790,13 +2811,15 @@ export default function App() {
   // two people editing the SAME job at the same time, where the two versions
   // have to be merged field by field rather than one simply winning.
   const persistJobs = useCallback(async (nextRaw) => {
-    jobsWriteInFlightRef.current = true;
-    const prevLocalJobs = jobs;
+    jobsWriteInFlightRef.current.enter();
+    const prevLocalJobs = jobsRef.current;
     const next = assignQuoteNumbers(nextRaw);
+    jobsRef.current = next;
     setJobs(next);
     try {
       const merged = await mergeJobsWithFreshServer(next, prevLocalJobs);
       await window.jobsStore.saveDiff(merged, prevLocalJobs);
+      jobsRef.current = merged;
       setJobs(merged);
       // Republish the public featured-review list only when it actually
       // changed, so a normal job edit doesn't rewrite it every time.
@@ -2811,9 +2834,9 @@ export default function App() {
       showToast('Save failed', true);
       return false;
     } finally {
-      jobsWriteInFlightRef.current = false;
+      jobsWriteInFlightRef.current.leave();
     }
-  }, [jobs]);
+  }, []);
   // localOnly is set when the PIN was just stored server-side, where no
   // browser may hold it. Writing it to Firestore here would put the
   // readable copy straight back - so the value updates on screen for

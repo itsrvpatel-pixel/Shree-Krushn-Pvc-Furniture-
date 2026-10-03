@@ -271,3 +271,27 @@ export function buildWorkDiary(job, now = new Date()) {
     };
   });
 }
+
+// --- "is a write still in flight?" ----------------------------------
+//
+// A single boolean is not enough once two saves can overlap, which they
+// routinely do: a customer taps Submit twice, or a screen saves a job
+// while a background action saves another. Both set the flag, then the
+// FIRST to finish clears it - and the live Firestore snapshot that
+// arrives while the second is still writing is no longer ignored. It
+// replaces local state with the pre-write server copy, and the second
+// save's change disappears off the screen. That is the "saved it, then
+// it was gone after a refresh" report.
+//
+// Counting instead means the guard only lifts when the last write
+// finishes. enter() and leave() are symmetrical; leave() never drops
+// below zero, so one stray extra call cannot unlock the guard.
+export function createInFlightCounter() {
+  let count = 0;
+  return {
+    enter() { count += 1; return count; },
+    leave() { count = Math.max(0, count - 1); return count; },
+    get active() { return count > 0; },
+    get depth() { return count; },
+  };
+}
