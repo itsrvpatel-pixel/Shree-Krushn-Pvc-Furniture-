@@ -1864,6 +1864,9 @@ export default function App() {
   // before the lookup had even begun, wiping a perfectly good session
   // from localStorage and dumping the customer back at the login screen.
   const [customersLoading, setCustomersLoading] = useState(true);
+  // Set when the customer load threw. Distinct from "loaded, and there
+  // are none" - the two used to be indistinguishable.
+  const [customersLoadFailed, setCustomersLoadFailed] = useState(false);
   const [jobs, setJobs] = useState([]);
   const [adminPin, setAdminPin] = useState(DEFAULT_PIN);
   // True when app_data/admin_pin exists but Firestore refused to let us
@@ -2291,13 +2294,24 @@ export default function App() {
         if (session.role === 'customer') {
           if (!session.phone) return; // nothing safe to fetch without it
           const mine = await window.customersStore.getOne(session.phone);
-          if (!cancelled && mine) setCustomers([mine]);
+          if (!cancelled) {
+            setCustomersLoadFailed(false);
+            // A null here now means the server answered and the record
+            // is genuinely gone - a failed read throws instead (see
+            // getOne), and lands in the catch below.
+            setCustomers(mine ? [mine] : []);
+          }
           return;
         }
         const all = await window.customersStore.loadAll();
-        if (!cancelled) setCustomers(all);
+        if (!cancelled) { setCustomersLoadFailed(false); setCustomers(all); }
       } catch (e) {
+        // The load FAILED - which says nothing about whether the
+        // records exist. Leaving this as a silent console line is what
+        // let a network blip log a customer out and show an admin an
+        // empty customer list as though everyone had been deleted.
         console.error('loading customers failed', e);
+        if (!cancelled) setCustomersLoadFailed(true);
       } finally {
         if (!cancelled) setCustomersLoading(false);
       }
@@ -3147,6 +3161,7 @@ export default function App() {
           gallery={gallery} setGallery={persistGallery}
           loadGalleryData={loadGalleryData} galleryLoading={galleryLoading}
           customers={customers} setCustomers={persistCustomers}
+          customersLoading={customersLoading} customersLoadFailed={customersLoadFailed}
           jobs={jobs} setJobs={persistJobs}
           adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications}
           adminPin={adminPin} setAdminPin={persistPin}
@@ -3319,6 +3334,24 @@ export default function App() {
   // Only once the record has actually been looked up. While the load is
   // still in flight there is nothing to conclude from an empty list, and
   // logging out on it would kick a customer out the instant they log in.
+  if (!customer && loaded && !customersLoading && customersLoadFailed) {
+    // Could not reach the server. Say so and offer a retry rather than
+    // logging them out - their account is almost certainly fine.
+    return (
+      <div style={styles.app}>
+        <style>{fontImport}</style>
+        <div style={styles.loadingScreen}>
+          <Logo size={52} />
+          <div style={{ ...styles.plainTextMuted, textAlign: 'center', marginTop: 14, maxWidth: 280 }}>
+            Could not load your account. Check your internet and try again.
+          </div>
+          <button style={{ ...styles.primaryBtn, marginTop: 14, maxWidth: 240 }} onClick={() => window.location.reload()}>Try again</button>
+          <button style={styles.linkBtn2} onClick={() => setSession(null)}>Log in again</button>
+        </div>
+      </div>
+    );
+  }
+
   if (!customer && loaded && !customersLoading) {
     setSession(null);
     return (
@@ -3734,7 +3767,18 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
     // list of everyone. Customer documents are keyed by phone precisely so
     // this lookup is possible without reading anybody else's record - which
     // is what lets the phase 3 rules allow it.
-    const existing = await window.customersStore.getOne(normalized);
+    // A failed lookup is NOT "no such customer". Treating the two the
+    // same told registered people their number was not registered the
+    // moment their signal dropped, and let a second account be created
+    // for a phone that already had one.
+    let existing;
+    try {
+      existing = await window.customersStore.getOne(normalized);
+    } catch (e) {
+      console.error('customer lookup failed', e);
+      setError('Could not reach the server. Check your internet and try again.');
+      return;
+    }
     if (forMode === 'login' && !existing) {
       setError(t('Ye number register nahi hai. Pehle register karein.')); return;
     }
@@ -3775,7 +3819,14 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
     if (otpStage === 'register') {
       onRegister({ id: uid(), name: name.trim(), phone: pendingPhone, phoneVerified: true, referredBy: referredBy.trim() || null, ...normalizeProfile(profile), createdAt: new Date().toISOString() });
     } else {
-      const found = await window.customersStore.getOne(pendingPhone);
+      let found;
+      try {
+        found = await window.customersStore.getOne(pendingPhone);
+      } catch (e) {
+        console.error('customer lookup failed', e);
+        setError('Could not reach the server. Check your internet and try again.');
+        return;
+      }
       if (found) onCustomerLogin(found);
       else setError(t('Ye number register nahi hai. Pehle register karein.'));
     }

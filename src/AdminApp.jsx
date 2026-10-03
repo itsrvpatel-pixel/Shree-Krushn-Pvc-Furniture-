@@ -495,7 +495,7 @@ function StatCard({ icon, label, value, accent, onClick }) {
   );
 }
 
-function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, archivedReviews, setArchivedReviews, pendingGalleryPhotos, setPendingGalleryPhotos, staffName, isPartner, isDhPartner, onLogout, showToast, pushNotification }) {
+function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, customersLoading, customersLoadFailed, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, archivedReviews, setArchivedReviews, pendingGalleryPhotos, setPendingGalleryPhotos, staffName, isPartner, isDhPartner, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   // Back returns to the job list instead of shutting the panel.
@@ -571,7 +571,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
           onSaveJob={(nextJob) => setJobs(jobs.map((j) => (j.id === nextJob.id ? nextJob : j)))} showToast={showToast}
         />
       )}
-      {tab === 'customers' && <AdminCustomers customers={customers} setCustomers={setCustomers} jobs={jobs} setJobs={setJobs} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} onOpenJob={setActiveJobId} showToast={showToast} isPartner={isPartner} isDhPartner={isDhPartner} />}
+      {tab === 'customers' && <AdminCustomers customers={customers} setCustomers={setCustomers} customersLoading={customersLoading} customersLoadFailed={customersLoadFailed} jobs={jobs} setJobs={setJobs} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} onOpenJob={setActiveJobId} showToast={showToast} isPartner={isPartner} isDhPartner={isDhPartner} />}
       {galleryEverVisited && (
         <div style={{ display: tab === 'gallery' ? 'block' : 'none' }}>
           <AdminGallery gallery={gallery} galleryLoading={galleryLoading} setGallery={setGallery} categories={categories} setCategories={setCategories} showToast={showToast} isDhPartner={isDhPartner} />
@@ -1350,7 +1350,7 @@ function AdminAllEstimatesList({ jobs, onOpenJob }) {
   );
 }
 
-function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReviews, setArchivedReviews, onOpenJob, showToast, isDhPartner }) {
+function AdminCustomers({ customers, setCustomers, customersLoading, customersLoadFailed, jobs, setJobs, archivedReviews, setArchivedReviews, onOpenJob, showToast, isDhPartner }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [branchFilter, setBranchFilter] = useState('all');
@@ -1551,7 +1551,18 @@ function AdminCustomers({ customers, setCustomers, jobs, setJobs, archivedReview
       </div>
 
       <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {rows.length === 0 && <div style={styles.empty}>{t('Koi customer nahi mila.')}</div>}
+        {/* "No customer found" used to show while the list was still
+            loading AND when the load had failed, so a slow connection
+            looked exactly like every customer having been deleted. */}
+        {rows.length === 0 && customersLoading && <div style={styles.empty}>Loading customers...</div>}
+        {rows.length === 0 && !customersLoading && customersLoadFailed && (
+          <div style={styles.empty}>
+            <div style={{ color: '#B5562E', fontWeight: 700 }}>Could not load customers</div>
+            <div style={{ marginTop: 4 }}>Your customers are safe - this device could not reach the server.</div>
+            <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={() => window.location.reload()}>Try again</button>
+          </div>
+        )}
+        {rows.length === 0 && !customersLoading && !customersLoadFailed && <div style={styles.empty}>{t('Koi customer nahi mila.')}</div>}
         {rows.map(({ customer, job }) => (
           <div key={customer.id} style={styles.card}>
             <button style={styles.cardClickArea} onClick={() => job && onOpenJob(job.id)}>

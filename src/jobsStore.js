@@ -244,19 +244,20 @@ export function createRecordStore(db, { collectionName, legacyKey, field, idOf }
   // listing the collection, is the difference between a rule that can
   // allow it and one that cannot - a collection query fails outright if
   // any document in it would be denied.
+  // Returns the record, or null when it genuinely is not there. A read
+  // that FAILS throws instead of returning null, which it used to do.
+  // That one line was worth real money: a customer opening the app on a
+  // weak signal got null here, every caller read that as "this number
+  // is not registered", and the app logged them out and told them to
+  // register again. Only an answer from the server can mean absent.
   async function getOne(id) {
-    try {
-      const snap = await getDoc(doc(jobsCol, String(id)));
-      if (snap.exists()) return fromDoc(snap);
-      // Not split out yet. Without this fallback a customer whose record
-      // has not been migrated is told their number is not registered -
-      // which is the same data-loss symptom, wearing a worse mask.
-      const legacy = await loadLegacy();
-      return legacy.find((rec) => rec && String(idOf(rec)) === String(id)) || null;
-    } catch (e) {
-      console.error('recordStore.getOne failed:', collectionName, id, e);
-      return null;
-    }
+    const snap = await getDoc(doc(jobsCol, String(id)));
+    if (snap.exists()) return fromDoc(snap);
+    // Not split out yet. Without this fallback a customer whose record
+    // has not been migrated is told their number is not registered -
+    // which is the same data-loss symptom, wearing a worse mask.
+    const legacy = await loadLegacy();
+    return legacy.find((rec) => rec && String(idOf(rec)) === String(id)) || null;
   }
 
   return { loadAll, loadLegacy, getOne, migrateLegacyIfNeeded, subscribe, saveDiff };
