@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS,
-  normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel, budgetLabel,
+  normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel, budgetLabel,
 } from '../src/customerProfile.js';
 
 let n = 0;
@@ -139,4 +139,33 @@ t('staff see customer changes without restarting the app', () => {
   assert.ok(/customersWriteInFlightRef/.test(sub), 'a snapshot could revert a local write');
 });
 
+t('the area box keeps the space you just typed', () => {
+  // The bug in one line: a value passing back through normalizeProfile
+  // on every keystroke loses the space the instant it is pressed, so a
+  // second word can never be reached and nobody could type an address.
+  assert.equal(normalizeProfile({ area: 'Nava ' }).area, 'Nava', 'normalizeProfile still trims - that is its job');
+  assert.equal(profileForEditing({ area: 'Nava ' }).area, 'Nava ', 'the editor must not');
+
+  // Typed one character at a time, which is how it actually failed.
+  let typed = '';
+  for (const ch of 'Nava Naroda') typed = profileForEditing({ area: typed + ch }).area;
+  assert.equal(typed, 'Nava Naroda');
+
+  // A whole address, spaces and punctuation intact.
+  const addr = 'B-404, Shivalik Residency, Nava Naroda ';
+  assert.equal(profileForEditing({ area: addr }).area, addr);
+});
+
+t('the editor agrees with normalizeProfile on everything else', () => {
+  const rich = { area: ' x ', propertyType: '3 BHK', needs: ['Wardrobe'], timeline: 'soon', budget: '2_35l' };
+  const e = profileForEditing(rich);
+  assert.equal(e.propertyType, '3 BHK');
+  assert.deepEqual(e.needs, ['Wardrobe']);
+  assert.equal(e.timeline, 'soon');
+  assert.equal(e.budget, '2_35l');
+  assert.equal(profileForEditing(null).area, '');
+  assert.equal(profileForEditing({ area: 42 }).area, '', 'a non-string area is still empty, not "42"');
+});
+
 console.log(n + ' assertions passed\n');
+

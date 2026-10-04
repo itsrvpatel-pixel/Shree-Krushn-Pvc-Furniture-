@@ -79,6 +79,20 @@ export function normalizeProfile(customer) {
   };
 }
 
+// The same shape, but WITHOUT trimming the area - for the text box
+// someone is currently typing into.
+//
+// normalizeProfile trims, which is right everywhere a profile is read
+// or saved and wrong in exactly one place: an input whose value comes
+// back through it on every keystroke. Type "Nava", press space, and
+// the trim removes the space before the next character arrives, so the
+// box snaps back to "Nava" and a second word can never be reached.
+// That is why nobody could enter more than one word of their address.
+export function profileForEditing(customer) {
+  const c = customer || {};
+  return { ...normalizeProfile(c), area: typeof c.area === 'string' ? c.area : '' };
+}
+
 // 0-100. Each field counts the same: none is more essential than
 // another, and weighting them would only make the number harder to
 // read on a list of cards.

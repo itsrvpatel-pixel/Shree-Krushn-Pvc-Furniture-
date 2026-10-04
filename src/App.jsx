@@ -40,7 +40,7 @@ import { useBackToClose } from './useBackToClose.js';
 // forwarded: `export ... from` alone would not bind them in this file.
 import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage } from './jobCore.js';
 import { t, tf } from './i18n.js';
-import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
+import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
 export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage };
 export { t, tf };
@@ -2339,13 +2339,29 @@ export default function App() {
         setCustomersLoading(true);
         if (session.role === 'customer') {
           if (!session.phone) return; // nothing safe to fetch without it
+          // A registration that has only just happened is still being
+          // written. This effect fires the instant setSession runs, so
+          // it races that write - and the server answering "no such
+          // customer" while our own create is still in the air is not
+          // an answer about whether they exist. Emptying the list on
+          // it trips the guard further down, which signs the customer
+          // straight back out to the login screen. That is exactly the
+          // "register karte hi wapas login page" bug: the account was
+          // created every time, the app just threw the session away a
+          // moment later.
+          if (customersWriteInFlightRef.current.active) return;
           const mine = await window.customersStore.getOne(session.phone);
           if (!cancelled) {
             setCustomersLoadFailed(false);
-            // A null here now means the server answered and the record
-            // is genuinely gone - a failed read throws instead (see
-            // getOne), and lands in the catch below.
-            setCustomers(mine ? [mine] : []);
+            // A null here means the server answered and the record is
+            // genuinely gone - a failed read throws instead (see
+            // getOne), and lands in the catch below. Even then, a copy
+            // this device is holding for the same phone is better than
+            // nothing: it is either a write that has not landed yet or
+            // one that failed, and neither is a reason to log someone
+            // out of an account they are sitting in.
+            const held = (customersRef.current || []).find((c) => c && c.phone === session.phone);
+            setCustomers(mine ? [mine] : (held ? [held] : []));
           }
           return;
         }
@@ -2845,6 +2861,11 @@ export default function App() {
   const persistCustomers = useCallback(async (next) => {
     customersWriteInFlightRef.current.enter();
     const prevLocalCustomers = customersRef.current;
+    // Optimistically, not only after the write lands: the ref is what
+    // the session loader falls back to when the server has not caught
+    // up yet, and a ref still showing the pre-write list is no use as
+    // a fallback for the write itself.
+    customersRef.current = next;
     setCustomers(next);
     try {
       const merged = await mergeIdArrayWithFreshServer('customers', next, prevLocalCustomers, () => window.customersStore.loadAll());
@@ -3868,7 +3889,9 @@ export class ErrorBoundary extends React.Component {
    they existed. Nothing here is required: a half-filled profile still
    tells an admin far more than a bare name and number. */
 export function CustomerProfileFields({ value, onChange, compact }) {
-  const p = normalizeProfile(value);
+  // Not normalizeProfile: that trims, and trimming the value of a box
+  // someone is typing into eats the space the moment they press it.
+  const p = profileForEditing(value);
   const set = (patch) => onChange({ ...value, ...patch });
   const toggleNeed = (n) => {
     const has = p.needs.includes(n);
@@ -3878,12 +3901,15 @@ export function CustomerProfileFields({ value, onChange, compact }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap }}>
       <div>
-        <div style={styles.fieldLabel}>Area / locality</div>
-        <input
-          style={styles.input}
+        <div style={styles.fieldLabel}>Area / address</div>
+        {/* A textarea, because Ravi asked for the whole address to fit
+            here - house and flat number, the society, the landmark -
+            and that is two lines on a phone, not one. */}
+        <textarea
+          style={{ ...styles.input, minHeight: 56, resize: 'vertical' }}
           value={p.area}
           onChange={(e) => set({ area: e.target.value })}
-          placeholder='e.g. Nava Naroda, Nikol, Vastral'
+          placeholder='e.g. B-404, Shivalik Residency, Nava Naroda'
         />
       </div>
       <div>
