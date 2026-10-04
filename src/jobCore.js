@@ -390,9 +390,14 @@ export function resolveRegistration(customer, existingJob, makeJob) {
    in rupees would quietly stop adding up to the total the moment that
    happened, and a payment plan that does not add up is worse than none.
 ------------------------------------------------------------------- */
+// The timings are this business's actual practice, not the textbook
+// one: Ravi does NOT take money when the order is confirmed, he takes
+// the first payment once work has started. A schedule that promised a
+// customer something the business does not do would be worse than no
+// schedule, so the first stage says what really happens.
 export const DEFAULT_PAYMENT_STAGES = [
-  { key: 'advance', label: 'Advance', percent: 50, when: 'Order confirm hote hi' },
-  { key: 'progress', label: 'Progress payment', percent: 40, when: 'Kaam shuru hone par' },
+  { key: 'advance', label: 'Advance', percent: 50, when: 'Kaam shuru hone par' },
+  { key: 'progress', label: 'Progress payment', percent: 40, when: 'Kaam aadha hone par' },
   { key: 'final', label: 'Final payment', percent: 10, when: 'Delivery ke baad' },
 ];
 

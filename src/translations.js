@@ -355,7 +355,7 @@ export const EN = {
   'Advance': 'Advance',
   'Progress payment': 'Progress payment',
   'Final payment': 'Final payment',
-  'Order confirm hote hi': 'As soon as the order is confirmed',
+  'Kaam aadha hone par': 'When the work is half done',
   'Kaam shuru hone par': 'When the work starts',
   'Delivery ke baad': 'After delivery',
   'Paid': 'Paid',
