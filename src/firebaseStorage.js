@@ -299,7 +299,18 @@ async function sendPhoneOtp(phoneE164, recaptchaContainerId) {
       try { recaptchaVerifierInstance.clear(); } catch (clearError) { /* best effort */ }
       recaptchaVerifierInstance = null;
     }
-    return { ok: false, code: (e && e.code) || String((e && e.message) || e).slice(0, 120) };
+    // auth/internal-error means the SDK could not classify what the
+    // server said - so the server's own words are the whole diagnosis,
+    // and they are NOT in e.code. @firebase/auth stashes the raw
+    // response on customData.serverResponse; without reading it the
+    // error on screen names a category and nothing inside it.
+    let detail = '';
+    try {
+      const sr = e && e.customData && e.customData.serverResponse;
+      if (sr) detail = typeof sr === 'string' ? sr : JSON.stringify(sr);
+    } catch (readError) { /* best effort - never let logging throw */ }
+    if (!detail) detail = String((e && e.message) || e);
+    return { ok: false, code: (e && e.code) || 'unknown', detail: detail.slice(0, 220) };
   }
 }
 async function verifyPhoneOtp(confirmationResult, code) {

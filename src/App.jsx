@@ -4014,7 +4014,8 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
         // without it the only report anybody can make from a phone is
         // "it says it could not send", which names none of the three.
         setError(t('OTP bhej nahi paye - thodi der baad try karein ya admin se contact karein.')
-          + ' [' + ((result && result.code) || 'unknown') + ']');
+          + ' [' + ((result && result.code) || 'unknown') + ']'
+          + ((result && result.detail) ? ' ' + result.detail : ''));
         return;
       }
       setConfirmation(result.confirmation);
@@ -4067,7 +4068,8 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
       setSendingOtp(false);
       if (!result || !result.ok) {
         setError(t('OTP dobara bhej nahi paye - thodi der baad try karein.')
-          + ' [' + ((result && result.code) || 'unknown') + ']');
+          + ' [' + ((result && result.code) || 'unknown') + ']'
+          + ((result && result.detail) ? ' ' + result.detail : ''));
         return;
       }
       setConfirmation(result.confirmation);
