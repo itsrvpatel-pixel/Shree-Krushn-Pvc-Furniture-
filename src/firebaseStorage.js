@@ -274,6 +274,14 @@ async function deleteFile(key) {
 // number, reCAPTCHA failure, or - on the free Spark plan - Phone Auth
 // simply being unavailable) so the caller can show a clear error instead
 // of the app breaking silently.
+// Returns { ok, confirmation } or { ok: false, code }. It used to
+// return the confirmation or a bare null, with the real reason going
+// only to console.error - which is unreadable on the phone every one
+// of these customers is using, and left "Could not send the OTP" as
+// the only thing anyone could report. The Firebase error code IS the
+// diagnosis here (auth/invalid-app-credential, auth/too-many-requests,
+// auth/billing-not-enabled all mean completely different fixes), so it
+// comes back to the caller to put on screen.
 let recaptchaVerifierInstance = null;
 async function sendPhoneOtp(phoneE164, recaptchaContainerId) {
   try {
@@ -281,7 +289,7 @@ async function sendPhoneOtp(phoneE164, recaptchaContainerId) {
       recaptchaVerifierInstance = new RecaptchaVerifier(auth, recaptchaContainerId, { size: "invisible" });
     }
     const confirmationResult = await signInWithPhoneNumber(auth, phoneE164, recaptchaVerifierInstance);
-    return confirmationResult;
+    return { ok: true, confirmation: confirmationResult };
   } catch (e) {
     console.error("sendPhoneOtp failed:", e);
     // A failed attempt can leave the reCAPTCHA widget in a used state -
@@ -291,7 +299,7 @@ async function sendPhoneOtp(phoneE164, recaptchaContainerId) {
       try { recaptchaVerifierInstance.clear(); } catch (clearError) { /* best effort */ }
       recaptchaVerifierInstance = null;
     }
-    return null;
+    return { ok: false, code: (e && e.code) || String((e && e.message) || e).slice(0, 120) };
   }
 }
 async function verifyPhoneOtp(confirmationResult, code) {

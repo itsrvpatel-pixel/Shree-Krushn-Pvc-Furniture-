@@ -4007,11 +4007,17 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
       setSendingOtp(true);
       const result = await window.phoneAuth.sendOtp('+91' + normalized, 'recaptcha-container');
       setSendingOtp(false);
-      if (!result) {
-        setError(t('OTP bhej nahi paye - thodi der baad try karein ya admin se contact karein.'));
+      if (!result || !result.ok) {
+        // The Firebase code is on screen deliberately. It is ugly, and
+        // it is the only thing that distinguishes "reCAPTCHA was
+        // rejected" from "billing is off" from "too many tries" - and
+        // without it the only report anybody can make from a phone is
+        // "it says it could not send", which names none of the three.
+        setError(t('OTP bhej nahi paye - thodi der baad try karein ya admin se contact karein.')
+          + ' [' + ((result && result.code) || 'unknown') + ']');
         return;
       }
-      setConfirmation(result);
+      setConfirmation(result.confirmation);
       setSentOtp('');
     } else {
       setConfirmation(null);
@@ -4059,8 +4065,12 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
       setSendingOtp(true);
       const result = await window.phoneAuth.sendOtp('+91' + pendingPhone, 'recaptcha-container');
       setSendingOtp(false);
-      if (!result) { setError(t('OTP dobara bhej nahi paye - thodi der baad try karein.')); return; }
-      setConfirmation(result);
+      if (!result || !result.ok) {
+        setError(t('OTP dobara bhej nahi paye - thodi der baad try karein.')
+          + ' [' + ((result && result.code) || 'unknown') + ']');
+        return;
+      }
+      setConfirmation(result.confirmation);
       return;
     }
     setSentOtp(String(Math.floor(100000 + Math.random() * 900000)));
