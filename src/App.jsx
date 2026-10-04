@@ -6,7 +6,7 @@ import {
   Camera, Send, ArrowLeft, SlidersHorizontal, Lock,
   Home, Sparkles, AlertTriangle, Link2, Check, Package, FileText,
   UserPlus, Users, Download, Eye, EyeOff, TrendingUp,
-  Bell, ThumbsUp, XCircle, AlertCircle, Calculator, HelpCircle
+  Bell, ThumbsUp, XCircle, AlertCircle, Calculator, HelpCircle, Menu
 } from 'lucide-react';
 
 /* ===========================================================
@@ -21,7 +21,13 @@ export const BRAND = {
   paper: '#FFFFFF',
   line: '#E4E7EE',
   gold: '#A8975F',
-  textMuted: '#7C8399',
+  // Darkened from #7C8399, which sat at 3.8:1 against white - under the
+  // 4.5:1 minimum for body text. Every small label in the app uses this
+  // one token (Day 12, 4 photos, every sub-line under every row), so
+  // the whole app was failing that bar at once, and worst exactly where
+  // this app is read: outdoors, on site, by someone over forty. 4.7:1
+  // now, and near enough identical to look at.
+  textMuted: '#6B7389',
 };
 
 // Landing on the screen the website's button promised. See
@@ -63,6 +69,15 @@ export const STATUS = {
   paid: { label: 'Paid', color: '#2F7D4F', bg: '#DFF0E4', icon: CheckCircle2 },
 };
 export const STATUS_ORDER = ['appointment', 'estimate', 'in_progress', 'delivered', 'paid'];
+// Short names for the five-segment stepper on Home. The full STATUS
+// labels are what a badge and the admin list show, but five of them
+// side by side do not fit at 390px - "Appointment" and "In Progress"
+// alone eat half the width. These are the same five stages said in one
+// word each, which is also how a customer says them on the phone.
+export const STAGE_SHORT = {
+  appointment: 'Visit', estimate: 'Estimate', in_progress: 'Building',
+  delivered: 'Delivery', paid: 'Done',
+};
 // Complaint tracking stages - a customer-reported post-delivery
 // problem moves through its own small progression, mirroring the main
 // job's STATUS/STATUS_ORDER pattern above, so a customer can see WHERE
@@ -4661,15 +4676,11 @@ function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galle
               <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={enableCustomerPushNotifications}><Bell size={14} />{t('Notifications On Karein')}</button>
             )}
           </div>
-          <a
-            href={whatsAppShareUrl(null, tf('Namaste! Maine {business} ki app use ki hai - PVC furniture ke liye bahut achhi hai. Aap bhi dekho: https://{site}', { business: BUSINESS.name, site: BUSINESS.website }))}
-            target='_blank' rel='noopener noreferrer'
-            style={{ ...styles.addBtn, marginTop: 12, textDecoration: 'none' }}
-          >
-            <Send size={14} />{t('App Doston Ko Bhejein')}</a>
-          <button style={{ ...styles.addBtn, marginTop: 12 }} onClick={() => setShowSpecs(true)}><ShieldCheck size={14} /> Hamari Khaasiyat</button>
-          <button style={{ ...styles.addBtn, marginTop: 12 }} onClick={() => setShowHelp(true)}><HelpCircle size={14} /> Help / FAQ</button>
-          <button style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828', marginTop: 16 }} onClick={onLogout}><LogOut size={14} /> Logout</button>
+          {/* Share, Hamari Khaasiyat, Help and Logout used to sit here.
+              They are not profile - they are everything else - and they
+              now live in the More tab, where someone would actually
+              look for them. This screen is the customer's own details
+              and nothing besides. */}
         </div>
       </div>
     );
@@ -4725,72 +4736,169 @@ function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galle
       )}
       {tab === 'progress' && <ProgressView job={job} onSave={onSaveJob} showToast={showToast} customer={customer} categories={categories} pushNotification={pushNotification} />}
       {tab === 'review' && <ReviewPanel job={job} onSave={onSaveJob} showToast={showToast} />}
+      {tab === 'more' && (
+        <MoreScreen
+          customer={customer}
+          onOpenProfile={() => setShowProfile(true)}
+          onOpenSpecs={() => setShowSpecs(true)}
+          onOpenHelp={() => setShowHelp(true)}
+          onOpenCalculator={() => setTab('instant_estimate')}
+          onLogout={onLogout}
+        />
+      )}
 
       <BottomNav
         tab={CUSTOMER_TAB_PARENT[tab] || tab} setTab={setTab}
-        /* Four, so the bar fits the phone and stops scrolling
-           sideways - six tabs at 390px overflowed, which hid whichever
-           ones happened to fall off the right edge. Visit and Review
-           are not permanent destinations: each matters at one point in
-           the job and both are offered on the home screen exactly
-           then. They stay reachable by setTab, so nothing is lost. */
+        /* Five. Six overflowed at 390px, which is why this was cut to
+           four - but the fix was the wrong one: four tabs left no home
+           for everything that is neither a stage of the job nor the
+           gallery, so Help, the material story and Logout ended up
+           buried inside the profile screen, where nobody looks for
+           them. "More" is a drawer, not a destination, and that is
+           exactly what the fifth slot is for. Visit and Review are
+           still not tabs: each matters at one point in the job and
+           Home offers both exactly then. */
         items={[
           { key: 'home', label: 'Home', icon: <Home size={18} /> },
           { key: 'gallery', label: 'Designs', icon: <Grid3x3 size={18} /> },
           { key: 'estimate', label: 'Estimate', icon: <FileText size={18} /> },
           { key: 'progress', label: t('Kaam'), icon: <Hammer size={18} /> },
+          { key: 'more', label: 'More', icon: <Menu size={18} /> },
         ]}
       />
     </div>
   );
 }
 
+/* Everything that is not a stage of the job and not the gallery. It
+   used to live inside the profile screen, three taps deep behind a
+   person icon, which is nobody's idea of where "Help" lives. Rows, not
+   cards: a card says "this is a thing in its own right", and a menu
+   entry is not - it is a door. Hairlines and space do the separating. */
+export function MoreScreen({ customer, onOpenProfile, onOpenSpecs, onOpenHelp, onOpenCalculator, onLogout }) {
+  return (
+    <div style={{ padding: '6px 16px 20px' }}>
+      <div style={styles.moreGroupLabel}>{t('Aapka account')}</div>
+      <MoreRow
+        icon={<User size={18} color={BRAND.navy} />}
+        title={t('Mera Profile')}
+        sub={customer?.phone ? formatPhoneDisplay(customer.phone) : t('Naam aur number')}
+        onClick={onOpenProfile}
+      />
+
+      <div style={styles.moreGroupLabel}>{t('Jaankari')}</div>
+      <MoreRow
+        icon={<ShieldCheck size={18} color={BRAND.navy} />}
+        title={t('Hamari Khaasiyat')}
+        sub={t('Material, warranty aur humein kyun chunein')}
+        onClick={onOpenSpecs}
+      />
+      <MoreRow
+        icon={<Calculator size={18} color={BRAND.navy} />}
+        title={t('Khud Estimate Lagayein')}
+        sub={t('Apne naap se andaza lagayein')}
+        onClick={onOpenCalculator}
+      />
+      <MoreRow
+        icon={<HelpCircle size={18} color={BRAND.navy} />}
+        title={t('Help / FAQ')}
+        sub={t('Aam sawaal aur humse baat karein')}
+        onClick={onOpenHelp}
+      />
+
+      {/* No heading on these last two. A group called "More" inside a
+          tab called "More" tells the reader nothing, and Share and
+          Logout have nothing in common beyond being last. Space does
+          the separating instead. */}
+      <div style={{ marginTop: 22 }} />
+      <MoreRow
+        icon={<Send size={18} color={BRAND.navy} />}
+        title={t('App Doston Ko Bhejein')}
+        sub={t('WhatsApp par share karein')}
+        href={whatsAppShareUrl(null, tf('Namaste! Maine {business} ki app use ki hai - PVC furniture ke liye bahut achhi hai. Aap bhi dekho: https://{site}', { business: BUSINESS.name, site: BUSINESS.website }))}
+      />
+      <MoreRow
+        icon={<LogOut size={18} color='#B5562E' />}
+        title={t('Logout')}
+        danger
+        onClick={onLogout}
+      />
+    </div>
+  );
+}
+
+function MoreRow({ icon, title, sub, onClick, href, danger }) {
+  const inner = (
+    <>
+      <span style={styles.moreRowIcon}>{icon}</span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ ...styles.moreRowTitle, color: danger ? '#B5562E' : BRAND.navy }}>{title}</span>
+        {sub && <span style={styles.moreRowSub}>{sub}</span>}
+      </span>
+      <ChevronRight size={16} color='#9BA1B2' />
+    </>
+  );
+  // A real <a> when it leaves the app, a real <button> when it does
+  // something here - never a div with an onClick, which Tab skips.
+  return href
+    ? <a href={href} target='_blank' rel='noopener noreferrer' style={styles.moreRow}>{inner}</a>
+    : <button type='button' style={styles.moreRow} onClick={onClick}>{inner}</button>;
+}
+
 export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout, onOpenProfile }) {
   const st = STATUS[job.status] || STATUS.appointment;
   const total = jobTotal(job);
   const due = jobDue(job);
+  const paid = jobPaid(job);
   const curIdx = STATUS_ORDER.indexOf(job.status);
-  const pct = Math.round(((curIdx + 1) / STATUS_ORDER.length) * 100);
   const reqCount = (job.requirements || []).length;
   const hasVisit = !!(job.appointment && job.appointment.date);
-  // The newest line of the diary, shown on the card so the home screen
-  // answers "what happened" without the customer opening anything.
+  // The newest line of the diary IS the headline. The old screen led
+  // with "Hello, <name>", which the customer already knows, and buried
+  // what actually happened on their job in small grey text beside a
+  // ring. The one question someone opens this app to ask is "what is
+  // happening at my house", so that sentence gets the largest type on
+  // the screen and everything else arranges itself underneath.
   const diary = buildWorkDiary(job);
   const latest = diary.length > 0 ? diary[0] : null;
   const latestLine = latest && latest.events.length > 0 ? latest.events[0].text : null;
   const photoCount = (job.progressPhotos || []).length;
+  const firstName = (customer && customer.name ? customer.name.split(' ')[0] : '') || 'there';
 
   return (
-    <div style={{ padding: '12px 16px' }}>
-      <div style={styles.heroCard}>
-        <div style={styles.heroTop}>
-          <div>
-            <div style={styles.heroGreeting}>Hello, {customer?.name?.split(' ')[0] || 'there'} 👋</div>
-            <div style={styles.heroSub}>{t('Aapke order ki current stage')}</div>
-          </div>
-          <StageBadge status={job.status} />
-        </div>
-        {/* A ring instead of the thin bar and six squeezed-up labels:
-            at phone width those labels were four characters each and
-            told the customer less than the stage name does. */}
-        <div style={styles.homeRing}>
-          <ProgressRing pct={pct} />
-          <div style={styles.homeRingTxt}>
-            {latestLine
-              ? <><span style={styles.homeRingStrong}>{latestLine}</span>
-                  {latest && <><br />Day {latest.dayNumber}{photoCount > 0 ? ' \u00b7 ' + photoCount + (photoCount === 1 ? ' photo' : ' photos') : ''}</>}</>
-              : <span style={styles.homeRingStrong}>{st.label}</span>}
-          </div>
-        </div>
-        <div style={styles.progressTrack}>
-          <div style={{ ...styles.progressFill, width: pct + '%', background: BRAND.gold }} />
-        </div>
-        <button style={styles.homeHeroBtn} onClick={() => setTab('progress')}>
-          {diary.length > 0 ? t('Kaam ki diary dekhein') : t('Kaam ki jaankari')}
-        </button>
+    <div style={{ padding: '6px 18px 20px' }}>
+
+      <div style={styles.homeEyebrow}>
+        {latest ? tf('Day {n}', { n: latest.dayNumber }) + ' \u00b7 ' : ''}{st.label}
+      </div>
+      <h1 style={styles.homeHeadline}>{latestLine || tf('Hello, {name}', { name: firstName })}</h1>
+      <div style={styles.homeHeadSub}>
+        {latestLine
+          ? (photoCount > 0 ? tf('{n} photos so far', { n: photoCount }) : t('Aapke order ki current stage'))
+          : t('Aapke order ki current stage')}
       </div>
 
-      {onOpenProfile && <ProfileNudge customer={customer} onOpen={onOpenProfile} />}
+      {/* Five named segments instead of one ring and a percentage. A
+          ring says how far along in the abstract; this says WHICH step,
+          and the step has a name the customer can repeat on the phone.
+          Short names, because five full status labels do not fit at
+          390px - that is what the old six-label bar got wrong. */}
+      <div style={styles.homeSteps}>
+        {STATUS_ORDER.map((key, i) => (
+          <span key={key} style={{ ...styles.homeStepSeg, background: i <= curIdx ? BRAND.gold : BRAND.line }} />
+        ))}
+      </div>
+      <div style={styles.homeStepLabels}>
+        {STATUS_ORDER.map((key, i) => (
+          <span key={key} style={{ ...styles.homeStepLabel, color: i === curIdx ? BRAND.navy : BRAND.textMuted, fontWeight: i === curIdx ? 800 : 600 }}>
+            {t(STAGE_SHORT[key] || key)}
+          </span>
+        ))}
+      </div>
+
+      <button style={styles.homeHeroBtn} onClick={() => setTab('progress')}>
+        {diary.length > 0 ? t('Kaam ki diary dekhein') : t('Kaam ki jaankari')}
+      </button>
 
       {job.expectedCompletionDate && (job.status === 'in_progress' || job.status === 'delivered') && (() => {
         const days = daysUntil(job.expectedCompletionDate);
@@ -4799,7 +4907,7 @@ export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout
         if (job.status === 'delivered') {
           mainText = <span>Delivered on <b>{dateText}</b></span>;
         } else if (days === 0) {
-          mainText = <span>Delivery is <b>today</b>! 🎉</span>;
+          mainText = <span>Delivery is <b>today</b></span>;
         } else if (days === 1) {
           mainText = <span>Delivery is <b>tomorrow</b> - {dateText}</span>;
         } else if (days > 1) {
@@ -4818,63 +4926,67 @@ export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout
           mainText = <span>Delivery Date: <b>{dateText}</b></span>;
         }
         return (
-          <div style={styles.deliveryDateBanner}>
-            <Calendar size={15} color={BRAND.gold} />
-            {mainText}
-          </div>
+          <>
+            <div style={styles.homeRule} />
+            <div style={styles.homeInlineLine}>
+              <Calendar size={15} color={BRAND.gold} />
+              {mainText}
+            </div>
+          </>
         );
       })()}
 
+      {/* One number, large: what they still owe. The old strip gave
+          Total, Paid and Due the same weight, so three bold figures
+          competed and the customer had to work out which one was the
+          question. Total and paid are the explanation, not the point,
+          so they go underneath in one quiet line. */}
       {total > 0 && (
-        <button style={styles.payStripBtn} onClick={() => setTab('progress')}>
-          <div style={styles.payStrip}>
-            <MoneyBit label='Estimate Total' value={currency(total)} />
-            <MoneyBit label='Paid' value={currency(jobPaid(job))} muted />
-            <MoneyBit label='Due' value={currency(due)} highlight={due > 0} />
-          </div>
-          {(job.items || []).length > 0 && (
-            <div style={styles.homeEstimatePreview}>
-              {(job.items || []).slice(0, 3).map((it) => (
-                <div key={it.id} style={styles.homeEstimateRow}>
-                  <span style={styles.homeEstimateDesc}>{it.desc}</span>
-                  <span style={styles.homeEstimateAmt}>{currency(estimateItemAmount(it))}</span>
-                </div>
-              ))}
-              {(job.items || []).length > 3 && (
-                <div style={styles.homeEstimateMore}>+{(job.items || []).length - 3} aur item...</div>
-              )}
-              <div style={styles.homeEstimateViewAll}>{t('Poora Estimate Dekhein')} &rarr;</div>
-            </div>
-          )}
-        </button>
+        <>
+          <div style={styles.homeRule} />
+          <button style={styles.homeMoneyBtn} onClick={() => setTab('estimate')}>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={styles.homeMoneyLabel}>{due > 0 ? t('Abhi dena hai') : t('Poora bhugtan ho gaya')}</span>
+              <span style={styles.homeMoneyBig}>{currency(due > 0 ? due : total)}</span>
+              <span style={styles.homeMoneySub}>{tf('{paid} of {total} paid', { paid: currency(paid), total: currency(total) })}</span>
+            </span>
+            <span style={styles.homeMoneyLink}>{t('Estimate')} <ChevronRight size={14} /></span>
+          </button>
+        </>
       )}
 
-      {/* The six equal tiles are gone. They asked the customer to pick
-          from a menu on every visit, with nothing marked as the thing
-          to do next. These are the same destinations in the order they
-          actually come up, and the one that matters right now is the
-          gold button inside the card above. */}
-      <div style={styles.homeActions}>
+      {/* The six equal tiles are gone, and so are the boxes that
+          replaced them. A bordered card around every destination made
+          five equally loud rectangles; hairlines separate them just as
+          well and leave the gold button above as the only thing
+          shouting. Same rows as the More tab, deliberately - one list
+          pattern across the app rather than two. */}
+      <div style={{ marginTop: 4 }}>
         {!hasVisit && (
-          <HomeAction icon={<Calendar size={17} color={BRAND.navy} />} title={t('Visit Book Karein')}
+          <HomeAction icon={<Calendar size={18} color={BRAND.navy} />} title={t('Visit Book Karein')}
             sub={t('Ghar par aakar measurement karenge')} onClick={() => setTab('appointment')} />
         )}
-        <HomeAction icon={<Grid3x3 size={17} color={BRAND.navy} />} title={t('Designs dekhein')}
+        <HomeAction icon={<Grid3x3 size={18} color={BRAND.navy} />} title={t('Designs dekhein')}
           sub={t('Pasand aaye to star dabakar save karein')} onClick={() => setTab('gallery')} />
-        <HomeAction icon={<Edit3 size={17} color={BRAND.navy} />} title={t('Aapki Requirements')}
+        <HomeAction icon={<Edit3 size={18} color={BRAND.navy} />} title={t('Aapki Requirements')}
           sub={reqCount > 0 ? tf('{n} add ki hain', { n: reqCount }) : t('Kya banwana hai, likh dein')}
           onClick={() => setTab('requirements')} />
         {total === 0 && (
-          <HomeAction icon={<Calculator size={17} color={BRAND.navy} />} title='Instant estimate'
+          <HomeAction icon={<Calculator size={18} color={BRAND.navy} />} title={t('Khud Estimate Lagayein')}
             sub={t('Apne naap se khud andaza lagayein')} onClick={onOpenCalculator} />
         )}
         {(job.status === 'delivered' || job.status === 'paid') && (
-          <HomeAction icon={<Star size={17} color={BRAND.navy} />}
+          <HomeAction icon={<Star size={18} color={BRAND.navy} />}
             title={job.review ? t('Aapka Review') : t('Review Dein')}
             sub={job.review ? t('Badalna ho to yahan se') : t('Aapka anubhav kaisa raha?')}
             onClick={() => setTab('review')} />
         )}
       </div>
+
+      {/* Last, not first. It is a request FROM the business, and asking
+          before answering "what is happening at my house" gets it
+          dismissed. */}
+      {onOpenProfile && <ProfileNudge customer={customer} onOpen={onOpenProfile} />}
     </div>
   );
 }
@@ -4947,17 +5059,10 @@ export function ProfileDetailsCard({ customer, onSaveCustomer, showToast }) {
   );
 }
 
+// The same row as the More tab, on purpose: a destination should not
+// look like one thing on Home and another thing two taps away.
 function HomeAction({ icon, title, sub, onClick }) {
-  return (
-    <button style={styles.homeAction} onClick={onClick}>
-      <span style={styles.homeActionIc}>{icon}</span>
-      <span style={styles.homeActionTx}>
-        <span style={{ ...styles.homeActionT1, display: 'block' }}>{title}</span>
-        <span style={{ ...styles.homeActionT2, display: 'block' }}>{sub}</span>
-      </span>
-      <span style={styles.homeActionChev}>&rsaquo;</span>
-    </button>
-  );
+  return <MoreRow icon={icon} title={title} sub={sub} onClick={onClick} />;
 }
 
 export function QuickTile({ icon, label, onClick }) {
@@ -8228,6 +8333,29 @@ export const styles = {
   homeHeroBtn: { width: '100%', marginTop: 13, background: BRAND.gold, color: '#1A1F2E', border: 'none', borderRadius: 11, padding: '11px 10px', fontSize: 13.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' },
   homeActions: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 },
   homeAction: { display: 'flex', alignItems: 'center', gap: 11, width: '100%', background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: '11px 12px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' },
+  moreGroupLabel: { fontSize: 10, fontWeight: 800, letterSpacing: 1.1, color: BRAND.textMuted, textTransform: 'uppercase', padding: '16px 2px 2px' },
+  homeEyebrow: { fontSize: 10, fontWeight: 800, letterSpacing: 1.1, color: BRAND.textMuted, textTransform: 'uppercase', paddingTop: 6 },
+  // 24px, and the only thing this size on the screen. Tight leading and
+  // a touch of negative tracking stop two lines of it looking loose.
+  homeHeadline: { margin: '7px 0 0', fontSize: 24, fontWeight: 800, lineHeight: 1.18, letterSpacing: -0.4, color: BRAND.navy },
+  homeHeadSub: { fontSize: 12.5, color: BRAND.textMuted, marginTop: 6 },
+  homeSteps: { display: 'flex', gap: 5, marginTop: 16 },
+  homeStepSeg: { flex: 1, height: 4, borderRadius: 999 },
+  homeStepLabels: { display: 'flex', gap: 5, marginTop: 7 },
+  homeStepLabel: { flex: 1, fontSize: 9.5, textAlign: 'center', lineHeight: 1.2 },
+  homeRule: { height: 1, background: BRAND.line, marginTop: 15 },
+  homeInlineLine: { display: 'flex', alignItems: 'center', gap: 8, padding: '13px 0', fontSize: 12.5, color: BRAND.textMuted },
+  homeMoneyBtn: { display: 'flex', alignItems: 'flex-end', gap: 12, width: '100%', background: 'none', border: 'none', padding: '15px 0', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' },
+  homeMoneyLabel: { display: 'block', fontSize: 10, fontWeight: 800, letterSpacing: 1, color: BRAND.textMuted, textTransform: 'uppercase' },
+  homeMoneyBig: { display: 'block', fontSize: 26, fontWeight: 800, letterSpacing: -0.6, color: BRAND.navy, marginTop: 4 },
+  homeMoneySub: { display: 'block', fontSize: 11.5, color: BRAND.textMuted, marginTop: 4 },
+  homeMoneyLink: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 800, color: BRAND.navy, paddingBottom: 4, whiteSpace: 'nowrap' },
+  // 52px tall before padding is counted, so the tap target clears 44px
+  // comfortably even for the single-line rows.
+  moreRow: { display: 'flex', alignItems: 'center', gap: 12, width: '100%', background: 'none', border: 'none', borderBottom: '1px solid ' + BRAND.line, padding: '13px 2px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', textDecoration: 'none', color: BRAND.navy },
+  moreRowIcon: { width: 22, display: 'flex', justifyContent: 'center', flex: 'none' },
+  moreRowTitle: { display: 'block', fontSize: 13.5, fontWeight: 700 },
+  moreRowSub: { display: 'block', fontSize: 11, color: BRAND.textMuted, marginTop: 2 },
   homeActionIc: { width: 34, height: 34, borderRadius: 10, background: BRAND.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' },
   homeActionTx: { flex: 1, minWidth: 0 },
   homeActionT1: { fontSize: 13.5, fontWeight: 700, color: BRAND.navy },

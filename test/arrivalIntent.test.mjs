@@ -35,9 +35,13 @@ check('the customer tab bar was found in App.jsx', () => {
   assert.ok(customerNav, 'no BottomNav with a review tab - has the nav moved?');
 });
 
-check('the bar is four tabs, so it cannot scroll sideways', () => {
+// Five fit at 390px; six did not, which is the overflow this guards.
+// The count matters more than the names: a sixth tab added without
+// measuring is how the bar started scrolling sideways and hiding
+// whichever tab fell off the right edge.
+check('the bar is five tabs, so it cannot scroll sideways', () => {
   const keys = [...customerNav.matchAll(/key: '([a-z_]+)'/g)].map((m) => m[1]);
-  assert.deepEqual(keys, ['home', 'gallery', 'estimate', 'progress']);
+  assert.deepEqual(keys, ['home', 'gallery', 'estimate', 'progress', 'more']);
 });
 
 check('every screen a website button points at is really rendered', () => {
