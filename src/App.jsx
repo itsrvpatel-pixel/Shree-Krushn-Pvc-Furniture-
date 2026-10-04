@@ -38,11 +38,11 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage } from './jobCore.js';
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -4424,6 +4424,70 @@ export function BottomNav({ tab, setTab, items }) {
   );
 }
 
+/* The estimate screen used to answer "how much do I owe" and stop
+   there. It never said WHEN, or in how many parts, so the only way to
+   find out was to ring up - and the terms were agreed verbally anyway,
+   which is exactly the kind of thing two people remember differently
+   three months later. Written down, in the customer's own app, it is
+   the same answer for both sides.
+
+   Every stage is listed, paid ones included. A list that hid what was
+   already settled would make the customer do the subtraction to see
+   where they stand, which is the arithmetic this screen exists to
+   save them. */
+export function PaymentSchedule({ job }) {
+  const total = jobTotal(job);
+  if (total <= 0) return null;
+  const schedule = buildPaymentSchedule(total, jobPaid(job), paymentStagesOf(job));
+  if (schedule.length === 0) return null;
+  const next = nextDueStage(schedule);
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={styles.fieldLabel}>{t('Payment Schedule')}</div>
+      {schedule.map((s) => {
+        const isNext = next && s.key === next.key;
+        return (
+          <div key={s.key} style={{ ...styles.payStageRow, borderColor: isNext ? BRAND.gold : BRAND.line }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={styles.payStageTop}>
+                <span style={styles.payStageLabel}>{t(s.label)}</span>
+                <span style={styles.payStagePct}>{s.percent}%</span>
+              </div>
+              {s.when && <div style={styles.payStageWhen}>{t(s.when)}</div>}
+              {/* Only when a stage is half settled: otherwise the
+                  amount and the badge already say everything. */}
+              {s.status === 'part' && (
+                <div style={styles.payStageWhen}>
+                  {tf('{paid} mil gaya, {left} baaki', { paid: currency(s.paidAmount), left: currency(s.remaining) })}
+                </div>
+              )}
+            </div>
+            <div style={{ textAlign: 'right', flex: 'none' }}>
+              <div style={styles.payStageAmt}>{currency(s.amount)}</div>
+              <span style={{ ...styles.payStageBadge, ...PAY_STAGE_BADGE[s.status] }}>
+                {t(PAY_STAGE_TEXT[s.status])}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+      <div style={styles.payStageNote}>
+        {next
+          ? tf('Agla payment: {amount} - {when}', { amount: currency(next.remaining), when: t(next.when || next.label) })
+          : t('Poora bhugtan ho gaya hai. Dhanyavaad!')}
+      </div>
+    </div>
+  );
+}
+
+const PAY_STAGE_TEXT = { paid: 'Paid', part: 'Part paid', due: 'Pending' };
+const PAY_STAGE_BADGE = {
+  paid: { background: '#DFF0E4', color: '#1F6B3E' },
+  part: { background: '#F3EFE3', color: '#7A6A2E' },
+  due: { background: '#F7E3D8', color: '#8E3F1F' },
+};
+
 export function MoneyBit({ label, value, muted, highlight }) {
   return (
     <div style={{ textAlign: 'center' }}>
@@ -6525,6 +6589,8 @@ function EstimateView({ job, onSave, showToast }) {
         </div>
       )}
 
+      <PaymentSchedule job={job} />
+
       {(job.payments || []).length > 0 && (
         <div style={{ marginTop: 12 }}>
           <div style={styles.fieldLabel}>Payment History</div>
@@ -8319,6 +8385,14 @@ export const styles = {
   homeHeroBtn: { width: '100%', marginTop: 13, background: BRAND.gold, color: '#1A1F2E', border: 'none', borderRadius: 11, padding: '11px 10px', fontSize: 13.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' },
   homeActions: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 },
   homeAction: { display: 'flex', alignItems: 'center', gap: 11, width: '100%', background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: '11px 12px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' },
+  payStageRow: { display: 'flex', alignItems: 'flex-start', gap: 10, background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 10, padding: '10px 12px', marginTop: 7 },
+  payStageTop: { display: 'flex', alignItems: 'baseline', gap: 7 },
+  payStageLabel: { fontSize: 12.5, fontWeight: 800, color: BRAND.navy },
+  payStagePct: { fontSize: 10.5, fontWeight: 700, color: BRAND.textMuted },
+  payStageWhen: { fontSize: 10.5, color: BRAND.textMuted, marginTop: 2 },
+  payStageAmt: { fontSize: 13.5, fontWeight: 800, color: BRAND.navy },
+  payStageBadge: { display: 'inline-block', borderRadius: 999, padding: '2px 8px', fontSize: 9.5, fontWeight: 800, marginTop: 4, whiteSpace: 'nowrap' },
+  payStageNote: { fontSize: 11, color: BRAND.textMuted, marginTop: 8, lineHeight: 1.45 },
   moreGroupLabel: { fontSize: 10, fontWeight: 800, letterSpacing: 1.1, color: BRAND.textMuted, textTransform: 'uppercase', padding: '16px 2px 2px' },
   // 52px tall before padding is counted, so the tap target clears 44px
   // comfortably even for the single-line rows.

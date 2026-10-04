@@ -377,3 +377,88 @@ export function resolveRegistration(customer, existingJob, makeJob) {
   }
   return { customer, jobToCreate: makeJob(customer), adopted: false };
 }
+
+/* --- When is each payment due ----------------------------------------
+   The app told a customer one number: "Due 1,22,500". True, and useless
+   - it does not say when, or in how many parts, so the only way to find
+   out was to ring up and ask. Every estimate this business quotes is
+   already paid in stages; the stages just were not written down
+   anywhere the customer could see them.
+
+   Percentages, not fixed rupee amounts, because the estimate changes:
+   extra work gets approved, a discount gets agreed. A schedule stored
+   in rupees would quietly stop adding up to the total the moment that
+   happened, and a payment plan that does not add up is worse than none.
+------------------------------------------------------------------- */
+export const DEFAULT_PAYMENT_STAGES = [
+  { key: 'advance', label: 'Advance', percent: 50, when: 'Order confirm hote hi' },
+  { key: 'progress', label: 'Progress payment', percent: 40, when: 'Kaam shuru hone par' },
+  { key: 'final', label: 'Final payment', percent: 10, when: 'Delivery ke baad' },
+];
+
+// Which stages a job is on: its own, if admin set them, otherwise the
+// standard three. A stored list is only trusted when it is a non-empty
+// array whose percents are numbers - a half-saved one falls back rather
+// than showing a customer a broken plan.
+export function paymentStagesOf(job) {
+  const own = job && job.paymentStages;
+  if (!Array.isArray(own) || own.length === 0) return DEFAULT_PAYMENT_STAGES;
+  if (!own.every((s) => s && typeof s.label === 'string' && Number.isFinite(Number(s.percent)))) {
+    return DEFAULT_PAYMENT_STAGES;
+  }
+  return own;
+}
+
+/* Turns the stages into rupee amounts and works out which are settled.
+
+   Two things this gets right that an obvious version would not.
+
+   The amounts always sum to EXACTLY the total. Rounding each stage on
+   its own leaves 50/40/10 of 1,21,875 adding up to a rupee more or less
+   than the bill, and a customer who adds up three numbers and gets a
+   different answer stops trusting the whole screen. The last stage
+   takes the remainder, so the column always ties out.
+
+   Money pays off the stages IN ORDER, like a real ledger. Anything else
+   has to guess which stage a payment was meant for, and the customer's
+   own receipt does not say. */
+export function buildPaymentSchedule(total, paid, stages) {
+  const list = Array.isArray(stages) && stages.length > 0 ? stages : DEFAULT_PAYMENT_STAGES;
+  const grand = Math.max(0, Math.round(Number(total) || 0));
+  if (grand === 0) return [];
+
+  let allocated = 0;
+  const amounts = list.map((s, i) => {
+    if (i === list.length - 1) return grand - allocated; // the remainder, so it ties out
+    const amt = Math.round((grand * (Number(s.percent) || 0)) / 100);
+    allocated += amt;
+    return amt;
+  });
+
+  let left = Math.max(0, Math.round(Number(paid) || 0));
+  return list.map((s, i) => {
+    const amount = Math.max(0, amounts[i]);
+    const paidHere = Math.min(left, amount);
+    left -= paidHere;
+    let status = 'due';
+    if (amount > 0 && paidHere >= amount) status = 'paid';
+    else if (paidHere > 0) status = 'part';
+    return {
+      key: s.key || ('stage_' + i),
+      label: s.label,
+      when: s.when || '',
+      percent: Number(s.percent) || 0,
+      amount,
+      paidAmount: paidHere,
+      remaining: Math.max(0, amount - paidHere),
+      status,
+    };
+  });
+}
+
+// The stage the customer owes money on next, or null when nothing is
+// outstanding. This is what Home and the estimate screen lead with -
+// "what do I owe next" is the question, not "here is a table".
+export function nextDueStage(schedule) {
+  return (schedule || []).find((s) => s.status !== 'paid') || null;
+}

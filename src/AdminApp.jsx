@@ -107,6 +107,8 @@ import {
   normalizeOptionRow,
   seedOptionForm,
   jobTotal,
+  paymentStagesOf,
+  buildPaymentSchedule,
   loadImageAsDataUrl,
   loadJsPDF,
   logActivity,
@@ -2083,6 +2085,8 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
 
       <div style={styles.totalBar}><span>Estimate Total</span><span style={styles.totalAmt}>{currency(total)}</span></div>
 
+      <PaymentStagesEditor job={job} onSave={onSave} showToast={showToast} />
+
       {(job.materialCompany || job.sheetWeightKg) && (
         <div style={styles.plainTextMuted}>
           Material: {[job.materialCompany, job.sheetWeightKg && (job.sheetWeightKg + ' kg')].filter(Boolean).join(' - ')}
@@ -2118,6 +2122,73 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
       )}
 
       {showPreview && <QuotationPreview job={job} onClose={() => setShowPreview(false)} showToast={showToast} />}
+    </div>
+  );
+}
+
+/* Lets admin change the three percentages when a job is not on the
+   standard terms - some are, some are not, and before this the terms
+   were agreed on the phone and written nowhere.
+
+   Guarded on 100. A schedule that adds up to 90% or 110% would still
+   render (the last stage absorbs the remainder, so the rupees always
+   tie out to the bill) but the PERCENTAGES on screen would then
+   contradict the amounts beside them, and the customer reading it
+   would be right to think something was wrong. Better to refuse the
+   save and say so. */
+function PaymentStagesEditor({ job, onSave, showToast }) {
+  const stages = paymentStagesOf(job);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(() => stages.map((s) => String(s.percent)));
+  const total = jobTotal(job);
+  if (total <= 0) return null;
+
+  const sum = draft.reduce((a, v) => a + (Number(v) || 0), 0);
+
+  const save = () => {
+    if (sum !== 100) { showToast('Teeno milkar 100% hone chahiye - abhi ' + sum + '%', true); return; }
+    onSave({ ...job, paymentStages: stages.map((s, i) => ({ ...s, percent: Number(draft[i]) })) });
+    setOpen(false);
+    showToast('Payment schedule save ho gaya');
+  };
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={styles.fieldLabel}>Payment Schedule</div>
+          <div style={styles.plainTextMuted}>
+            {stages.map((st, i) => st.percent + '% ' + currency(buildPaymentSchedule(total, 0, stages)[i].amount)).join('  -  ')}
+          </div>
+        </div>
+        <button style={styles.linkBtn2} onClick={() => { setDraft(stages.map((st) => String(st.percent))); setOpen((o) => !o); }}>
+          {open ? 'Band karein' : 'Badlein'}
+        </button>
+      </div>
+
+      {open && (
+        <div style={{ ...styles.formCard, marginTop: 8 }}>
+          {stages.map((st, i) => (
+            <div key={st.key || i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: i === 0 ? 0 : 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={styles.itemDesc}>{st.label}</div>
+                <div style={styles.itemSub}>{st.when}</div>
+              </div>
+              <input
+                style={{ ...styles.input, width: 72, textAlign: 'right', marginTop: 0 }}
+                inputMode='numeric'
+                value={draft[i]}
+                onChange={(e) => setDraft((d) => d.map((v, j) => (j === i ? e.target.value.replace(/[^0-9]/g, '') : v)))}
+              />
+              <span style={{ fontSize: 12, color: BRAND.textMuted, width: 14 }}>%</span>
+            </div>
+          ))}
+          <div style={{ ...styles.hintText, color: sum === 100 ? BRAND.textMuted : '#B5562E', marginTop: 8 }}>
+            Total: {sum}%{sum === 100 ? '' : ' - 100% hona chahiye'}
+          </div>
+          <button style={{ ...styles.primaryBtn2, marginTop: 8 }} onClick={save}><Check size={14} /> Save</button>
+        </div>
+      )}
     </div>
   );
 }
