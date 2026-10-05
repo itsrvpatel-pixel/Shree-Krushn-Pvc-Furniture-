@@ -4767,6 +4767,7 @@ function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galle
   const [showHelp, setShowHelp] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showSpecs, setShowSpecs] = useState(false);
+  const [showReviews, setShowReviews] = useState(false);
   // Once the Gallery tab has been visited, it stays MOUNTED (just
   // hidden via CSS when a different tab is active) instead of being
   // unmounted/remounted every time someone switches away and back -
@@ -4784,6 +4785,10 @@ function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galle
 
   if (showHelp) {
     return <HelpScreen faqs={faqs} job={job} onSaveJob={onSaveJob} pushNotification={pushNotification} customer={customer} showToast={showToast} onBack={() => setShowHelp(false)} />;
+  }
+
+  if (showReviews) {
+    return <ReviewsScreen testimonials={testimonials} onBack={() => setShowReviews(false)} />;
   }
 
   if (showSpecs) {
@@ -4876,7 +4881,9 @@ function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galle
         <MoreScreen
           customer={customer}
           job={job}
+          testimonials={testimonials}
           onOpenReview={() => setTab('review')}
+          onOpenReviews={() => setShowReviews(true)}
           onOpenProfile={() => setShowProfile(true)}
           onOpenSpecs={() => setShowSpecs(true)}
           onOpenHelp={() => setShowHelp(true)}
@@ -4913,7 +4920,11 @@ function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galle
    person icon, which is nobody's idea of where "Help" lives. Rows, not
    cards: a card says "this is a thing in its own right", and a menu
    entry is not - it is a door. Hairlines and space do the separating. */
-export function MoreScreen({ customer, job, onOpenProfile, onOpenSpecs, onOpenHelp, onOpenCalculator, onOpenReview, onLogout }) {
+export function MoreScreen({ customer, job, testimonials, onOpenProfile, onOpenSpecs, onOpenHelp, onOpenCalculator, onOpenReview, onOpenReviews, onLogout }) {
+  const reviews = testimonials || [];
+  const avgRating = reviews.length > 0
+    ? (reviews.reduce((a, r) => a + (Number(r.rating) || 0), 0) / reviews.length).toFixed(1)
+    : null;
   return (
     <div style={{ padding: '6px 16px 20px' }}>
       <div style={styles.moreGroupLabel}>{t('Aapka account')}</div>
@@ -4932,6 +4943,18 @@ export function MoreScreen({ customer, job, onOpenProfile, onOpenSpecs, onOpenHe
       />
 
       <div style={styles.moreGroupLabel}>{t('Jaankari')}</div>
+      {/* Reading other customers' reviews and leaving your own are two
+          different things, and only one of them was reachable. These
+          lived inside the gallery under the brochures behind a closed
+          accordion, which is the same as not being there. */}
+      {reviews.length > 0 && (
+        <MoreRow
+          icon={<Star size={18} color={BRAND.gold} />}
+          title={t('Customer Reviews')}
+          sub={tf('{avg} stars - {n} logon ne likha', { avg: avgRating, n: reviews.length })}
+          onClick={onOpenReviews}
+        />
+      )}
       <MoreRow
         icon={<ShieldCheck size={18} color={BRAND.navy} />}
         title={t('Hamari Khaasiyat')}
@@ -4968,6 +4991,66 @@ export function MoreScreen({ customer, job, onOpenProfile, onOpenSpecs, onOpenHe
         danger
         onClick={onLogout}
       />
+    </div>
+  );
+}
+
+/* The reviews other customers left. Shown in two places now - its own
+   screen from the More tab, and still inside the gallery where it has
+   always been - so it is written once. Offering the same thing twice
+   and rendering it twice is how two copies of a list start disagreeing
+   about what they contain. */
+export function ReviewList({ testimonials }) {
+  return (
+    <>
+      {(testimonials || []).map((t, i) => (
+        <div key={i} style={styles.reviewCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+            <div style={styles.cardName}>{t.customerName}</div>
+            <div style={{ display: 'flex', gap: 1, flex: 'none' }}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <Star key={n} size={12} fill={n <= t.rating ? BRAND.gold : 'none'} color={n <= t.rating ? BRAND.gold : '#D7DAE5'} />
+              ))}
+            </div>
+          </div>
+          {t.text && <div style={{ ...styles.plainText, marginTop: 6, whiteSpace: 'pre-line' }}>{t.text}</div>}
+        </div>
+      ))}
+    </>
+  );
+}
+
+// The same reviews the website shows, on their own screen. They used to
+// live only inside the gallery, under the brochures, behind a closed
+// accordion - which is to say nobody read them. A customer deciding
+// whether to go ahead is exactly who they are for.
+export function ReviewsScreen({ testimonials, onBack }) {
+  const list = testimonials || [];
+  const avg = list.length > 0
+    ? (list.reduce((a, t) => a + (Number(t.rating) || 0), 0) / list.length)
+    : 0;
+  return (
+    <div style={{ paddingBottom: 20 }}>
+      <TopBar title={t('Customer Reviews')} onBack={onBack} hideLogout />
+      <div style={{ padding: '12px 16px' }}>
+        {list.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi review nahi hai.')}</div>}
+        {list.length > 0 && (
+          <>
+            <div style={styles.reviewAvgCard}>
+              <div style={styles.reviewAvgNum}>{avg.toFixed(1)}</div>
+              <div>
+                <div style={{ display: 'flex', gap: 2 }}>
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <Star key={n} size={14} fill={n <= Math.round(avg) ? BRAND.gold : 'none'} color={n <= Math.round(avg) ? BRAND.gold : '#D7DAE5'} />
+                  ))}
+                </div>
+                <div style={styles.reviewAvgSub}>{tf('{n} customer reviews', { n: list.length })}</div>
+              </div>
+            </div>
+            <ReviewList testimonials={list} />
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -5482,17 +5565,7 @@ function GalleryBrowser({ gallery, galleryLoading, loadGalleryData, brochures, c
           </button>
           {showTestimonials && (
             <div style={{ marginTop: 8 }}>
-              {testimonials.map((t, i) => (
-                <div key={i} style={styles.reviewCard}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={styles.cardName}>{t.customerName}</div>
-                    <div style={{ display: 'flex', gap: 1 }}>
-                      {[1,2,3,4,5].map((n) => <Star key={n} size={12} fill={n <= t.rating ? BRAND.gold : 'none'} color={n <= t.rating ? BRAND.gold : '#D7DAE5'} />)}
-                    </div>
-                  </div>
-                  {t.text && <div style={{ ...styles.plainText, marginTop: 6 }}>{t.text}</div>}
-                </div>
-              ))}
+              <ReviewList testimonials={testimonials} />
             </div>
           )}
         </div>
@@ -8492,6 +8565,9 @@ export const styles = {
   profRow: { display: 'flex', alignItems: 'baseline', gap: 12, padding: '9px 0', borderBottom: '1px solid ' + BRAND.line },
   profLabel: { fontSize: 11.5, color: BRAND.textMuted, flex: 'none', minWidth: 104 },
   profValue: { fontSize: 12.5, fontWeight: 700, textAlign: 'right', flex: 1, minWidth: 0, wordBreak: 'break-word' },
+  reviewAvgCard: { display: 'flex', alignItems: 'center', gap: 14, background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 14, padding: '14px 16px', marginBottom: 12 },
+  reviewAvgNum: { fontSize: 32, fontWeight: 800, color: BRAND.navy, letterSpacing: -1, lineHeight: 1 },
+  reviewAvgSub: { fontSize: 11.5, color: BRAND.textMuted, marginTop: 5 },
   moreGroupLabel: { fontSize: 10, fontWeight: 800, letterSpacing: 1.1, color: BRAND.textMuted, textTransform: 'uppercase', padding: '16px 2px 2px' },
   // 52px tall before padding is counted, so the tap target clears 44px
   // comfortably even for the single-line rows.
