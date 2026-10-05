@@ -127,6 +127,7 @@ import {
   budgetLabel,
   jobCostBreakdown,
   nextDueStage,
+  paymentProgress,
   profileCompleteness,
   timelineLabel,
   shareEstimatePdf,
@@ -166,30 +167,19 @@ function jobProfit(job, allExpenses) {
   return { collected, linkedExpenses, profit: collected - linkedExpenses };
 }
 
-// Payment milestones: standard 50/40/10 split tied to work stages -
-// 50% when material is ordered/arrives (status moves to in_progress),
-// 40% during the work itself, 10% on completion (delivered). This gives
-// admin a clear "how much should be collected by now" figure instead of
-// just a single total-due number, matching how the business actually
-// structures payment requests with customers.
-const PAYMENT_MILESTONES = [
-  { key: 'material', label: 'Material Advance (50%)', percent: 0.5, atStatus: 'in_progress' },
-  { key: 'during_work', label: 'During Work (40%)', percent: 0.4, atStatus: 'delivered' },
-  // atStatus is 'delivered', NOT 'paid' - a job's status auto-becomes
-  // 'paid' the instant jobDue reaches 0 (see addPayment below), so if
-  // this milestone waited for status==='paid' to count as "reached", it
-  // could never show a nonzero due amount: by the time it's reached,
-  // the job is already fully paid by definition. Tying it to 'delivered'
-  // instead means the final 10% correctly shows as outstanding once
-  // delivery happens, for as long as payment is still pending.
-  { key: 'completion', label: 'On Completion (10%)', percent: 0.1, atStatus: 'delivered' },
-];
+// Payment stages live in jobCore now, shared with the customer app -
+// see DEFAULT_PAYMENT_STAGES and paymentProgress. There used to be a
+// second 50/40/10 model right here, with its own percentages, its own
+// allocation loop and its own wording. The money matched and the
+// words did not, which is the kind of difference nobody notices until
+// a customer quotes one of them back at you.
 
-// Returns each milestone's amount, whether it's been "reached" (job status
-// has progressed far enough to owe it), and how much of it remains
-// unpaid - allocating actual payments against milestones in order, so a
-// partial payment fills the earliest open milestone first rather than
-// being split evenly across all three.
+// One source of truth for the split, plus the one question the admin
+// side needs on top: which part of it this job has actually reached.
+function jobPaymentProgress(job) {
+  return paymentProgress(jobTotal(job), jobPaid(job), paymentStagesOf(job), job.status, STATUS_ORDER);
+}
+
 // The 2-year maintenance warranty, turned into something the business
 // can actually act on.
 //
@@ -260,20 +250,6 @@ function buildServiceOfferText(job, visit) {
   return lines.join(NEWLINE);
 }
 
-function jobMilestoneStatus(job) {
-  const total = jobTotal(job);
-  const paid = jobPaid(job);
-  const statusIdx = STATUS_ORDER.indexOf(job.status);
-  let remainingPaid = paid;
-  return PAYMENT_MILESTONES.map((m) => {
-    const amount = Math.round(total * m.percent);
-    const reached = statusIdx >= STATUS_ORDER.indexOf(m.atStatus);
-    const appliedToThis = Math.min(remainingPaid, amount);
-    remainingPaid -= appliedToThis;
-    const due = Math.max(0, amount - appliedToThis);
-    return { ...m, amount, reached, paidSoFar: appliedToThis, due: reached ? due : 0, upcoming: !reached ? due : 0 };
-  });
-}
 
 // A shareable price list, built from the same admin-configured rate
 // types (name/rate/unit) the Instant Estimate Calculator already uses
@@ -463,10 +439,10 @@ function buildPaymentReminderText(job) {
   lines.push('Baaki: ' + currency(due));
 
   // Which stage this money belongs to, when one is actually due now.
-  const milestone = jobMilestoneStatus(job).find((m) => m.due > 0);
+  const milestone = jobPaymentProgress(job).find((m) => m.dueNow > 0);
   if (milestone) {
     lines.push('');
-    lines.push(milestone.label + ' ka ' + currency(milestone.due) + ' abhi due hai.');
+    lines.push(milestone.label + ' ka ' + currency(milestone.dueNow) + ' abhi due hai.');
   }
   lines.push('');
   lines.push(t('Aap jab bhi bhej dein, bata dijiyega - hum receipt bhej denge.'));
@@ -3362,21 +3338,22 @@ function AdminJobDetail({ job, customer, onSaveCustomer, onSave, showToast, staf
 
             {total > 0 && (
               <div style={{ marginTop: 14 }}>
-                <div style={styles.fieldLabel}>Payment Milestones (50 / 40 / 10)</div>
-                {jobMilestoneStatus(job).map((m) => {
+                <div style={styles.fieldLabel}>Payment Schedule</div>
+                {jobPaymentProgress(job).map((m) => {
                   const reminderUrl = whatsAppShareUrl(job.phone, buildPaymentReminderText(job));
                   return (
                     <div key={m.key} style={styles.milestoneRow}>
                       <div style={{ flex: 1 }}>
-                        <div style={styles.itemDesc}>{m.label}</div>
+                        <div style={styles.itemDesc}>{m.label} ({m.percent}%)</div>
+                        <div style={styles.itemSub}>{m.when}</div>
                         <div style={styles.itemSub}>
                           {!m.reached ? ('Upcoming - ' + currency(m.amount)) :
-                           m.due > 0 ? ('Due now - ' + currency(m.due) + ' (of ' + currency(m.amount) + ')') :
+                           m.dueNow > 0 ? ('Due now - ' + currency(m.dueNow) + ' (of ' + currency(m.amount) + ')') :
                            ('Collected - ' + currency(m.amount))}
                         </div>
                       </div>
-                      {m.reached && m.due === 0 && <CheckCircle2 size={16} color='#2F7D4F' />}
-                      {m.reached && m.due > 0 && (
+                      {m.reached && m.dueNow === 0 && <CheckCircle2 size={16} color='#2F7D4F' />}
+                      {m.reached && m.dueNow > 0 && (
                         <a href={reminderUrl} target='_blank' rel='noopener noreferrer' style={styles.waReminderBtn}>
                           <Send size={13} /> Remind
                         </a>

@@ -396,9 +396,19 @@ export function resolveRegistration(customer, existingJob, makeJob) {
 // customer something the business does not do would be worse than no
 // schedule, so the first stage says what really happens.
 export const DEFAULT_PAYMENT_STAGES = [
-  { key: 'advance', label: 'Advance', percent: 50, when: 'Kaam shuru hone par' },
-  { key: 'progress', label: 'Progress payment', percent: 40, when: 'Kaam aadha hone par' },
-  { key: 'final', label: 'Final payment', percent: 10, when: 'Delivery ke baad' },
+  // atStatus is which job stage makes this money actually DUE, as
+  // opposed to merely planned. It carried over from the admin-side
+  // milestone list this replaced, and it already said 'in_progress'
+  // for the first payment - the business was taking its first money
+  // when work started long before the customer-facing wording said so.
+  { key: 'advance', label: 'Advance', percent: 50, when: 'Kaam shuru hone par', atStatus: 'in_progress' },
+  { key: 'progress', label: 'Progress payment', percent: 40, when: 'Kaam aadha hone par', atStatus: 'delivered' },
+  // 'delivered', NOT 'paid'. A job's status flips to 'paid' the moment
+  // nothing is outstanding, so a milestone waiting for 'paid' could
+  // never show a nonzero due amount: by the time it is reached the job
+  // is settled by definition. Tying the last stage to delivery means
+  // it correctly reads as outstanding while payment is still pending.
+  { key: 'final', label: 'Final payment', percent: 10, when: 'Delivery ke baad', atStatus: 'delivered' },
 ];
 
 // Which stages a job is on: its own, if admin set them, otherwise the
@@ -513,4 +523,28 @@ export function jobCostBreakdown(expenses, jobId) {
     byType: [...byType.entries()].map(([type, amount]) => ({ type, amount })).sort((a, b) => b.amount - a.amount),
     karigar: byType.get('Karigar Payment') || 0,
   };
+}
+
+/* Admin's view of the same schedule: which stages the job has actually
+   reached, so "owed now" can be told apart from "owed later".
+
+   There used to be two separate 50/40/10 models - this one on the
+   admin side keyed to job status, and the customer's schedule - with
+   their own percentages, their own labels and their own allocation
+   loop. They agreed on the money and disagreed on the words, which is
+   the kind of difference nobody notices until a customer quotes one
+   back at you. Now there is one list of stages, one allocation, and
+   this adds only the question the admin side needs answering.
+------------------------------------------------------------------- */
+export function paymentProgress(total, paid, stages, status, statusOrder) {
+  const list = Array.isArray(stages) && stages.length > 0 ? stages : DEFAULT_PAYMENT_STAGES;
+  const order = Array.isArray(statusOrder) ? statusOrder : [];
+  const statusIdx = order.indexOf(status);
+  return buildPaymentSchedule(total, paid, list).map((s, i) => {
+    const at = list[i] && list[i].atStatus;
+    // A stage with no atStatus is due as soon as it is in the plan -
+    // the honest reading of a custom schedule somebody typed in.
+    const reached = !at || (statusIdx >= 0 && statusIdx >= order.indexOf(at));
+    return { ...s, reached, dueNow: reached ? s.remaining : 0, upcoming: reached ? 0 : s.remaining };
+  });
 }
