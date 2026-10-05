@@ -567,8 +567,13 @@ function buildEstimateWhatsAppText(job) {
   const due = jobDue(job);
   if (due > 0) lines.push('Due: ' + currency(due));
   lines.push('');
-  lines.push('Payment: 50% advance, 40% midway, 10% on completion.');
-  lines.push(BUSINESS.phone + ' - ' + BUSINESS.website);
+  // Read from the job's own stages, not a sentence typed here. That
+  // sentence still said "50% advance" after the advance was moved to
+  // "when the work starts", so the quotation and the app disagreed.
+  lines.push('Payment: ' + paymentStagesOf(job).map((st) => st.percent + '% ' + String(st.when || st.label).toLowerCase()).join(' / '));
+  lines.push('');
+  lines.push(BUSINESS.phone);
+  lines.push(...waSignOffLines('estimate'));
   return lines.join(NEWLINE);
 }
 
@@ -1465,6 +1470,44 @@ export async function shareEstimatePdf(job, elementId, showToast) {
   }
 }
 
+
+/* --- The way back into the app -------------------------------------
+   Every WhatsApp message this business sends - a visit reminder, an
+   estimate, a payment reminder, a service offer - ended at the
+   signature. The message was ABOUT something that lives in the app,
+   and gave the customer no way to reach it: they had to remember the
+   address or scroll back through months of chat to find an old link.
+
+   One line above the signature, saying what they will find, then the
+   link on its own so WhatsApp makes it tappable. The link carries
+   ?do=, so a message about the estimate opens ON the estimate instead
+   of dropping them on Home to hunt for it (see arrivalIntent.js).
+
+   Built in one place on purpose: the app's address is going to move
+   (see the .site work), and a link pasted into eight different
+   messages is eight places to forget.
+------------------------------------------------------------------- */
+export function appLink(intent) {
+  const base = 'https://' + BUSINESS.website + '/app';
+  return intent ? base + '?do=' + intent : base;
+}
+
+const WA_INVITE = {
+  estimate: 'Poora estimate, item-wise rate aur payment schedule yahan dekhein:',
+  visit: 'Visit ki jaankari aur apna kaam yahan dekhein:',
+  designs: '500+ designs dekhein, jo pasand aaye save kar lein:',
+  work: 'Kaam ki roz ki photos aur progress yahan dekhein:',
+};
+
+// The whole tail of a message - blank line, invitation, link, blank
+// line, signature. Two shapes because the message builders are two
+// shapes: some join an array of lines, some concatenate.
+export function waSignOffLines(intent) {
+  return ['', WA_INVITE[intent] || 'Apna poora kaam yahan dekhein:', appLink(intent), '', '- ' + BUSINESS.name];
+}
+export function waSignOff(intent) {
+  return NEWLINE + waSignOffLines(intent).join(NEWLINE);
+}
 
 export function whatsAppShareUrl(phoneDigits10, text) {
   const encoded = encodeURIComponent(text);
@@ -4908,7 +4951,7 @@ export function MoreScreen({ customer, onOpenProfile, onOpenSpecs, onOpenHelp, o
         icon={<Send size={18} color={BRAND.navy} />}
         title={t('App Doston Ko Bhejein')}
         sub={t('WhatsApp par share karein')}
-        href={whatsAppShareUrl(null, tf('Namaste! Maine {business} ki app use ki hai - PVC furniture ke liye bahut achhi hai. Aap bhi dekho: https://{site}', { business: BUSINESS.name, site: BUSINESS.website }))}
+        href={whatsAppShareUrl(null, tf('Namaste! Maine {business} ki app use ki hai - PVC furniture ke liye bahut achhi hai. Aap bhi dekho: {link}', { business: BUSINESS.name, link: appLink(null) }))}
       />
       <MoreRow
         icon={<LogOut size={18} color='#B5562E' />}

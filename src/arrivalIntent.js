@@ -16,7 +16,9 @@
 // mounts a good deal, and the intent has to outlive that. Module state,
 // so a reload starts clean, and taken out of the address bar as soon as
 // it is read so the link anyone copies afterwards is the plain one.
-export const ARRIVAL_TABS = { visit: 'appointment', estimate: 'estimate', designs: 'gallery' };
+// 'work' is here for the WhatsApp messages about progress - see
+// waSignOff in App.jsx - not for any button on the website.
+export const ARRIVAL_TABS = { visit: 'appointment', estimate: 'estimate', designs: 'gallery', work: 'progress' };
 
 let pendingArrivalTab = (() => {
   try {

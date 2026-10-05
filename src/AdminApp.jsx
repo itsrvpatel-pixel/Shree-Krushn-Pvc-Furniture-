@@ -133,6 +133,9 @@ import {
   useGalleryThumbWarmup,
   warrantyCertNo,
   whatsAppShareUrl,
+  waSignOff,
+  waSignOffLines,
+  appLink,
 } from './App.jsx';
 
 // A special, always-present gallery bucket (not part of the admin's
@@ -249,8 +252,7 @@ function buildServiceOfferText(job, visit) {
   lines.push(t('fitting, adjustment, ya koi bhi chhoti dikkat ho to hum aakar theek kar denge.'));
   lines.push('');
   lines.push(t('Kab aana theek rahega? Din aur time bata dijiye.'));
-  lines.push('');
-  lines.push('- ' + BUSINESS.name);
+  lines.push(...waSignOffLines('visit'));
   return lines.join(NEWLINE);
 }
 
@@ -465,8 +467,7 @@ function buildPaymentReminderText(job) {
   lines.push('');
   lines.push(t('Aap jab bhi bhej dein, bata dijiyega - hum receipt bhej denge.'));
   lines.push(t('Koi sawaal ho to poochh lijiye.'));
-  lines.push('');
-  lines.push('- ' + BUSINESS.name);
+  lines.push(...waSignOffLines('estimate'));
   return lines.join(NEWLINE);
 }
 
@@ -762,7 +763,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
           <div style={styles.plainTextMuted}>{tomorrowsVisits.length} visit{tomorrowsVisits.length !== 1 ? 's' : ''} kal - reminder bhejne ke liye WhatsApp button dabayein</div>
           {tomorrowsVisits.length === 0 && <div style={styles.emptySmall}>{t('Kal koi visit nahi hai.')}</div>}
           {tomorrowsVisits.map((j) => {
-            const reminderText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'Yeh ek reminder hai ki aapki visit KAL hai:' + NEWLINE + formatDate(j.appointment.confirmedDate) + (j.appointment.confirmedTime ? (' - ' + formatTime12h(j.appointment.confirmedTime)) : '') + NEWLINE + NEWLINE + 'Address: ' + (j.appointment.address || j.address || '-') + NEWLINE + NEWLINE + '- ' + BUSINESS.name;
+            const reminderText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'Yeh ek reminder hai ki aapki visit KAL hai:' + NEWLINE + formatDate(j.appointment.confirmedDate) + (j.appointment.confirmedTime ? (' - ' + formatTime12h(j.appointment.confirmedTime)) : '') + NEWLINE + NEWLINE + 'Address: ' + (j.appointment.address || j.address || '-') + waSignOff('visit');
             return (
               <div key={j.id} style={styles.reviewCard}>
                 <button style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }} onClick={() => onOpenJob(j.id)}>
@@ -791,7 +792,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
           {staleJobs.map((j) => {
             const lastActivityDate = (j.activity && j.activity[0]) ? new Date(j.activity[0].date) : new Date(j.createdAt);
             const daysSince = Math.floor((new Date() - lastActivityDate) / (1000 * 60 * 60 * 24));
-            const updateText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'Aapke project ka kaam chal raha hai - jaldi hi update denge.' + NEWLINE + NEWLINE + '- ' + BUSINESS.name;
+            const updateText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'Aapke project ka kaam chal raha hai - jaldi hi update denge.' + waSignOff('work');
             return (
               <div key={j.id} style={styles.reviewCard}>
                 <button style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }} onClick={() => onOpenJob(j.id)}>
@@ -820,7 +821,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
           {followUpJobs.map((j) => {
             const sinceDate = j.estimateGivenAt || j.createdAt;
             const daysSince = Math.floor((new Date() - new Date(sinceDate)) / (1000 * 60 * 60 * 24));
-            const followUpText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'Aapko humne estimate bheja tha - koi sawaal ho ya kuch clarify karna ho to bataiye, hum madad karenge.' + NEWLINE + NEWLINE + '- ' + BUSINESS.name;
+            const followUpText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'Aapko humne estimate bheja tha - koi sawaal ho ya kuch clarify karna ho to bataiye, hum madad karenge.' + waSignOff('estimate');
             return (
               <div key={j.id} style={styles.reviewCard}>
                 <button style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }} onClick={() => onOpenJob(j.id)}>
@@ -1839,7 +1840,7 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
         <>
           <button style={styles.addBtn} onClick={markCompleted}><CheckCircle2 size={14} /> Mark visit completed</button>
           <a
-            href={whatsAppShareUrl(job.phone, 'Namaste ' + job.customerName + ',\n\nAapki visit confirm ho gayi hai:\n' + formatDate(appt.confirmedDate) + (appt.confirmedTime ? (' - ' + formatTime12h(appt.confirmedTime)) : '') + '\n\nAddress: ' + (appt.address || job.address || '-') + '\n\n- ' + BUSINESS.name)}
+            href={whatsAppShareUrl(job.phone, 'Namaste ' + job.customerName + ',\n\nAapki visit confirm ho gayi hai:\n' + formatDate(appt.confirmedDate) + (appt.confirmedTime ? (' - ' + formatTime12h(appt.confirmedTime)) : '') + '\n\nAddress: ' + (appt.address || job.address || '-') + waSignOff('visit'))}
             target='_blank' rel='noopener noreferrer'
             style={{ ...styles.addBtn, background: '#25D366', color: '#FFF', textDecoration: 'none', justifyContent: 'center' }}
           >
@@ -3045,7 +3046,7 @@ function AdminJobDetail({ job, customer, onSaveCustomer, onSave, showToast, staf
                     <div style={styles.itemSub}>{currency(jobDue(job))} abhi bhi due hai</div>
                   </div>
                   <a
-                    href={whatsAppShareUrl(job.phone, tf('Namaste {name}, aapka kaam {pct}% ho gaya hai. Payment due hai: {due}. Shree Krushn PVC Furniture.', { name: job.customerName, pct: job.workPercent, due: currency(jobDue(job)) }))}
+                    href={whatsAppShareUrl(job.phone, tf('Namaste {name}, aapka kaam {pct}% ho gaya hai. Payment due hai: {due}.', { name: job.customerName, pct: job.workPercent, due: currency(jobDue(job)) }) + waSignOff('estimate'))}
                     target='_blank' rel='noopener noreferrer' style={styles.waReminderBtn}
                   >
                     <Send size={13} /> Remind
