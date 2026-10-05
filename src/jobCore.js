@@ -561,3 +561,13 @@ export function reviewPrompt(job) {
     sub: finished ? 'Aapka anubhav kaisa raha?' : 'Kaam poora hone ke baad yahan se',
   };
 }
+
+// "5.0 stars - from 17 customers", worked out once. The same line is
+// now on Home and in the More tab, and a number computed twice is a
+// number that eventually disagrees with itself.
+export function reviewsSummary(testimonials) {
+  const list = (testimonials || []).filter((r) => r && Number(r.rating) > 0);
+  if (list.length === 0) return { count: 0, avg: null };
+  const avg = list.reduce((a, r) => a + Number(r.rating), 0) / list.length;
+  return { count: list.length, avg: avg.toFixed(1) };
+}

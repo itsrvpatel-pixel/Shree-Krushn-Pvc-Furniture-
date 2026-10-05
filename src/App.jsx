@@ -38,11 +38,11 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, reviewsSummary, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, reviewsSummary, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -4860,7 +4860,7 @@ function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galle
         }
       />
 
-      {tab === 'home' && <CustomerHome job={job} customer={customer} setTab={setTab} onOpenCalculator={() => setTab('instant_estimate')} onLogout={onLogout} onOpenProfile={() => setShowProfile(true)} />}
+      {tab === 'home' && <CustomerHome job={job} customer={customer} testimonials={testimonials} onOpenReviews={() => setShowReviews(true)} setTab={setTab} onOpenCalculator={() => setTab('instant_estimate')} onLogout={onLogout} onOpenProfile={() => setShowProfile(true)} />}
       {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
       {galleryEverVisited && (
         <div style={{ display: tab === 'gallery' ? 'block' : 'none' }}>
@@ -4921,10 +4921,7 @@ function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galle
    cards: a card says "this is a thing in its own right", and a menu
    entry is not - it is a door. Hairlines and space do the separating. */
 export function MoreScreen({ customer, job, testimonials, onOpenProfile, onOpenSpecs, onOpenHelp, onOpenCalculator, onOpenReview, onOpenReviews, onLogout }) {
-  const reviews = testimonials || [];
-  const avgRating = reviews.length > 0
-    ? (reviews.reduce((a, r) => a + (Number(r.rating) || 0), 0) / reviews.length).toFixed(1)
-    : null;
+  const rv = reviewsSummary(testimonials);
   return (
     <div style={{ padding: '6px 16px 20px' }}>
       <div style={styles.moreGroupLabel}>{t('Aapka account')}</div>
@@ -4947,11 +4944,11 @@ export function MoreScreen({ customer, job, testimonials, onOpenProfile, onOpenS
           different things, and only one of them was reachable. These
           lived inside the gallery under the brochures behind a closed
           accordion, which is the same as not being there. */}
-      {reviews.length > 0 && (
+      {rv.count > 0 && (
         <MoreRow
           icon={<Star size={18} color={BRAND.gold} />}
           title={t('Customer Reviews')}
-          sub={tf('{avg} stars - {n} logon ne likha', { avg: avgRating, n: reviews.length })}
+          sub={tf('{avg} stars - {n} logon ne likha', { avg: rv.avg, n: rv.count })}
           onClick={onOpenReviews}
         />
       )}
@@ -5026,9 +5023,8 @@ export function ReviewList({ testimonials }) {
 // whether to go ahead is exactly who they are for.
 export function ReviewsScreen({ testimonials, onBack }) {
   const list = testimonials || [];
-  const avg = list.length > 0
-    ? (list.reduce((a, t) => a + (Number(t.rating) || 0), 0) / list.length)
-    : 0;
+  const rv = reviewsSummary(list);
+  const avg = Number(rv.avg) || 0;
   return (
     <div style={{ paddingBottom: 20 }}>
       <TopBar title={t('Customer Reviews')} onBack={onBack} hideLogout />
@@ -5073,7 +5069,7 @@ function MoreRow({ icon, title, sub, onClick, href, danger }) {
     : <button type='button' style={styles.moreRow} onClick={onClick}>{inner}</button>;
 }
 
-export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout, onOpenProfile }) {
+export function CustomerHome({ job, customer, testimonials, setTab, onOpenCalculator, onLogout, onOpenProfile, onOpenReviews }) {
   const st = STATUS[job.status] || STATUS.appointment;
   const total = jobTotal(job);
   const due = jobDue(job);
@@ -5087,6 +5083,7 @@ export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout
   const latest = diary.length > 0 ? diary[0] : null;
   const latestLine = latest && latest.events.length > 0 ? latest.events[0].text : null;
   const photoCount = (job.progressPhotos || []).length;
+  const rv = reviewsSummary(testimonials);
 
   return (
     <div style={{ padding: '12px 16px' }}>
@@ -5204,6 +5201,16 @@ export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout
             comes after the work is done - but now the door is in the
             same place all the way through, and the sub-line says when
             it opens instead of the row just not being there. */}
+        {/* Reading what other people said belongs on the main screen,
+            not only in a menu - it is the thing that decides a
+            customer who is still weighing it up. Directly above
+            leaving one, because they are the same subject. */}
+        {rv.count > 0 && onOpenReviews && (
+          <HomeAction icon={<Star size={17} color={BRAND.gold} />}
+            title={t('Customer Reviews')}
+            sub={tf('{avg} stars - {n} logon ne likha', { avg: rv.avg, n: rv.count })}
+            onClick={onOpenReviews} />
+        )}
         <HomeAction icon={<Star size={17} color={BRAND.navy} />}
           title={t(reviewPrompt(job).title)}
           sub={t(reviewPrompt(job).sub)}
