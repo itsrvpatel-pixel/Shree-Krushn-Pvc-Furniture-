@@ -38,9 +38,21 @@ check('the customer lookup at sign-in handles a thrown error', () => {
   const calls = [...app.matchAll(/customersStore\.getOne\(/g)];
   assert.ok(calls.length >= 2, 'expected the login and register lookups');
   for (const m of calls) {
-    const around = app.slice(Math.max(0, m.index - 400), m.index + 400);
-    assert.ok(/try\s*\{/.test(around) && /catch/.test(around),
-      'a getOne call is not wrapped in try/catch: ' + around.slice(380, 460).trim());
+    // Was a fixed 400-character window, which is not a test of being
+    // inside a try - it is a test of how much comment sits above the
+    // call. Adding an explanation above one of these made it "fail"
+    // while the code was correct and unchanged.
+    //
+    // Instead: walk back and find whether the nearest thing before the
+    // call is a try that has not been closed by its own catch yet.
+    const before = app.slice(0, m.index);
+    const lastTry = before.lastIndexOf('try {');
+    const lastCatch = before.lastIndexOf('catch');
+    assert.ok(lastTry > -1 && lastTry > lastCatch,
+      'a getOne call is not inside a try: ' + app.slice(m.index, m.index + 70).trim());
+    // And the try must actually handle it, not just open one.
+    assert.ok(/catch/.test(app.slice(m.index, m.index + 900)),
+      'a getOne call has no catch after it: ' + app.slice(m.index, m.index + 70).trim());
   }
 });
 

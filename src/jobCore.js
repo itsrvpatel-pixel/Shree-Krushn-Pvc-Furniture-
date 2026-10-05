@@ -467,3 +467,50 @@ export function buildPaymentSchedule(total, paid, stages) {
 export function nextDueStage(schedule) {
   return (schedule || []).find((s) => s.status !== 'paid') || null;
 }
+
+/* --- What one job actually cost, and who was paid ---------------------
+   Admin could already see every karigar payment in the Expenses tab,
+   and a per-person total there. What was missing was the other
+   direction: standing on ONE customer, what went out on their job and
+   to whom - so "Rishi ka kaam" has a cost beside its price instead of
+   only a price.
+
+   Deliberately counts every expense type, not only karigar payments:
+   material and transport are money that left for this job too, and a
+   profit figure that quietly ignored them would be worse than none.
+   The caller gets them split by type as well as by person, so it can
+   show both without computing anything itself.
+------------------------------------------------------------------- */
+export function jobCostBreakdown(expenses, jobId) {
+  const mine = (expenses || []).filter((e) => e && e.jobId && e.jobId === jobId);
+
+  const byPayee = new Map();
+  const byType = new Map();
+  let total = 0;
+
+  for (const e of mine) {
+    const amount = Number(e.amount) || 0;
+    total += amount;
+
+    // Names are typed by hand every time, so "Suresh", "suresh " and
+    // "Suresh" are one person. The first spelling seen is the one
+    // shown, matching how the Expenses tab already groups them.
+    const key = String(e.payee || '').trim().toLowerCase() || '(naam nahi)';
+    const payee = byPayee.get(key) || { name: String(e.payee || '').trim() || '(naam nahi)', total: 0, count: 0 };
+    payee.total += amount;
+    payee.count += 1;
+    byPayee.set(key, payee);
+
+    const type = e.type || 'Other';
+    byType.set(type, (byType.get(type) || 0) + amount);
+  }
+
+  return {
+    total,
+    entries: mine.length,
+    // Biggest first: on a phone the top two rows are what gets read.
+    byPayee: [...byPayee.values()].sort((a, b) => b.total - a.total),
+    byType: [...byType.entries()].map(([type, amount]) => ({ type, amount })).sort((a, b) => b.amount - a.amount),
+    karigar: byType.get('Karigar Payment') || 0,
+  };
+}

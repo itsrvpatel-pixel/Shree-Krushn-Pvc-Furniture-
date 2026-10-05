@@ -60,6 +60,7 @@ import {
   AlertCircle,
   Calculator,
   HelpCircle,
+  ChevronLeft,
 } from 'lucide-react';
 import { useBackToClose } from './useBackToClose.js';
 import {
@@ -123,6 +124,9 @@ import {
   CustomerProfileFields,
   normalizeProfile,
   profileSummary,
+  budgetLabel,
+  jobCostBreakdown,
+  nextDueStage,
   profileCompleteness,
   timelineLabel,
   shareEstimatePdf,
@@ -575,7 +579,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
           onSaveJob={(nextJob) => setJobs(jobs.map((j) => (j.id === nextJob.id ? nextJob : j)))} showToast={showToast}
         />
       )}
-      {tab === 'customers' && <AdminCustomers customers={customers} setCustomers={setCustomers} customersLoading={customersLoading} customersLoadFailed={customersLoadFailed} jobs={jobs} setJobs={setJobs} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} onOpenJob={setActiveJobId} showToast={showToast} isPartner={isPartner} isDhPartner={isDhPartner} />}
+      {tab === 'customers' && <AdminCustomers customers={customers} setCustomers={setCustomers} customersLoading={customersLoading} customersLoadFailed={customersLoadFailed} jobs={jobs} setJobs={setJobs} expenses={expenses} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} onOpenJob={setActiveJobId} showToast={showToast} isPartner={isPartner} isDhPartner={isDhPartner} />}
       {galleryEverVisited && (
         <div style={{ display: tab === 'gallery' ? 'block' : 'none' }}>
           <AdminGallery gallery={gallery} galleryLoading={galleryLoading} setGallery={setGallery} categories={categories} setCategories={setCategories} showToast={showToast} isDhPartner={isDhPartner} />
@@ -1354,7 +1358,8 @@ function AdminAllEstimatesList({ jobs, onOpenJob }) {
   );
 }
 
-function AdminCustomers({ customers, setCustomers, customersLoading, customersLoadFailed, jobs, setJobs, archivedReviews, setArchivedReviews, onOpenJob, showToast, isDhPartner }) {
+function AdminCustomers({ customers, setCustomers, customersLoading, customersLoadFailed, jobs, setJobs, expenses, archivedReviews, setArchivedReviews, onOpenJob, showToast, isDhPartner }) {
+  const [profileCustomerId, setProfileCustomerId] = useState(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [branchFilter, setBranchFilter] = useState('all');
@@ -1458,6 +1463,25 @@ function AdminCustomers({ customers, setCustomers, customersLoading, customersLo
     if (sort === 'due') r.sort((a, b) => (b.job ? jobDue(b.job) : 0) - (a.job ? jobDue(a.job) : 0));
     return r;
   }, [visibleCustomers, jobs, query, filter, branchFilter, sort]);
+
+  // Before the other early returns, and after every hook above - same
+  // Rules of Hooks care the rest of this screen already takes.
+  if (profileCustomerId) {
+    const c = customers.find((x) => x.id === profileCustomerId);
+    if (!c) { setProfileCustomerId(null); return null; }
+    return (
+      <AdminCustomerProfile
+        customer={c}
+        job={jobs.find((j) => j.customerId === c.id) || jobs.find((j) => j.phone === c.phone)}
+        expenses={expenses}
+        allCustomers={customers}
+        onBack={() => setProfileCustomerId(null)}
+        onOpenJob={onOpenJob}
+        onEdit={() => setEditingCustomer(c)}
+        showToast={showToast}
+      />
+    );
+  }
 
   if (showAllEstimates) {
     return (
@@ -1631,6 +1655,7 @@ function AdminCustomers({ customers, setCustomers, customersLoading, customersLo
               )}
             </button>
             <div style={styles.cardActionsRow}>
+              <button style={styles.cardActionBtn} onClick={() => setProfileCustomerId(customer.id)}><User size={12} /> Profile</button>
               <a href={'tel:+91' + customer.phone} style={{ ...styles.cardActionBtn, color: '#2F7D4F' }} onClick={(e) => e.stopPropagation()}><Phone size={12} /> Call</a>
               <button style={styles.cardActionBtn} onClick={() => setEditingCustomer(customer)}><Edit3 size={12} /> Edit</button>
               <button style={{ ...styles.cardActionBtn, color: '#B5562E' }} onClick={() => setDeletingCustomer(customer)}><Trash2 size={12} /> Delete</button>
@@ -1655,6 +1680,146 @@ function AdminCustomers({ customers, setCustomers, customersLoading, customersLo
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- One customer, everything about them, in one place.
+
+   Tapping a customer card opened their JOB. Everything the business
+   knows about the PERSON was scattered: their details on the status
+   tab, their money on the estimate tab, what was spent on them in the
+   Expenses tab under a different heading entirely, and who referred
+   them only in a separate report. Nowhere could admin stand on a name
+   and read the whole story.
+
+   The cost section is the one that did not exist in any form before.
+   Expenses could already be read per karigar ("how much has Suresh
+   had?"); this reads the same records the other way round ("what did
+   Rishi's job cost, and who got it?"), which is the direction you need
+   when you are looking at one customer and wondering whether the job
+   actually made anything. ---- */
+export function AdminCustomerProfile({ customer, job, expenses, allCustomers, onBack, onOpenJob, onEdit, showToast }) {
+  const total = job ? jobTotal(job) : 0;
+  const paid = job ? jobPaid(job) : 0;
+  const due = job ? jobDue(job) : 0;
+  const cost = jobCostBreakdown(expenses || [], job ? job.id : null);
+  // AdminApp's own jobProfit, which already does exactly this -
+  // collected minus the expenses linked to the job.
+  const profit = job ? jobProfit(job, expenses || []) : { collected: 0, linkedExpenses: 0, profit: 0 };
+  const schedule = job && total > 0 ? buildPaymentSchedule(total, paid, paymentStagesOf(job)) : [];
+  const nextDue = nextDueStage(schedule);
+  const p = normalizeProfile(customer);
+  const pct = profileCompleteness(customer);
+
+  // Free text, typed by whoever took the call, so matched the same
+  // forgiving way the referral report matches it.
+  const key = (v) => String(v || '').trim().toLowerCase();
+  const referred = (allCustomers || []).filter((c) => c && key(c.referredBy) && (key(c.referredBy) === key(customer.name) || key(c.referredBy) === key(customer.phone)));
+
+  const Row = ({ label, value, muted }) => (
+    <div style={styles.profRow}>
+      <span style={styles.profLabel}>{label}</span>
+      <span style={{ ...styles.profValue, color: muted ? BRAND.textMuted : BRAND.navy }}>{value}</span>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: '12px 16px 24px' }}>
+      <button style={styles.linkBtn2} onClick={onBack}><ChevronLeft size={14} /> Customers</button>
+
+      <div style={{ ...styles.card, marginTop: 10, padding: 14 }}>
+        <div style={styles.cardName}>{customer.name}</div>
+        <div style={styles.cardMeta}>
+          <span style={styles.metaItem}><Phone size={11} /> {formatPhoneDisplay(customer.phone)}</span>
+          {customer.phoneVerified && <span style={styles.verifiedTag}><ShieldCheck size={10} /> Verified</span>}
+          <span style={styles.metaItem}><Calendar size={11} /> {formatDate(customer.createdAt)} se</span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 11, flexWrap: 'wrap' }}>
+          <a href={'tel:+91' + customer.phone} style={{ ...styles.cardActionBtn, color: '#2F7D4F' }}><Phone size={12} /> Call</a>
+          <a href={whatsAppShareUrl(customer.phone, '')} target='_blank' rel='noopener noreferrer' style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF' }}><Send size={12} /> WhatsApp</a>
+          <button style={styles.cardActionBtn} onClick={onEdit}><Edit3 size={12} /> Edit details</button>
+          {job && <button style={styles.cardActionBtn} onClick={() => onOpenJob(job.id)}>Job kholein <ChevronRight size={12} /></button>}
+        </div>
+      </div>
+
+      <div style={styles.sectionTitle}>Kaun hain ({pct}% bhara hua)</div>
+      <div style={{ ...styles.card, padding: '4px 14px' }}>
+        <Row label='Address' value={p.area || '-'} muted={!p.area} />
+        <Row label='Ghar' value={p.propertyType || '-'} muted={!p.propertyType} />
+        <Row label='Kya chahiye' value={p.needs.length > 0 ? p.needs.join(', ') : '-'} muted={p.needs.length === 0} />
+        <Row label='Budget' value={budgetLabel(p.budget) || '-'} muted={!p.budget} />
+        <Row label='Kab tak' value={timelineLabel(p.timeline) || '-'} muted={!p.timeline} />
+        <Row label='Birthday' value={customer.birthdayMonthDay || '-'} muted={!customer.birthdayMonthDay} />
+        <Row label='Kisne bheja' value={customer.referredBy || '-'} muted={!customer.referredBy} />
+      </div>
+
+      {referred.length > 0 && (
+        <>
+          <div style={styles.sectionTitle}>Inhone bheje ({referred.length})</div>
+          <div style={{ ...styles.card, padding: '4px 14px' }}>
+            {referred.map((c) => <Row key={c.id} label={c.name} value={formatPhoneDisplay(c.phone)} muted />)}
+          </div>
+        </>
+      )}
+
+      {job && total > 0 && (
+        <>
+          <div style={styles.sectionTitle}>Paisa</div>
+          <div style={{ ...styles.card, padding: '4px 14px' }}>
+            <Row label='Estimate' value={currency(total)} />
+            <Row label='Mila' value={currency(paid)} />
+            <Row label='Baaki' value={currency(due)} />
+            {nextDue && <Row label='Agla' value={nextDue.label + ' - ' + currency(nextDue.remaining)} />}
+          </div>
+        </>
+      )}
+
+      {/* The part that did not exist anywhere: what this one job cost. */}
+      <div style={styles.sectionTitle}>Is kaam par kharcha</div>
+      <div style={{ ...styles.card, padding: '4px 14px' }}>
+        {cost.entries === 0 && (
+          <div style={{ ...styles.plainTextMuted, padding: '10px 0' }}>
+            Is job se koi kharcha juda hua nahi hai. Expenses tab mein entry karte waqt job select karein, to yahan apne aap aa jayega.
+          </div>
+        )}
+        {cost.entries > 0 && (
+          <>
+            {cost.byPayee.map((g) => (
+              <Row key={g.name} label={g.name + ' (' + g.count + ')'} value={currency(g.total)} />
+            ))}
+            <div style={{ height: 1, background: BRAND.line, margin: '4px 0' }} />
+            <Row label='Karigar ko kul' value={currency(cost.karigar)} />
+            <Row label='Poora kharcha' value={currency(cost.total)} />
+          </>
+        )}
+      </div>
+
+      {job && (paid > 0 || cost.total > 0) && (
+        <div style={{ ...styles.card, marginTop: 10, padding: 14 }}>
+          <div style={styles.payStrip}>
+            <MoneyBit label='Mila' value={currency(profit.collected)} />
+            <MoneyBit label='Kharcha' value={currency(profit.linkedExpenses)} muted />
+            <MoneyBit label='Bacha' value={currency(profit.profit)} highlight={profit.profit < 0} />
+          </div>
+          <div style={{ ...styles.hintText, marginTop: 8 }}>
+            Jo paisa sach mein aaya uspar hisaab hai, estimate par nahi - baaki {currency(due)} abhi aana hai.
+          </div>
+        </div>
+      )}
+
+      {job && (
+        <>
+          <div style={styles.sectionTitle}>Kaam</div>
+          <div style={{ ...styles.card, padding: '4px 14px' }}>
+            <Row label='Stage' value={(STATUS[job.status] || STATUS.appointment).label} />
+            <Row label='Requirements' value={String((job.requirements || []).length)} />
+            <Row label='Progress photos' value={String((job.progressPhotos || []).length)} />
+            {job.expectedCompletionDate && <Row label='Delivery' value={formatDate(job.expectedCompletionDate)} />}
+            {job.review && <Row label='Review' value={job.review.rating + ' star'} />}
+          </div>
+        </>
       )}
     </div>
   );
