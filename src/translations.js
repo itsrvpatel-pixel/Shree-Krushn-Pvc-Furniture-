@@ -364,6 +364,7 @@ export const EN = {
   '{paid} mil gaya, {left} baaki': '{paid} received, {left} still to come',
   'Agla payment: {amount} - {when}': 'Next payment: {amount} - {when}',
   'Poora bhugtan ho gaya hai. Dhanyavaad!': 'Fully paid. Thank you!',
+  'Kaam poora hone ke baad yahan se': 'Opens here once the work is finished',
   'Mera Profile': 'My profile',
   'Hamari Khaasiyat': 'What makes us different',
   'Apne naap se andaza lagayein': 'Work it out from your own measurements',

@@ -548,3 +548,16 @@ export function paymentProgress(total, paid, stages, status, statusOrder) {
     return { ...s, reached, dueNow: reached ? s.remaining : 0, upcoming: reached ? 0 : s.remaining };
   });
 }
+
+// What the review row should say, wherever it is shown. Home and More
+// both offer it now, and writing the three cases out twice is how the
+// two drift apart - which is the exact bug class cleaned up elsewhere
+// in this app today.
+export function reviewPrompt(job) {
+  if (job && job.review) return { title: 'Aapka Review', sub: 'Badalna ho to yahan se' };
+  const finished = job && (job.status === 'delivered' || job.status === 'paid');
+  return {
+    title: 'Review Dein',
+    sub: finished ? 'Aapka anubhav kaisa raha?' : 'Kaam poora hone ke baad yahan se',
+  };
+}

@@ -38,11 +38,11 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -4875,6 +4875,8 @@ function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galle
       {tab === 'more' && (
         <MoreScreen
           customer={customer}
+          job={job}
+          onOpenReview={() => setTab('review')}
           onOpenProfile={() => setShowProfile(true)}
           onOpenSpecs={() => setShowSpecs(true)}
           onOpenHelp={() => setShowHelp(true)}
@@ -4911,7 +4913,7 @@ function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galle
    person icon, which is nobody's idea of where "Help" lives. Rows, not
    cards: a card says "this is a thing in its own right", and a menu
    entry is not - it is a door. Hairlines and space do the separating. */
-export function MoreScreen({ customer, onOpenProfile, onOpenSpecs, onOpenHelp, onOpenCalculator, onLogout }) {
+export function MoreScreen({ customer, job, onOpenProfile, onOpenSpecs, onOpenHelp, onOpenCalculator, onOpenReview, onLogout }) {
   return (
     <div style={{ padding: '6px 16px 20px' }}>
       <div style={styles.moreGroupLabel}>{t('Aapka account')}</div>
@@ -4920,6 +4922,13 @@ export function MoreScreen({ customer, onOpenProfile, onOpenSpecs, onOpenHelp, o
         title={t('Mera Profile')}
         sub={customer?.phone ? formatPhoneDisplay(customer.phone) : t('Naam aur number')}
         onClick={onOpenProfile}
+      />
+
+      <MoreRow
+        icon={<Star size={18} color={BRAND.navy} />}
+        title={t(reviewPrompt(job).title)}
+        sub={t(reviewPrompt(job).sub)}
+        onClick={onOpenReview}
       />
 
       <div style={styles.moreGroupLabel}>{t('Jaankari')}</div>
@@ -5104,12 +5113,18 @@ export function CustomerHome({ job, customer, setTab, onOpenCalculator, onLogout
           <HomeAction icon={<Calculator size={17} color={BRAND.navy} />} title='Instant estimate'
             sub={t('Apne naap se khud andaza lagayein')} onClick={onOpenCalculator} />
         )}
-        {(job.status === 'delivered' || job.status === 'paid') && (
-          <HomeAction icon={<Star size={17} color={BRAND.navy} />}
-            title={job.review ? t('Aapka Review') : t('Review Dein')}
-            sub={job.review ? t('Badalna ho to yahan se') : t('Aapka anubhav kaisa raha?')}
-            onClick={() => setTab('review')} />
-        )}
+        {/* Always, not only after delivery. It used to appear on this
+            screen at the one moment it was usable and be invisible
+            the rest of the time, so customers who went looking for it
+            could not find it and simply never left one. The gate
+            itself has not moved - ReviewPanel still says a review
+            comes after the work is done - but now the door is in the
+            same place all the way through, and the sub-line says when
+            it opens instead of the row just not being there. */}
+        <HomeAction icon={<Star size={17} color={BRAND.navy} />}
+          title={t(reviewPrompt(job).title)}
+          sub={t(reviewPrompt(job).sub)}
+          onClick={() => setTab('review')} />
       </div>
     </div>
   );
