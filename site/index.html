@@ -132,11 +132,23 @@ background:var(--navy);opacity:.15}
 .wi p{margin:6px 0 0 24px;font-size:13.5px;color:var(--soft)}
 
 /* reviews */
-.revs{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:12px}
-.revs figure{margin:0;border:1px solid var(--line);border-radius:18px;padding:18px}
+/* Columns, not a grid. A grid row is as tall as its tallest cell, and
+   one customer wrote a thousand words - which left three empty white
+   boxes beside it and a hole down the middle of the section. Columns
+   let each card be its own height and the text flow around them. */
+.revs{column-count:3;column-gap:12px}
+@media(max-width:900px){.revs{column-count:2}}
+@media(max-width:620px){.revs{column-count:1}}
+.revs figure{margin:0 0 12px;break-inside:avoid;-webkit-column-break-inside:avoid;border:1px solid var(--line);border-radius:18px;padding:18px}
 .st{color:#F5B301;letter-spacing:2px;font-size:13px}
 .revs blockquote{margin:9px 0 12px;font-size:14.5px;color:var(--ink)}
 .revs figcaption{font-weight:800;color:var(--ink);font-size:13px}
+.more-revs{margin-top:14px}
+.more-revs summary{cursor:pointer;font-weight:800;font-size:13.5px;color:var(--ink);padding:11px 16px;border:1px solid var(--line);border-radius:999px;display:inline-block;list-style:none}
+.more-revs summary::-webkit-details-marker{display:none}
+.more-revs summary::after{content:" \2193"}
+.more-revs[open] summary::after{content:" \2191"}
+.more-revs[open] summary{margin-bottom:14px}
 
 /* big cta */
 .big{background:var(--navy);border-radius:24px;padding:34px 22px;text-align:center;margin-top:20px}
@@ -258,7 +270,7 @@ backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;gap:9px
   <div class="eyebrow">Customers</div>
   <h2>What they said</h2>
   <p class="lede">In their own words.</p>
-  <div class="revs"><figure><div class="st">&#9733;&#9733;&#9733;&#9733;&#9733;</div><blockquote>Good work...👍</blockquote><figcaption>Mehul</figcaption></figure><figure><div class="st">&#9733;&#9733;&#9733;&#9733;&#9733;</div><blockquote>Market me sabse best service provider he good services....</blockquote><figcaption>Tulsi makvana</figcaption></figure><figure><div class="st">&#9733;&#9733;&#9733;&#9733;&#9733;</div><blockquote>Ravi bhai team is very intelligent and super fast my home work completed in 12day and all team behaviour is lightly and during work all behaviour is very professional and practical</blockquote><figcaption>Vaibhavi patel</figcaption></figure><figure><div class="st">&#9733;&#9733;&#9733;&#9733;&#9733;</div><blockquote>Complete ghar mate furniture karavyu ane overall experience saro rahyo</blockquote><figcaption>Vasant Shah</figcaption></figure></div>
+  <!--REVIEWS-->
 </section>
 
 <section class="w">

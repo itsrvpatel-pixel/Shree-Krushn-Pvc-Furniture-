@@ -42,6 +42,120 @@ const copy = (from, to) => {
 };
 copy(site, dist);
 
+/* 2b. the reviews, from the app's own published list.
+
+   The website used to carry four reviews typed into site/index.html by
+   hand. The app had seventeen. Nobody had done anything wrong - the
+   copy was made once and customers kept leaving reviews - and that gap
+   only ever grows. The app is where a review is written and where
+   admin marks it as one worth showing, so the app is the source and
+   the website reads from it.
+
+   Fetched at build time, not in the visitor's browser. Three reasons:
+   the website ships no Firebase and should not start; the Firestore
+   rules want a signed-in caller, which a public page is not; and a
+   review baked into the HTML is a review Google can read, which is the
+   entire point of putting them on a marketing site.
+
+   A build that cannot reach Firestore falls back to site/reviews.json,
+   the last snapshot committed to the repo. A deploy must never quietly
+   ship a site with no reviews on it because a network call blinked.
+*/
+const esc = (v) => String(v == null ? '' : v)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
+async function liveReviews() {
+  const KEY = 'AIzaSyBOlInlieBdYitFR9VYpkqyO7OkzPCLtGY';
+  const stamp = 'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + KEY;
+  const docUrl = 'https://firestore.googleapis.com/v1/projects/shree-krushn-pvc-furniture'
+    + '/databases/(default)/documents/app_data/featured_reviews';
+  const auth = await fetch(stamp, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ returnSecureToken: true }),
+  });
+  if (!auth.ok) throw new Error('auth ' + auth.status);
+  const { idToken } = await auth.json();
+  const res = await fetch(docUrl, { headers: { Authorization: 'Bearer ' + idToken } });
+  if (!res.ok) throw new Error('read ' + res.status);
+  const body = await res.json();
+  const raw = body && body.fields && body.fields.value && body.fields.value.stringValue;
+  const list = raw ? JSON.parse(raw) : [];
+  if (!Array.isArray(list) || list.length === 0) throw new Error('empty list');
+  return list;
+}
+
+let reviews;
+try {
+  reviews = await liveReviews();
+  console.log('assemble-site: ' + reviews.length + ' reviews read from the app');
+} catch (e) {
+  reviews = JSON.parse(fs.readFileSync(path.join(site, 'reviews.json'), 'utf8'));
+  console.log('assemble-site: live reviews unavailable (' + e.message + '), using the committed snapshot of ' + reviews.length);
+}
+
+reviews = reviews
+  .filter((r) => r && r.customerName && r.text && Number(r.rating) > 0)
+  .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+
+const stars = (n) => '&#9733;'.repeat(Math.max(1, Math.min(5, Math.round(Number(n) || 5))));
+const figure = (r) =>
+  '<figure><div class="st">' + stars(r.rating) + '</div><blockquote>'
+  + esc(r.text).replace(/\r?\n/g, '<br>')
+  + '</blockquote><figcaption>' + esc(r.customerName) + '</figcaption></figure>';
+
+// Seventeen reviews in one phone column ran to four screens, which
+// buried the "book a free visit" button underneath them. The first
+// eight are open; the rest sit in a <details>, so they are still in
+// the HTML for Google to read and one tap away for a person, without
+// pushing the thing the page is actually for off the bottom.
+const SHOWN = 8;
+const first = reviews.slice(0, SHOWN);
+const rest = reviews.slice(SHOWN);
+const figures = '<div class="revs">' + first.map(figure).join('') + '</div>'
+  + (rest.length
+    ? '<details class="more-revs"><summary>' + rest.length + ' more reviews</summary>'
+      + '<div class="revs">' + rest.map(figure).join('') + '</div></details>'
+    : '');
+
+// Structured data to match what is on the page, so Google can show the
+// stars. Only ever what a visitor can actually see - marking up reviews
+// that are not on the page is what gets a site penalised.
+const avg = reviews.reduce((a, r) => a + Number(r.rating), 0) / (reviews.length || 1);
+const ld = {
+  aggregateRating: {
+    '@type': 'AggregateRating',
+    ratingValue: avg.toFixed(1),
+    reviewCount: reviews.length,
+    bestRating: 5,
+  },
+  review: reviews.map((r) => ({
+    '@type': 'Review',
+    author: { '@type': 'Person', name: r.customerName },
+    reviewRating: { '@type': 'Rating', ratingValue: Number(r.rating), bestRating: 5 },
+    reviewBody: r.text,
+    ...(r.date ? { datePublished: String(r.date).slice(0, 10) } : {}),
+  })),
+};
+
+{
+  const file = path.join(dist, 'index.html');
+  let html = fs.readFileSync(file, 'utf8');
+  if (!html.includes('<!--REVIEWS-->')) fail('site/index.html has no <!--REVIEWS--> placeholder');
+  html = html.replace('<!--REVIEWS-->', figures);
+
+  // Fold the ratings into the business record already on the page
+  // rather than adding a second, competing one.
+  const marker = ', "priceRange"';
+  if (!html.includes(marker)) fail('the business JSON-LD on the home page has changed shape');
+  html = html.replace(marker, ', "aggregateRating": ' + JSON.stringify(ld.aggregateRating)
+    + ', "review": ' + JSON.stringify(ld.review) + marker);
+
+  fs.writeFileSync(file, html);
+  console.log('assemble-site: ' + reviews.length + ' reviews on the home page, average ' + avg.toFixed(1));
+}
+
 // 3. say plainly whether the result is what it should be
 const must = ['index.html', 'app/index.html', 'robots.txt', 'sitemap.xml', '404.html',
   'pvc-modular-kitchen-ahmedabad.html', 'assets', 'icon-192.png', 'manifest.json', 'sw.js'];
