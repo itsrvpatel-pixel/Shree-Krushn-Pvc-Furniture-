@@ -41,11 +41,20 @@ service cloud.firestore {
       // What anyone needs before and after signing in: the gallery, the
       // brochures, the reviews, the price list. These are already
       // public on the website.
+      //
+      // archived_reviews belongs here for the same reason as
+      // featured_reviews, and leaving it out was a real bug for half a
+      // day: it holds the testimonials of customers whose job record
+      // has since been deleted, kept precisely so the testimonial
+      // outlives the record. Denying it did not hide anything private -
+      // it is a name, a rating and a sentence, the same as every other
+      // review on the site - it just silently removed those reviews
+      // from the app the moment these rules went live.
       function isPublicAppDoc() {
         return docId in ['categories', 'gallery_categories', 'brochures',
-                         'featured_reviews', 'faqs', 'material_specs',
-                         'estimate_rates', 'appointment_item_options',
-                         'company_benefits']
+                         'featured_reviews', 'archived_reviews', 'faqs',
+                         'material_specs', 'estimate_rates',
+                         'appointment_item_options', 'company_benefits']
                || docId.matches('gallery_cat_.*');
       }
       allow get:   if isStaff() || myNotifDoc() || isPublicAppDoc();

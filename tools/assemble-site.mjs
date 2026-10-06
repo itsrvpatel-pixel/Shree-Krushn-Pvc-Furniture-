@@ -67,12 +67,20 @@ const esc = (v) => String(v == null ? '' : v)
 
 const REVIEWS_DOC = 'https://firestore.googleapis.com/v1/projects/shree-krushn-pvc-furniture'
   + '/databases/(default)/documents/app_data/featured_reviews';
+const ARCHIVED_DOC = 'https://firestore.googleapis.com/v1/projects/shree-krushn-pvc-furniture'
+  + '/databases/(default)/documents/app_data/archived_reviews';
 
 function parseReviewsDoc(body) {
   const raw = body && body.fields && body.fields.value && body.fields.value.stringValue;
   const list = raw ? JSON.parse(raw) : [];
   if (!Array.isArray(list) || list.length === 0) throw new Error('empty list');
   return list;
+}
+
+// The archive is legitimately empty most of the time, so "empty" must
+// not read as "broken" there the way it does for the live list.
+function parseReviewsDocAllowEmpty(body) {
+  try { return parseReviewsDoc(body); } catch (e) { return []; }
 }
 
 // No sign-in. featured_reviews is on the public list in the per-customer
@@ -85,10 +93,40 @@ function parseReviewsDoc(body) {
 // fell back to the committed snapshot: the site still had seventeen
 // reviews and would have had seventeen forever, with no error anywhere
 // that said so. The fallback working is exactly what made it invisible.
+// Reviews whose customer record has since been deleted. They are kept
+// in their own document precisely so the testimonial outlives the job,
+// and the app has always shown them alongside the live ones - the
+// website never did, which is why the site said 17 while the app said
+// more. Missing it was the gap in "apps vala badha review website ma
+// pan dekhava joi".
+//
+// Soft: a site with the live reviews and not the archived ones is worth
+// shipping. A build that dies because this one document moved is not.
+async function archivedReviews() {
+  try {
+    const res = await fetch(ARCHIVED_DOC);
+    if (res.status === 404) return [];
+    if (!res.ok) throw new Error('read ' + res.status);
+    return parseReviewsDocAllowEmpty(await res.json());
+  } catch (e) {
+    console.log('assemble-site: archived reviews unavailable (' + e.message + '), live ones only');
+    return [];
+  }
+}
+
 async function liveReviews() {
   const res = await fetch(REVIEWS_DOC);
   if (!res.ok) throw new Error('read ' + res.status);
-  return parseReviewsDoc(await res.json());
+  const live = parseReviewsDoc(await res.json());
+  const archived = await archivedReviews();
+  // Deduplicated the same way the app does it, by name + text + date.
+  // The two lists are meant to be mutually exclusive - a review only
+  // moves to the archive once its job is gone - but a delete that was
+  // interrupted partway could leave one in both, and a testimonial
+  // repeating itself on the home page looks like a fake review.
+  const all = live.concat(archived);
+  return all.filter((r, i) => all.findIndex((o) =>
+    o.customerName === r.customerName && o.text === r.text && o.date === r.date) === i);
 }
 
 let reviews;

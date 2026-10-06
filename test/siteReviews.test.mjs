@@ -52,6 +52,32 @@ t('the live read needs no sign-in', () => {
   assert.ok(!/Authorization/.test(build), 'the reviews read still sends a token');
 });
 
+t('reviews from deleted customers reach the site too', () => {
+  // They live in their own document so the testimonial outlives the
+  // job record. The app has always shown them next to the live ones;
+  // the website never did, which is why the site said 17 while the app
+  // said more.
+  assert.ok(/archived_reviews/.test(build), 'the build no longer reads the archived reviews');
+  assert.ok(/o\.customerName === r\.customerName && o\.text === r\.text && o\.date === r\.date/.test(build),
+    'the two lists are no longer deduplicated - a testimonial repeating itself reads as a fake');
+  assert.ok(/archived reviews unavailable/.test(build),
+    'the archived read is no longer soft - one moved document would now fail the whole build');
+});
+
+t('the rules let the archived reviews be read', () => {
+  // Leaving this off the public list silently removed those reviews
+  // from the app the moment the per-customer rules went live. It hides
+  // nothing private: a name, a rating and a sentence, the same as every
+  // other review already on the site.
+  const rules = read('firestore.rules');
+  const i = rules.indexOf('function isPublicAppDoc()');
+  assert.ok(i > 0, 'the public-document list is gone from firestore.rules');
+  const fn = rules.slice(i, rules.indexOf('}', rules.indexOf('return', i)));
+  assert.ok(/'archived_reviews'/.test(fn),
+    'archived_reviews is off the public list again - deleted customers\' reviews will vanish from the app');
+  assert.ok(/'featured_reviews'/.test(fn), 'featured_reviews is off the public list');
+});
+
 t('the fallback is wired to that file, not to an empty array', () => {
   assert.ok(/reviews\.json/.test(build), 'the build does not read the snapshot');
   assert.ok(/using the committed snapshot/.test(build), 'the fallback path is gone');
