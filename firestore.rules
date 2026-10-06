@@ -166,8 +166,9 @@ service cloud.firestore {
 // therefore needs both halves:
 //
 //   1. Phone auth is already on by default in the app (src/App.jsx).
-//      Nothing to set. VITE_PHONE_AUTH=off in Vercel is the way BACK to
-//      demo mode if SMS breaks.
+//      Nothing to set. VITE_PHONE_DEMO=on in Vercel is the way BACK to
+//      demo mode if SMS breaks. (The older VITE_PHONE_AUTH variable is
+//      read by nothing now - see the comment in src/App.jsx.)
 //   2. Confirm customers now sign in by SMS - the on-screen demo code is
 //      gone - and can still see their own job.
 //   3. Turn OFF anonymous sign-in in the Firebase console, so an

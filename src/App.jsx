@@ -3836,11 +3836,24 @@ export function formatPhoneDisplay(digits10) {
 // not find the setting in the Vercel dashboard. A default is a decision,
 // and leaving it at "demo" was no longer the honest one.
 //
-// The switch survives, inverted: VITE_PHONE_AUTH=off in Vercel puts the
-// app straight back into demo mode on the next deploy, without a code
-// change. That is the kill switch if SMS stops working - note that a
-// fresh login is impossible while it is broken, because the demo code is
-// gone, so this needs to stay a one-setting rollback.
+// The kill switch is VITE_PHONE_DEMO=on, which puts the app back into
+// demo mode on the next deploy without a code change.
+//
+// It is a NEW name, and that is the whole point. The old variable,
+// VITE_PHONE_AUTH, is already sitting in this project's Vercel settings
+// with the value "off" - set at some point while SMS was failing, and
+// since forgotten. The first attempt at this inverted the old variable
+// instead of replacing it, so "off" still read as off, the build came
+// out byte-for-byte identical, and Vercel shipped a deploy that changed
+// nothing. The deploy was fine; the variable quietly won.
+//
+// So VITE_PHONE_AUTH is now ignored entirely. Delete it from Vercel when
+// convenient - a variable that is read by nothing is a trap for whoever
+// reads this next.
+//
+// Note the rollback must stay a single setting: while SMS is broken a
+// fresh login is impossible, because the demo code is no longer there to
+// fall back on.
 //
 // There is deliberately NO automatic fallback to demo mode when sending
 // fails. A login that quietly downgrades to a code printed on the screen
@@ -3854,7 +3867,7 @@ export function formatPhoneDisplay(digits10) {
 // Turning this on is what unblocks the per-customer rules (firestore.rules,
 // phase 2) - which are still NOT published, and must not be until a real
 // SMS login has been seen to work.
-const REAL_PHONE_AUTH = import.meta.env.VITE_PHONE_AUTH !== 'off';
+const REAL_PHONE_AUTH = import.meta.env.VITE_PHONE_DEMO !== 'on';
 
 // No customers prop: the login screen looks up exactly the one phone
 // number being entered, so it never needs the full list.
