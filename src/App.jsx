@@ -3827,17 +3827,34 @@ export function formatPhoneDisplay(digits10) {
   return '+91 ' + digits10.slice(0, 5) + ' ' + digits10.slice(5);
 }
 
-// Real Firebase phone auth (a genuine SMS, and a genuine Firebase session
-// for the customer) needs the Blaze plan, so the OTP screen ships in demo
-// mode: the code is generated and checked in the browser and shown on
-// screen. Switching over is deliberately a config change, not a code
-// change - set VITE_PHONE_AUTH=on in Vercel and redeploy.
+// Real Firebase phone auth: a genuine SMS, and a genuine Firebase session
+// for the customer. ON by default now. It used to be off unless
+// VITE_PHONE_AUTH=on was set in Vercel, which was the right shape while
+// the project was still on Spark and real SMS could not send at all.
+// Blaze has been active for a while, the owner has asked for this
+// repeatedly, and the only thing still keeping it off was that he could
+// not find the setting in the Vercel dashboard. A default is a decision,
+// and leaving it at "demo" was no longer the honest one.
+//
+// The switch survives, inverted: VITE_PHONE_AUTH=off in Vercel puts the
+// app straight back into demo mode on the next deploy, without a code
+// change. That is the kill switch if SMS stops working - note that a
+// fresh login is impossible while it is broken, because the demo code is
+// gone, so this needs to stay a one-setting rollback.
+//
+// There is deliberately NO automatic fallback to demo mode when sending
+// fails. A login that quietly downgrades to a code printed on the screen
+// is a login anybody can pass. It fails loudly instead, with Firebase's
+// own error code on screen, which is the only thing that tells the three
+// failure causes apart.
 //
 // This matters for more than SMS. In demo mode a customer never signs in
 // to Firebase, so there is no identity for a security rule to key on, and
 // "this customer may read only their own job" cannot be expressed at all.
-// Turning this on is what unblocks the per-customer rules.
-const REAL_PHONE_AUTH = import.meta.env.VITE_PHONE_AUTH === 'on';
+// Turning this on is what unblocks the per-customer rules (firestore.rules,
+// phase 2) - which are still NOT published, and must not be until a real
+// SMS login has been seen to work.
+const REAL_PHONE_AUTH = import.meta.env.VITE_PHONE_AUTH !== 'off';
 
 // No customers prop: the login screen looks up exactly the one phone
 // number being entered, so it never needs the full list.
@@ -4191,7 +4208,7 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
       {/* Invisible reCAPTCHA mount point. Firebase Phone Auth requires this
           element to exist in the DOM before sendOtp is called; it stays
           empty and invisible. Rendered unconditionally so it is present
-          the moment VITE_PHONE_AUTH is switched on. */}
+          whichever mode the app is in. */}
       <div id='recaptcha-container' />
 
       {otpStage && (

@@ -70,8 +70,9 @@ rules_version = '2';
 // per customer, and it cannot yet - a customer signs in anonymously, and
 // an anonymous uid says nothing about which customer they are. Per
 // customer rules need real Firebase phone auth, which needs Blaze (the
-// project is already on Blaze) plus VITE_PHONE_AUTH=on in Vercel. The
-// block at the bottom is what to switch to once that is done.
+// project is already on Blaze). Phone auth is now ON by default in the
+// app, so the remaining question is only whether SMS actually sends.
+// The block at the bottom is what to switch to once that is confirmed.
 //
 // So this draws the line at "signed in or not", which is the line that
 // matters today: it stops the open internet reading your customers'
@@ -154,16 +155,19 @@ service cloud.firestore {
 // an identity to match against.
 //
 // A rule can only recognise a customer by request.auth.token.phone_number,
-// which exists only with real Firebase phone auth. Today the OTP screen
-// runs in demo mode and customers sign in ANONYMOUSLY, so that claim is
-// absent and the rules below would deny every customer outright.
+// which exists only with real Firebase phone auth. That is now on by
+// default - but "on" is not the same as "working". Until a real SMS
+// login has actually been seen to succeed on the live domain, assume the
+// claim may still be absent, and the rules below would then deny every
+// customer outright.
 //
 // Anonymous sign-in is also open to anyone, so while it is the customer
 // sign-in method, "signed in" cannot mean "trusted". Switching this on
 // therefore needs both halves:
 //
-//   1. Set VITE_PHONE_AUTH=on in Vercel and redeploy (Blaze is already
-//      active, so real SMS will send).
+//   1. Phone auth is already on by default in the app (src/App.jsx).
+//      Nothing to set. VITE_PHONE_AUTH=off in Vercel is the way BACK to
+//      demo mode if SMS breaks.
 //   2. Confirm customers now sign in by SMS - the on-screen demo code is
 //      gone - and can still see their own job.
 //   3. Turn OFF anonymous sign-in in the Firebase console, so an
