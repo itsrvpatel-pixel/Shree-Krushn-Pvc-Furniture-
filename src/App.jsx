@@ -4932,16 +4932,22 @@ export function MoreScreen({ customer, job, testimonials, onOpenProfile, onOpenS
         onClick={onOpenProfile}
       />
 
-      {/* Same rule as Home: the invitation to write one only exists
-          once there is finished work to write about. */}
-      {canLeaveReview(job) && (
-        <MoreRow
-          icon={<Star size={18} color={BRAND.navy} />}
-          title={t(reviewPrompt(job).title)}
-          sub={t(reviewPrompt(job).sub)}
-          onClick={onOpenReview}
-        />
-      )}
+      {/* Here the row stays put whether or not it is open yet, and
+          that is deliberate - his reason, not a UI preference: a
+          customer who sees "kaam poora hone ke baad hi de sakte hain"
+          learns the rule, and therefore knows the reviews he just read
+          could not have been typed by anyone who simply logged in.
+          The padlock says the same thing without a sentence. Home is
+          the screen he wants quiet, so there the row is hidden until
+          it works; this is the screen that explains. */}
+      <MoreRow
+        icon={canLeaveReview(job)
+          ? <Star size={18} color={BRAND.navy} />
+          : <Lock size={16} color={BRAND.textMuted} />}
+        title={t(reviewPrompt(job).title)}
+        sub={t(reviewPrompt(job).sub)}
+        onClick={onOpenReview}
+      />
 
       <div style={styles.moreGroupLabel}>{t('Jaankari')}</div>
       {/* Reading other customers' reviews and leaving your own are two
@@ -5046,6 +5052,16 @@ export function ReviewsScreen({ testimonials, onBack }) {
                 </div>
                 <div style={styles.reviewAvgSub}>{tf('{n} customer reviews', { n: list.length })}</div>
               </div>
+            </div>
+            {/* The claim is true by construction, not by policy: a
+                review can only be written from inside a customer's own
+                job (ReviewPanel), and only once that job is delivered
+                or paid. Nobody can register a number and add one. Worth
+                saying out loud on the screen where a stranger is
+                deciding whether to believe seventeen five-star rows. */}
+            <div style={styles.verifiedNote}>
+              <ShieldCheck size={15} color={BRAND.gold} style={{ flex: 'none', marginTop: 1 }} />
+              <span>{t('Har review hamare apne customer ka hai - kaam poora hone ke baad hi diya gaya')}</span>
             </div>
             <ReviewList testimonials={list} />
           </>
@@ -8575,6 +8591,15 @@ export const styles = {
   reviewAvgCard: { display: 'flex', alignItems: 'center', gap: 14, background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 14, padding: '14px 16px', marginBottom: 12 },
   reviewAvgNum: { fontSize: 32, fontWeight: 800, color: BRAND.navy, letterSpacing: -1, lineHeight: 1 },
   reviewAvgSub: { fontSize: 11.5, color: BRAND.textMuted, marginTop: 5 },
+  // Quiet on purpose. It is a fact about the reviews, not a sales
+  // line, and a badge shouting VERIFIED would read as exactly the
+  // thing it is denying.
+  verifiedNote: {
+    display: 'flex', gap: 8, alignItems: 'flex-start',
+    background: '#FAF8F1', border: '1px solid #ECE4D0', borderRadius: 10,
+    padding: '9px 11px', margin: '10px 0 4px',
+    fontSize: 12, lineHeight: 1.45, color: BRAND.textMuted,
+  },
   moreGroupLabel: { fontSize: 10, fontWeight: 800, letterSpacing: 1.1, color: BRAND.textMuted, textTransform: 'uppercase', padding: '16px 2px 2px' },
   // 52px tall before padding is counted, so the tap target clears 44px
   // comfortably even for the single-line rows.

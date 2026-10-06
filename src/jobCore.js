@@ -565,10 +565,18 @@ export function canLeaveReview(job) {
 // What the review row should say, wherever it is shown. Home and More
 // both offer it, and writing the cases out twice is how the two drift
 // apart - which is the exact bug class cleaned up elsewhere in this
-// app. Only called where canLeaveReview(job) is already true.
+// app.
+//
+// The locked case is not a dead end, it is the point: the More tab
+// keeps the row visible before delivery precisely so a customer reads
+// "kaam poora hone ke baad hi" and understands, without being told,
+// that the reviews they just read could not have been posted by
+// anyone who merely logged in. Home hides the row instead, because
+// Home is the screen he wants quiet.
 export function reviewPrompt(job) {
   if (job && job.review) return { title: 'Aapka Review', sub: 'Badalna ho to yahan se' };
-  return { title: 'Review Dein', sub: 'Aapka anubhav kaisa raha?' };
+  if (canLeaveReview(job)) return { title: 'Review Dein', sub: 'Aapka anubhav kaisa raha?' };
+  return { title: 'Review Dein', sub: 'Kaam poora hone ke baad hi de sakte hain' };
 }
 
 // "5.0 stars - from 17 customers", worked out once. The same line is

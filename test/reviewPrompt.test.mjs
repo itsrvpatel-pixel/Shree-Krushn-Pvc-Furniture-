@@ -1,14 +1,17 @@
-// Two different things live on the review rows, and they are offered
-// on two different schedules.
+// Two different things live on the review rows, on two schedules.
 //
 //   Reading other customers' reviews  - from day one, always.
 //   Writing your own                  - only once the work is delivered.
 //
-// The owner's rule, in his words: "Leave reviews kam complete hone ke
-// bad dikhe aisa karo pehle nahi, pehle sirf customer review dikhe."
-// Asking somebody to rate furniture they have not received yet gets
-// you a rating of the waiting. These pin both halves of that, and pin
-// the wording to one function so Home and More cannot drift apart.
+// His first rule: "Leave reviews kam complete hone ke bad dikhe aisa
+// karo pehle nahi, pehle sirf customer review dikhe." Asking somebody
+// to rate furniture they have not received yet gets you a rating of
+// the waiting.
+//
+// His second rule, which is why the two screens differ: "More me to
+// rakhna he to customer ko pata chale sab review original he ki kam
+// khatam hone ke bad hi de sakte he." So More keeps the row visible
+// and locked - the lock is the proof - while Home stays quiet.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { reviewPrompt, canLeaveReview } from '../src/jobCore.js';
@@ -47,12 +50,22 @@ t('a missing job never throws and never offers', () => {
   }
 });
 
-t('the wording asks for the review, never promises a later one', () => {
-  // It is only ever rendered where canLeaveReview is already true, so
-  // there is no "come back after delivery" case left to say.
-  const fresh = reviewPrompt({ status: 'delivered' });
-  assert.equal(fresh.title, 'Review Dein');
-  assert.equal(fresh.sub, 'Aapka anubhav kaisa raha?');
+t('the locked wording states the rule, which is the whole point of it', () => {
+  // This line is doing the work his message asked for: it is what
+  // tells a customer the reviews cannot have come from just anybody.
+  for (const status of ['appointment', 'estimate', 'in_progress']) {
+    const p = reviewPrompt({ status });
+    assert.equal(p.title, 'Review Dein');
+    assert.equal(p.sub, 'Kaam poora hone ke baad hi de sakte hain');
+  }
+});
+
+t('once it is open, it asks for the review instead', () => {
+  for (const status of ['delivered', 'paid']) {
+    const p = reviewPrompt({ status });
+    assert.equal(p.title, 'Review Dein');
+    assert.equal(p.sub, 'Aapka anubhav kaisa raha?');
+  }
 
   const again = reviewPrompt({ status: 'delivered', review: { rating: 5 } });
   assert.equal(again.title, 'Aapka Review');
@@ -66,7 +79,11 @@ t('the wording asks for the review, never promises a later one', () => {
 
 t('every string it returns is translated', () => {
   const dict = readFileSync(new URL('../src/translations.js', import.meta.url), 'utf8');
-  const all = [reviewPrompt({ status: 'delivered' }), reviewPrompt({ review: { rating: 5 } })];
+  const all = [
+    reviewPrompt({ status: 'in_progress' }),
+    reviewPrompt({ status: 'delivered' }),
+    reviewPrompt({ review: { rating: 5 } }),
+  ];
   for (const p of all) {
     for (const str of [p.title, p.sub]) {
       assert.ok(dict.includes("'" + str + "':"), 'no English for: ' + str);
@@ -82,13 +99,25 @@ t('both places call the helper - neither writes the wording itself', () => {
   assert.ok(!/job\.review \? t\('Aapka Review'\)/.test(app), 'the wording is inlined again somewhere');
 });
 
-t('both places gate writing a review on the same helper', () => {
-  // Gating one screen and not the other is how a customer gets told
-  // two different things about the same job.
+t('Home hides the row until it works; More shows it locked', () => {
   const more = app.slice(app.indexOf('export function MoreScreen('), app.indexOf('function MoreRow('));
   const home = app.slice(app.indexOf('export function CustomerHome('), app.indexOf('export function ProgressRing('));
-  assert.ok(/canLeaveReview\(job\)/.test(more), 'the More tab does not gate the row');
-  assert.ok(/canLeaveReview\(job\)/.test(home), 'Home does not gate the row');
+  assert.ok(/\{canLeaveReview\(job\) && \(/.test(home), 'Home no longer hides the row before delivery');
+  assert.ok(!/\{canLeaveReview\(job\) && \(/.test(more),
+    'the More tab hides the row again - the locked row is what proves the rule to a customer');
+  assert.ok(/canLeaveReview\(job\)\s*\n?\s*\?/.test(more), 'the More row no longer shows a lock when it is closed');
+  assert.ok(/<Lock /.test(more), 'the padlock is gone from the More row');
+});
+
+t('the reviews screen says where the reviews came from', () => {
+  // The claim is true by construction - ReviewPanel refuses a review
+  // on a job that is not delivered, and the published list is derived
+  // from job.review only - so it is safe to state, and worth stating.
+  const scr = app.slice(app.indexOf('export function ReviewsScreen('), app.indexOf('function MoreRow('));
+  assert.ok(/Har review hamare apne customer ka hai/.test(scr),
+    'the note about where the reviews come from is gone');
+  assert.ok(/ReviewPanel/.test(app) && /canReview = job\.status === 'delivered' \|\| job\.status === 'paid'/.test(app),
+    'ReviewPanel no longer enforces the rule the note claims');
 });
 
 t('reading other reviews is NOT gated on the job being finished', () => {
