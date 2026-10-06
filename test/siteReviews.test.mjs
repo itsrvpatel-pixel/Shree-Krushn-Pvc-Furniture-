@@ -70,6 +70,27 @@ t('six out front, and not one review dropped on the way', () => {
   assert.ok(/if \(first\.length < SHOWN\)/.test(build), 'the fill-up for too few short reviews is gone');
 });
 
+t('the page says where the reviews came from, and that stays true', () => {
+  // Same line as the app shows. It is a strong claim to a stranger,
+  // so these pin it to the thing that makes it true rather than to
+  // anybody's good intentions.
+  assert.ok(/written after their work was finished/.test(build),
+    'the note about where the reviews come from is gone from the page');
+  assert.ok(/class="revnote"/.test(build) && /\.revnote\{/.test(page),
+    'the note has no styles - it will render as a bare line');
+  // It is emitted with the cards, so it can never be left on a page
+  // that has no reviews under it.
+  assert.ok(/const figures = note \+/.test(build),
+    'the note is no longer tied to the reviews it describes');
+  // And the app still refuses a review from anyone else, or before
+  // the job is done, which is the only reason the sentence is honest.
+  const app = read('src/App.jsx');
+  assert.ok(/canReview = job\.status === 'delivered' \|\| job\.status === 'paid'/.test(app),
+    'the app no longer waits for delivery - the website claim is now false');
+  assert.ok(/\.filter\(\(j\) => j\.review && j\.review\.featured\)/.test(app),
+    'the published list is no longer derived from customers\' own reviews');
+});
+
 t('only what is shown is marked up for Google', () => {
   // Structured data for reviews a visitor cannot see is what gets a
   // site penalised, so the markup is built from the same list.

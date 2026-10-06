@@ -133,7 +133,24 @@ if (first.length < SHOWN) {
   }
 }
 const rest = reviews.filter((r) => !first.includes(r));
-const figures = '<div class="revs">' + first.map(figure).join('') + '</div>'
+// Where these came from, said out loud. A stranger landing here has
+// no reason to believe seventeen five-star rows, and the honest
+// answer is a strong one: the app will not accept a review from
+// anyone but the customer whose job it is, and not until that job is
+// delivered or paid (ReviewPanel), and this list is derived from
+// those reviews alone - nobody, the owner included, can type one in.
+// Emitted here rather than sitting in the page, so the claim cannot
+// end up on a page with no reviews under it.
+const note = '<div class="revnote">'
+  + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#17803F" stroke-width="2"'
+  + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1'
+  + 'c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>'
+  + '<path d="m9 12 2 2 4-4"/></svg>'
+  + '<span>Every review here is from one of our own customers, written after their work was finished.</span>'
+  + '</div>';
+
+const figures = note + '<div class="revs">' + first.map(figure).join('') + '</div>'
   + (rest.length
     ? '<details class="more-revs"><summary>' + rest.length + ' more reviews</summary>'
       + '<div class="revs">' + rest.map(figure).join('') + '</div></details>'
