@@ -36,6 +36,7 @@ import {
   collection,
   getDocs,
   onSnapshot,
+  writeBatch,
 } from "firebase/firestore";
 // firebase/storage and firebase/messaging are NOT imported here.
 //
@@ -634,6 +635,59 @@ async function rawProbe() {
 const jobsStore = createJobsStore(db);
 const customersStore = createCustomersStore(db);
 
+
+// ---- Error reports -------------------------------------------------
+//
+// One document per report in its own collection. Its own, not inside
+// app_data, for the same reason the login counters are: app_data is
+// read by everything, so anything kept there has to be carved out of
+// the rules by name. A separate collection keeps the rule one line -
+// anyone signed in may ADD a report, only staff may read them.
+//
+// Writing is deliberately fire-and-forget. Nothing waits on it and
+// nothing surfaces when it fails: the caller is an error handler, and
+// an error handler that can fail is an error loop.
+const ERRORS_COLLECTION = 'error_reports';
+const MAX_ERROR_ROWS = 300;
+const ERROR_DELETE_BATCH = 400;
+
+async function reportError(report) {
+  try {
+    await setDoc(doc(collection(db, ERRORS_COLLECTION)), {
+      ...report,
+      createdAt: Date.now(),
+    });
+    return true;
+  } catch (e) {
+    // Not console.error: this runs inside the error handler, and a
+    // noisy failure here is indistinguishable from the bug being
+    // reported.
+    console.warn('error report not sent (ignored)', e && e.code);
+    return false;
+  }
+}
+
+async function loadErrorReports() {
+  const snap = await getDocs(collection(db, ERRORS_COLLECTION));
+  const rows = [];
+  snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
+  rows.sort((a, b) => (b.at || b.createdAt || 0) - (a.at || a.createdAt || 0));
+  return rows.slice(0, MAX_ERROR_ROWS);
+}
+
+async function clearErrorReports() {
+  const snap = await getDocs(collection(db, ERRORS_COLLECTION));
+  const ids = [];
+  snap.forEach((d) => ids.push(d.id));
+  for (let i = 0; i < ids.length; i += ERROR_DELETE_BATCH) {
+    const batch = writeBatch(db);
+    for (const id of ids.slice(i, i + ERROR_DELETE_BATCH)) batch.delete(doc(db, ERRORS_COLLECTION, id));
+    await batch.commit();
+  }
+  return ids.length;
+}
+
+
 export function installWindowStorage() {
   window.storage = {
     get: (key) => get(key),
@@ -649,6 +703,11 @@ export function installWindowStorage() {
   window.phoneAuth = {
     sendOtp: (phoneE164, recaptchaContainerId) => sendPhoneOtp(phoneE164, recaptchaContainerId),
     verifyOtp: (confirmationResult, code) => verifyPhoneOtp(confirmationResult, code),
+  };
+  window.errorLog = {
+    report: (r) => reportError(r),
+    loadAll: () => loadErrorReports(),
+    clearAll: () => clearErrorReports(),
   };
   window.storage.subscribe = (key, onValue) => subscribeKey(key, onValue);
   window.jobsStore = jobsStore;

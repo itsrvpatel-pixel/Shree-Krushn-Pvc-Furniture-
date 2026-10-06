@@ -125,6 +125,7 @@ import {
   normalizeProfile,
   profileSummary,
   budgetLabel,
+  groupErrors,
   jobCostBreakdown,
   lastSeenLabel,
   nextDueStage,
@@ -4825,6 +4826,39 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
   // can't retroactively know about a category the app was never asked
   // to look for. The photo data itself was never touched - only the
   // 'gallery_categories' pointer needs mending.
+  // Grouped on the way in, so one bug that happened ninety times is
+  // one line saying 90x rather than ninety lines nobody reads.
+  const [errorRows, setErrorRows] = useState(null);
+  const [loadingErrors, setLoadingErrors] = useState(false);
+
+  const loadErrors = async () => {
+    setLoadingErrors(true);
+    try {
+      const rows = await window.errorLog.loadAll();
+      setErrorRows(groupErrors(rows));
+    } catch (e) {
+      console.error('loading error reports failed', e);
+      showToast('Errors load nahi hue', true);
+    } finally {
+      setLoadingErrors(false);
+    }
+  };
+
+  const clearErrors = async () => {
+    if (!window.confirm('Saari error list mita dein? Jo bug abhi tak theek nahi hue wo dobara aayenge.')) return;
+    setLoadingErrors(true);
+    try {
+      const n = await window.errorLog.clearAll();
+      setErrorRows([]);
+      showToast(n + ' error mita diye');
+    } catch (e) {
+      console.error('clearing error reports failed', e);
+      showToast('Mita nahi paye', true);
+    } finally {
+      setLoadingErrors(false);
+    }
+  };
+
   const recoverMissingCategories = async () => {
     setRecoveringCategories(true);
     try {
@@ -5638,6 +5672,46 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={reconnectLostCustomers} disabled={reconnectingCustomers}>
             <Search size={14} /> {reconnectingCustomers ? t('Dhoondh raha hai...') : t('Chhoote Hue Customer Wapas Jodein')}
           </button>
+        </div>
+
+        {/* The point of this one: every other diagnostic here tells
+            you about THIS device. A customer's app going blank in
+            Naroda was invisible from this screen, and "app kaam nahi
+            kar raha" with no detail has cost whole days. */}
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
+          <div style={styles.fieldLabel}>{t('App Mein Kya Toota')}</div>
+          <div style={styles.plainTextMuted}>Kisi bhi phone par - aapka, customer ka, karigar ka - app mein koi error aaye to wo yahan aa jaata hai. Ek hi bug baar baar ho to ek hi line banti hai, ginti ke saath.</div>
+          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={loadErrors} disabled={loadingErrors}>
+            <AlertTriangle size={14} /> {loadingErrors ? t('Dekh raha hai...') : t('Errors Dekhein')}
+          </button>
+          {errorRows !== null && (
+            <div style={{ marginTop: 10 }}>
+              {errorRows.length === 0 && (
+                <div style={styles.emptySmall}>{t('Ek bhi error nahi. Sab theek chal raha hai.')}</div>
+              )}
+              {errorRows.map((g) => (
+                <div key={g.fingerprint} style={styles.errRow}>
+                  <div style={styles.errTop}>
+                    <span style={styles.errMsg}>{g.sample.message}</span>
+                    {g.count > 1 && <span style={styles.errCount}>{g.count}x</span>}
+                  </div>
+                  <div style={styles.errMeta}>
+                    {[g.sample.scope || g.sample.kind, g.sample.role,
+                      lastSeenLabel(g.last, Date.now()).n == null
+                        ? t(lastSeenLabel(g.last, Date.now()).key)
+                        : tf(lastSeenLabel(g.last, Date.now()).key, { n: lastSeenLabel(g.last, Date.now()).n }),
+                    ].filter(Boolean).join(' - ')}
+                  </div>
+                  {g.sample.where && <div style={styles.errMeta}>{g.sample.where}</div>}
+                </div>
+              ))}
+              {errorRows.length > 0 && (
+                <button style={{ ...styles.dangerBtn, marginTop: 10 }} onClick={clearErrors} disabled={loadingErrors}>
+                  <Trash2 size={13} /> {t('List saaf karein')}
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>

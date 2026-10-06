@@ -39,6 +39,8 @@ import { useBackToClose } from './useBackToClose.js';
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
 import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
+import { normalizeError, installErrorReporting, groupErrors } from './errorLog.js';
+export { groupErrors };
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
@@ -3959,6 +3961,58 @@ function rememberCrash(error, scope) {
       at: new Date().toISOString(),
     }));
   } catch (e) { /* private mode, quota - never let logging cause a crash */ }
+  // And off the device. localStorage only helps when the person
+  // holding the phone is the person asking; a customer in Naroda whose
+  // screen went blank is the case this is actually for.
+  try {
+    if (window.errorLog) {
+      window.errorLog.report(normalizeError(error, { ...errorContext(), kind: 'react', scope: scope || 'app' }));
+    }
+  } catch (e) { /* the reporter must never be the thing that breaks */ }
+}
+
+// Who and where, attached to every report. Deliberately no name and no
+// phone number: this is a bug list, and it is read to find out what
+// broke, not who it broke for. The role and the screen are what narrow
+// a bug down; the rest would just be customer data sitting in a second
+// place for no reason.
+function errorContext() {
+  let role = 'guest';
+  try {
+    const sess = loadStoredSession();
+    if (sess && sess.role) role = sess.role;
+  } catch (e) { /* no session, private mode */ }
+  let device = '';
+  try { device = String(navigator.userAgent || ''); } catch (e) { /* non-browser */ }
+  return { role, device, version: APP_BUILD };
+}
+
+// Which build a report came from. Vite replaces this at build time, so
+// a bug fixed yesterday can be told apart from the same message
+// arriving from a phone still running last week's bundle.
+const APP_BUILD = (() => {
+  try {
+    const src = document.querySelector('script[src*="/assets/index-"]');
+    const m = src && src.getAttribute('src').match(/index-([A-Za-z0-9_-]+)\.js/);
+    return m ? m[1] : '';
+  } catch (e) { return ''; }
+})();
+
+// The errors React never sees: a promise nobody caught, a handler that
+// threw, a script that failed to parse. None of them trip an
+// ErrorBoundary and none of them show anything on screen - the app
+// just quietly stops doing the thing. Those are most real bugs, and
+// they were invisible from here until now.
+//
+// Installed once at module load rather than in an effect, so it is
+// listening before the first render - a crash during the very first
+// paint is exactly the one worth hearing about.
+if (typeof window !== 'undefined') {
+  installErrorReporting(
+    window,
+    (report) => (window.errorLog ? window.errorLog.report(report) : null),
+    () => errorContext(),
+  );
 }
 
 export function readLastCrash() {
@@ -8940,6 +8994,15 @@ export const styles = {
   itemAmount: { fontSize: 13, fontWeight: 800, fontFamily: "'DM Mono', monospace" },
   addRow: { display: 'flex', gap: 8, marginTop: 12 },
   addBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', background: '#EEF0F5', border: '1px dashed ' + BRAND.line, borderRadius: 10, padding: '9px', fontSize: 12.5, fontWeight: 700, color: '#333B57', marginTop: 8, cursor: 'pointer' },
+  dangerBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', background: '#FFF', border: '1px solid #E6C8BB', borderRadius: 10, padding: '9px', fontSize: 12.5, fontWeight: 700, color: '#B5562E', cursor: 'pointer' },
+  // One bug per row. The message is the heading because it is the
+  // only part worth reading first; everything else is context in a
+  // smaller grey line under it.
+  errRow: { border: '1px solid ' + BRAND.line, borderRadius: 10, padding: '9px 11px', marginTop: 8, background: BRAND.paper },
+  errTop: { display: 'flex', gap: 8, alignItems: 'flex-start' },
+  errMsg: { flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: BRAND.navy, wordBreak: 'break-word' },
+  errCount: { flex: 'none', fontSize: 10.5, fontWeight: 800, color: '#B5562E', background: '#F7E3D8', padding: '2px 7px', borderRadius: 8 },
+  errMeta: { fontSize: 11, color: BRAND.textMuted, marginTop: 3, wordBreak: 'break-word' },
   totalBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, padding: '12px 14px', background: BRAND.navy, borderRadius: 10, color: '#FDFCF8', fontSize: 13, fontWeight: 700 },
   totalAmt: { fontSize: 16, fontWeight: 800, fontFamily: "'DM Mono', monospace" },
   payStrip: { display: 'flex', justifyContent: 'space-around', background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 12, padding: '12px 8px' },

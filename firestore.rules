@@ -97,6 +97,30 @@ service cloud.firestore {
       allow write: if isStaff() || isMe();
     }
 
+    // ---- error_reports --------------------------------------------
+    // The app's own guard writes here when anything breaks, on anyone's
+    // phone - a React crash, a promise nobody caught, a handler that
+    // threw. Until this existed, a customer's app going blank in Naroda
+    // was invisible to the owner, and "app kaam nahi kar raha" with no
+    // detail cost whole days.
+    //
+    // Anyone signed in may ADD one, because the whole point is hearing
+    // from the device that broke, and it may well be a customer's. Only
+    // staff may read the list. Nothing may be edited after the fact: a
+    // bug report that can be rewritten is not a record of anything.
+    //
+    // Deliberately no customer name or number in a report (see
+    // errorContext in src/App.jsx) - it is read to find out what broke,
+    // not who it broke for.
+    match /error_reports/{reportId} {
+      function isStaff() {
+        return request.auth != null && request.auth.token.role != null;
+      }
+      allow create: if request.auth != null;
+      allow get, list, delete: if isStaff();
+      allow update: if false;
+    }
+
     // The role PINs, written by api/change-pin.js and read by
     // api/staff-login.js - both through the Admin SDK, which bypasses
     // rules entirely. Denied to every client, including an admin.
