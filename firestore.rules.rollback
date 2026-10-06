@@ -1,0 +1,43 @@
+rules_version = '2';
+
+// ROLLBACK. If anything breaks after publishing phase 2, paste THIS
+// and publish. Everything works again within seconds. A rules deploy
+// never touches data - nothing is lost either way.
+//
+// This is the phase 1 rule set, which is what was live before: signed
+// in may read and write, PINs and login counters denied to everyone.
+// Turn anonymous sign-in back ON as well, or logged-out visitors will
+// still not be able to load the app.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    match /app_data/{docId} {
+      allow read, write: if signedIn();
+    }
+
+    match /jobs/{jobId} {
+      allow read, write: if signedIn();
+    }
+
+    match /customers/{phone} {
+      allow read, write: if signedIn();
+    }
+
+    match /secrets/{docId} {
+      allow read, write: if false;
+    }
+
+    match /login_attempts/{callerId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
