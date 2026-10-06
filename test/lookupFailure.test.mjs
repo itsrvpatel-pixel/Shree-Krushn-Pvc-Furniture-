@@ -75,8 +75,31 @@ check('the customer is not logged out when the load failed', () => {
     'nothing distinguishes a failed load from an empty one');
   const guard = app.slice(app.indexOf('if (!customer && loaded && !customersLoading'));
   const firstBranch = guard.slice(0, guard.indexOf('}'));
-  assert.ok(firstBranch.includes('customersLoadFailed'),
-    'the first branch on an empty customer list must be the failure case, not setSession(null)');
+  // What matters is that an empty list is never read as "this account
+  // is gone" while a read is still unexplained. Which flag the first
+  // branch tests is free - there are two of them now, a denied read
+  // and a failed one - but it must not be the logout.
+  assert.ok(/customersLoad(Failed|Denied)/.test(firstBranch),
+    'the first branch on an empty customer list must be a failure case, not setSession(null)');
+  assert.ok(!firstBranch.includes('setSession(null)'),
+    'the first branch logs the customer out before the failure has been explained');
+});
+
+check('a refused read is not blamed on the internet', () => {
+  // A session saved before phone sign-in existed has no identity the
+  // per-customer rules recognise, so the first read is refused. The
+  // customer verifies their number once. Telling them to check their
+  // internet sends them to fix something that is not broken.
+  assert.ok(app.includes('customersLoadDenied'),
+    'a refused read is no longer told apart from a network failure');
+  assert.ok(/e\.code === 'permission-denied'/.test(app),
+    'nothing classifies the Firestore permission-denied code any more');
+  const denied = app.slice(app.indexOf('if (!customer && loaded && !customersLoading && customersLoadDenied)'));
+  const branch = denied.slice(0, denied.indexOf('\n  }'));
+  assert.ok(/number dobara verify/.test(branch), 'the refused-read screen no longer says what to do');
+  assert.ok(!/Check your internet/.test(branch), 'the refused-read screen blames the internet again');
+  assert.ok(app.indexOf('customersLoadDenied)') < app.indexOf('customersLoadFailed) {'),
+    'the denied case is checked after the generic failure, so it can never be reached');
 });
 
 check('the admin list tells loading, failed and empty apart', () => {

@@ -1935,6 +1935,13 @@ export default function App() {
   // Set when the customer load threw. Distinct from "loaded, and there
   // are none" - the two used to be indistinguishable.
   const [customersLoadFailed, setCustomersLoadFailed] = useState(false);
+  // Told apart from a plain failure because the fix is completely
+  // different and only one of them is the customer's to make. A denied
+  // read means this browser is holding a session from before phone
+  // sign-in existed: it has no identity the rules recognise, so the
+  // honest instruction is "verify your number once", not "check your
+  // internet".
+  const [customersLoadDenied, setCustomersLoadDenied] = useState(false);
   const [jobs, setJobs] = useState([]);
   const [adminPin, setAdminPin] = useState(DEFAULT_PIN);
   // True when app_data/admin_pin exists but Firestore refused to let us
@@ -2396,6 +2403,7 @@ export default function App() {
           const mine = await window.customersStore.getOne(session.phone);
           if (!cancelled) {
             setCustomersLoadFailed(false);
+            setCustomersLoadDenied(false);
             // A null here means the server answered and the record is
             // genuinely gone - a failed read throws instead (see
             // getOne), and lands in the catch below. Even then, a copy
@@ -2409,14 +2417,19 @@ export default function App() {
           return;
         }
         const all = await window.customersStore.loadAll();
-        if (!cancelled) { setCustomersLoadFailed(false); customersRef.current = all; setCustomers(all); }
+        if (!cancelled) { setCustomersLoadFailed(false); setCustomersLoadDenied(false); customersRef.current = all; setCustomers(all); }
       } catch (e) {
         // The load FAILED - which says nothing about whether the
         // records exist. Leaving this as a silent console line is what
         // let a network blip log a customer out and show an admin an
         // empty customer list as though everyone had been deleted.
         console.error('loading customers failed', e);
-        if (!cancelled) setCustomersLoadFailed(true);
+        // Firestore says permission-denied when the rules refuse the
+        // read. For a customer that means one thing only: no verified
+        // phone on this session.
+        const denied = !!(e && (e.code === 'permission-denied'
+          || /permission[-\s]denied/i.test(String((e && e.message) || ''))));
+        if (!cancelled) { setCustomersLoadFailed(true); setCustomersLoadDenied(denied); }
       } finally {
         if (!cancelled) setCustomersLoading(false);
       }
@@ -3583,6 +3596,29 @@ export default function App() {
   // Only once the record has actually been looked up. While the load is
   // still in flight there is nothing to conclude from an empty list, and
   // logging out on it would kick a customer out the instant they log in.
+  // Sessions saved before phone sign-in existed carry no identity the
+  // per-customer rules recognise, so the very first read is refused and
+  // the customer lands here. Nothing is wrong with their account and
+  // nothing is lost - they verify their number once and it never
+  // happens again. Telling them to check their internet, which is what
+  // this used to say, sends them to fix a thing that is not broken.
+  if (!customer && loaded && !customersLoading && customersLoadDenied) {
+    return (
+      <div style={styles.app}>
+        <style>{fontImport}</style>
+        <div style={styles.loadingScreen}>
+          <Logo size={52} />
+          <div style={{ ...styles.plainTextMuted, textAlign: 'center', marginTop: 14, maxWidth: 290 }}>
+            {t('Ek baar apna number dobara verify karna hoga. Aapka account aur kaam waise hi hai - kuch gaya nahi.')}
+          </div>
+          <button style={{ ...styles.primaryBtn, marginTop: 14, maxWidth: 240 }} onClick={() => setSession(null)}>
+            {t('Number verify karein')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!customer && loaded && !customersLoading && customersLoadFailed) {
     // Could not reach the server. Say so and offer a retry rather than
     // logging them out - their account is almost certainly fine.

@@ -235,6 +235,9 @@ export const EN = {
   'Pasand aaye to star dabakar save karein': 'Tap the star on one you like to save it',
   'Apne naap se khud andaza lagayein': 'Work out a rough price from your own measurements',
   'Badalna ho to yahan se': 'Change it here',
+  'Ek baar apna number dobara verify karna hoga. Aapka account aur kaam waise hi hai - kuch gaya nahi.':
+    'Please verify your number once more. Your account and your work are exactly as they were - nothing has been lost.',
+  'Number verify karein': 'Verify my number',
   'Kaam poora hone ke baad hi de sakte hain': 'You can leave one once your work is finished',
   'Har review hamare apne customer ka hai - kaam poora hone ke baad hi diya gaya':
     'Every review here is from one of our own customers, written after their work was finished',
