@@ -126,6 +126,7 @@ import {
   profileSummary,
   budgetLabel,
   jobCostBreakdown,
+  lastSeenLabel,
   nextDueStage,
   paymentProgress,
   profileCompleteness,
@@ -1701,6 +1702,8 @@ export function AdminCustomerProfile({ customer, job, expenses, allCustomers, on
     </div>
   );
 
+  const seenLabel = lastSeenLabel(customer.lastSeenAt, Date.now());
+
   return (
     <div style={{ padding: '12px 16px 24px' }}>
       <button style={styles.linkBtn2} onClick={onBack}><ChevronLeft size={14} /> Customers</button>
@@ -1729,6 +1732,13 @@ export function AdminCustomerProfile({ customer, job, expenses, allCustomers, on
         <Row label='Kab tak' value={timelineLabel(p.timeline) || '-'} muted={!p.timeline} />
         <Row label='Birthday' value={customer.birthdayMonthDay || '-'} muted={!customer.birthdayMonthDay} />
         <Row label='Kisne bheja' value={customer.referredBy || '-'} muted={!customer.referredBy} />
+        {/* Stamped by the app itself when the customer opens it, at
+            most once an hour (see shouldTouchLastSeen). Worth reading
+            next to the rest of this card: a customer who has not opened
+            the app in three weeks is a different conversation from one
+            who was in it this morning. */}
+        <Row label='App kab khola' value={seenLabel.n == null ? t(seenLabel.key) : tf(seenLabel.key, { n: seenLabel.n })}
+          muted={!customer.lastSeenAt} />
       </div>
 
       {referred.length > 0 && (

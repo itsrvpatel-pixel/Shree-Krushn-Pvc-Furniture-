@@ -588,3 +588,60 @@ export function reviewsSummary(testimonials) {
   const avg = list.reduce((a, r) => a + Number(r.rating), 0) / list.length;
   return { count: list.length, avg: avg.toFixed(1) };
 }
+
+// "Aakhri baar kab aaya" - the stamp, and how it reads.
+//
+// Two separate decisions, kept apart because only one of them is about
+// money. Writing costs a Firestore write every time a customer opens
+// the app; reading costs nothing. So the write is throttled hard and
+// the label is free to be as precise as it likes.
+
+export const LAST_SEEN_GAP_MS = 60 * 60 * 1000;
+
+// Worth a write? Only if the last one is old enough. A customer who
+// opens the app eight times while waiting for a photo to upload is one
+// visit, not eight, and the admin screen cannot tell the difference
+// anyway - it says "2 ghante pehle" either way.
+//
+// A missing or unparseable stamp always writes: that is a customer
+// whose last visit is unknown, which is the one case worth spending a
+// write on immediately.
+export function shouldTouchLastSeen(stored, now, gapMs) {
+  const gap = typeof gapMs === 'number' ? gapMs : LAST_SEEN_GAP_MS;
+  const prev = Number(stored);
+  if (!stored || !Number.isFinite(prev) || prev <= 0) return true;
+  // A stamp in the future is a clock that was wrong when it was
+  // written. Left alone it would freeze the field forever, so it is
+  // treated as unknown and overwritten.
+  if (prev > Number(now)) return true;
+  return Number(now) - prev >= gap;
+}
+
+// How it reads on the admin's screen. Returns the phrase and its
+// number separately rather than a finished sentence, so the phrase can
+// go through the translation table like every other string in the app
+// - a finished sentence cannot be translated without the table growing
+// one entry per number.
+//
+// Deliberately vague past a day: "6 din pehle" is what he actually
+// wants to know, and a date and time to the minute from last Tuesday is
+// just harder to read.
+export function lastSeenLabel(stored, now) {
+  const prev = Number(stored);
+  if (!stored || !Number.isFinite(prev) || prev <= 0) return { key: 'Kabhi nahi khola' };
+  const ms = Number(now) - prev;
+  // A stamp from the future means a phone with a wrong clock. Never
+  // "-3 ghante pehle", which on his screen is worse than useless.
+  if (ms < 0) return { key: 'Abhi abhi' };
+  const mins = Math.floor(ms / 60000);
+  if (mins < 2) return { key: 'Abhi abhi' };
+  if (mins < 60) return { key: '{n} minute pehle', n: mins };
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return { key: '{n} ghante pehle', n: hours };
+  const days = Math.floor(hours / 24);
+  if (days === 1) return { key: 'Kal' };
+  if (days < 30) return { key: '{n} din pehle', n: days };
+  const months = Math.floor(days / 30);
+  if (months < 12) return { key: '{n} mahine pehle', n: months };
+  return { key: '{n} saal pehle', n: Math.floor(days / 365) };
+}
