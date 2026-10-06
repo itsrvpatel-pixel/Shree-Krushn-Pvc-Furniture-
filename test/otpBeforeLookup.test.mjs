@@ -61,11 +61,34 @@ t('the lookup happens after the OTP instead', () => {
 t('a failed lookup is still not treated as "no such customer"', () => {
   // The old bug: one dropped signal and a registered customer was told
   // to register again, which is how a phone ended up with two accounts.
-  assert.ok(/catch \(e\) \{[\s\S]{0,200}Could not reach the server/.test(verifyOtp),
+  // Pinned by what it must SAY and in what order, not by the shape of
+  // the code around it - the retry below rewrote that shape once
+  // already, and this check is about the customer's experience.
+  assert.ok(/Could not reach the server/.test(verifyOtp),
     'a thrown lookup no longer reports a reachability problem');
   assert.ok(verifyOtp.indexOf('Could not reach the server')
     < verifyOtp.indexOf('Ye number register nahi hai'),
     'the unreachable case no longer comes before the genuinely-absent case');
+  assert.ok(/if \(lookupError\) \{/.test(verifyOtp),
+    'the error is no longer checked after the retries - a blip may now read as "not registered"');
+});
+
+t('a blip does not become an error in the customer\'s face', () => {
+  // This read lands in the same instant phone sign-in replaces the
+  // browser's old session, and it can fail once and succeed straight
+  // after.
+  assert.ok(/for \(let attempt = 0; attempt < 3; attempt\+\+\)/.test(verifyOtp),
+    'the lookup no longer retries');
+  assert.ok(/setTimeout\(r, 400 \* \(attempt \+ 1\)\)/.test(verifyOtp),
+    'the retries no longer wait between attempts, so all three land in the same bad instant');
+});
+
+t('the screen is cleared before a fresh verify attempt', () => {
+  // "otp dalne par bhi red error aaya but login ho gaya" - the line was
+  // left over from the previous attempt and nothing took it down.
+  const head = verifyOtp.slice(0, verifyOtp.indexOf('if (!otpInput.trim())'));
+  assert.ok(/setError\(''\);/.test(head),
+    'verifyOtp no longer clears the previous attempt\'s error before running');
 });
 
 t('an existing customer is let in whichever button they pressed', () => {

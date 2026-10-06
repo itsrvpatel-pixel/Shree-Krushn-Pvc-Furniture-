@@ -4102,6 +4102,14 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
   };
 
   const verifyOtp = async () => {
+    // Clear first. Without this the red line from the PREVIOUS attempt
+    // - a mistyped digit, a send that failed before the retry caught
+    // it - was still on screen while this one succeeded, so the last
+    // thing the customer saw before landing inside the app was an
+    // error. His report: "otp dalne par bhi red error aaya but login
+    // ho gaya." Nothing was wrong; the screen just never took the old
+    // message down.
+    setError('');
     if (!otpInput.trim()) { setError(t('OTP daalein')); return; }
     if (REAL_PHONE_AUTH) {
       // A successful confirm also signs the customer in to Firebase,
@@ -4119,11 +4127,29 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
     // same told registered people their number was not registered the
     // moment their signal dropped, and let a second account be created
     // for a phone that already had one.
+    // Tried a few times before giving up. This read lands in the same
+    // instant the phone sign-in replaces whatever session the browser
+    // had, and a read that crosses that change can fail once and
+    // succeed immediately after. Shouting at the customer about their
+    // internet for a blip that lasts 400ms is wrong, and it is the
+    // only thing standing between them and their own account.
+    //
+    // Still NOT the same as "no such customer": after the last try it
+    // says the server could not be reached, never "register first".
     let found;
-    try {
-      found = await window.customersStore.getOne(pendingPhone);
-    } catch (e) {
-      console.error('customer lookup failed', e);
+    let lookupError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        found = await window.customersStore.getOne(pendingPhone);
+        lookupError = null;
+        break;
+      } catch (e) {
+        lookupError = e;
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      }
+    }
+    if (lookupError) {
+      console.error('customer lookup failed', lookupError);
       setError('Could not reach the server. Check your internet and try again.');
       return;
     }

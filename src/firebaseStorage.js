@@ -283,22 +283,47 @@ async function deleteFile(key) {
 // auth/billing-not-enabled all mean completely different fixes), so it
 // comes back to the caller to put on screen.
 let recaptchaVerifierInstance = null;
+
+function clearRecaptcha() {
+  if (recaptchaVerifierInstance) {
+    try { recaptchaVerifierInstance.clear(); } catch (clearError) { /* best effort */ }
+    recaptchaVerifierInstance = null;
+  }
+}
+
+// One attempt. The retry around it is below, and it is the reason this
+// is split out: recovery means a NEW verifier, so the whole thing has
+// to run again, not just the signInWithPhoneNumber call.
+async function sendPhoneOtpOnce(phoneE164, recaptchaContainerId) {
+  if (!recaptchaVerifierInstance) {
+    recaptchaVerifierInstance = new RecaptchaVerifier(auth, recaptchaContainerId, { size: "invisible" });
+  }
+  return signInWithPhoneNumber(auth, phoneE164, recaptchaVerifierInstance);
+}
+
 async function sendPhoneOtp(phoneE164, recaptchaContainerId) {
   try {
-    if (!recaptchaVerifierInstance) {
-      recaptchaVerifierInstance = new RecaptchaVerifier(auth, recaptchaContainerId, { size: "invisible" });
+    let confirmationResult;
+    try {
+      confirmationResult = await sendPhoneOtpOnce(phoneE164, recaptchaContainerId);
+    } catch (first) {
+      // The invisible reCAPTCHA fails its first run surprisingly often -
+      // the owner's own words after switching real SMS on were "ek do
+      // bar error aaya but otp aa gaya", which is this: it failed, he
+      // tapped again, and the second one worked. The app can do that
+      // tap itself. The widget is single-use once it has failed, so the
+      // retry only means anything after clearing it.
+      console.error("sendPhoneOtp first attempt failed, retrying:", first);
+      clearRecaptcha();
+      confirmationResult = await sendPhoneOtpOnce(phoneE164, recaptchaContainerId);
     }
-    const confirmationResult = await signInWithPhoneNumber(auth, phoneE164, recaptchaVerifierInstance);
     return { ok: true, confirmation: confirmationResult };
   } catch (e) {
     console.error("sendPhoneOtp failed:", e);
     // A failed attempt can leave the reCAPTCHA widget in a used state -
     // clearing it so the next attempt gets a fresh one, matching
     // Firebase's own documented error-recovery pattern.
-    if (recaptchaVerifierInstance) {
-      try { recaptchaVerifierInstance.clear(); } catch (clearError) { /* best effort */ }
-      recaptchaVerifierInstance = null;
-    }
+    clearRecaptcha();
     // auth/internal-error means the SDK could not classify what the
     // server said - so the server's own words are the whole diagnosis,
     // and they are NOT in e.code. @firebase/auth stashes the raw
