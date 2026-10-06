@@ -20,20 +20,38 @@ firebase.initializeApp({
   appId: "1:129070549337:web:2fe7ab7ebcfba2aefc2448",
 });
 
-const messaging = firebase.messaging();
+// firebase.messaging() THROWS on a browser that lacks the APIs it
+// needs - "This browser doesn't support the API's required to use the
+// Firebase SDK (messaging/unsupported-browser)". Unguarded, that
+// exception kills this whole script, and with it the notification-tap
+// handler below, which has nothing to do with messaging support.
+//
+// Not supporting push is fine and expected on plenty of phones. The
+// worker simply does less on those, rather than dying on line one.
+let messaging = null;
+try {
+  if (firebase.messaging.isSupported && firebase.messaging.isSupported()) {
+    messaging = firebase.messaging();
+  }
+} catch (e) {
+  // Unsupported browser. Nothing to listen to; everything else here
+  // still works.
+}
 
 // Background handler - fires when a push arrives and no tab has the
 // app open/focused. Shows a native OS notification using the title/
 // body sent from api/send-push.js.
-messaging.onBackgroundMessage((payload) => {
-  const title = (payload.notification && payload.notification.title) || 'Shree Krushn PVC Furniture';
-  const body = (payload.notification && payload.notification.body) || '';
-  self.registration.showNotification(title, {
-    body,
-    icon: '/icon-192.png',
-    badge: '/icon-192.png',
+if (messaging) {
+  messaging.onBackgroundMessage((payload) => {
+    const title = (payload.notification && payload.notification.title) || 'Shree Krushn PVC Furniture';
+    const body = (payload.notification && payload.notification.body) || '';
+    self.registration.showNotification(title, {
+      body,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+    });
   });
-});
+}
 
 // Tapping the notification focuses an already-open tab if one exists,
 // or opens a new one - without this, tapping a notification on some

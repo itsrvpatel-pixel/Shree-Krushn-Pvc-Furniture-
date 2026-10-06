@@ -782,7 +782,14 @@ async function requestPermissionAndGetToken() {
 function onForegroundMessage(callback) {
   let stopped = false;
   let inner = null;
-  import("firebase/messaging").then(({ getMessaging, onMessage }) => {
+  import("firebase/messaging").then(async ({ getMessaging, onMessage, isSupported }) => {
+    if (stopped) return;
+    // Asked first. getMessaging THROWS on a browser without the APIs,
+    // and while that throw was already caught, it still puts
+    // "messaging/unsupported-browser" in the console of every phone
+    // that cannot do push - which is a lot of them, and reads like a
+    // fault when it is not one.
+    if (!(await isSupported())) return;
     if (stopped) return;
     try {
       const messaging = getMessaging(app);

@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  normalizeError, errorFingerprint, shouldReport, installErrorReporting, groupErrors,
+  normalizeError, errorFingerprint, shouldReport, installErrorReporting, groupErrors, isNoise,
   DEDUPE_MS, MAX_PER_SESSION, MAX_MESSAGE, MAX_STACK,
 } from '../src/errorLog.js';
 
@@ -135,6 +135,32 @@ t('the admin sees one line per bug, newest first', () => {
   assert.equal(g[1].sample.message, 'something else');
   assert.deepEqual(groupErrors(null), []);
   assert.deepEqual(groupErrors([null, {}, { at: 1 }]), [], 'junk rows become lines in the list');
+});
+
+t('things that are not faults never reach the list', () => {
+  // A list full of noise is a list nobody reads, and this one is read
+  // rarely by definition. The real one he hit: a phone that cannot do
+  // web push is a fact about the phone, not a bug to fix.
+  assert.equal(isNoise("Messaging: This browser doesn't support the API's required to use the Firebase SDK. (messaging/unsupported-browser)."), true);
+  assert.equal(isNoise('Script error.'), true);
+  assert.equal(isNoise('ResizeObserver loop completed with undelivered notifications.'), true);
+  // And nothing real is swallowed by it.
+  for (const real of ['Cannot read properties of undefined', 'permission-denied',
+                      'job_1837 not found', 'Network request failed', '']) {
+    assert.equal(isNoise(real), false, real);
+  }
+  // Wired into the decision, not just exported.
+  assert.equal(shouldReport('fp', {}, NOW, 0, { message: 'messaging/unsupported-browser' }), false);
+  assert.equal(shouldReport('fp', {}, NOW, 0, { message: 'a real bug' }), true);
+
+  const handlers = {};
+  const win = { addEventListener: (k, f) => { handlers[k] = f; }, removeEventListener: () => {} };
+  const sent = [];
+  installErrorReporting(win, (r) => sent.push(r), () => ({}));
+  handlers.error({ error: new Error('x (messaging/unsupported-browser).') });
+  assert.equal(sent.length, 0, 'the guard still files noise');
+  handlers.error({ error: new Error('a real one') });
+  assert.equal(sent.length, 1);
 });
 
 t('the app is actually wired to it, and the rules allow it', () => {

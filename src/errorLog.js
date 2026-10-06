@@ -67,6 +67,32 @@ export function errorFingerprint(report) {
   return (r.scope || '-') + '|' + (r.kind || '-') + '|' + msg;
 }
 
+// Errors that are not faults, and must never reach the list.
+//
+// A list full of noise is a list nobody reads, and this one is read
+// rarely by definition - so one useless line repeated is enough to
+// make the real bug underneath it invisible. Every entry here has to
+// earn its place: it must be something the app cannot fix and the
+// owner cannot act on.
+//
+//   messaging/unsupported-browser - plenty of phones cannot do web
+//     push. That is a fact about the phone, not a fault.
+//   Script error. - what a browser reports for a cross-origin script
+//     failure. No message, no file, no line. Unactionable by
+//     construction.
+//   ResizeObserver loop - fired by browsers during normal layout and
+//     harmless; famous for flooding exactly this kind of list.
+const NOISE = [
+  /messaging\/unsupported-browser/i,
+  /^Script error\.?$/i,
+  /ResizeObserver loop/i,
+];
+
+export function isNoise(message) {
+  const m = String(message || '');
+  return NOISE.some((re) => re.test(m));
+}
+
 // Worth sending? The caps are the whole point of this module.
 //
 // `seen` is a plain object of fingerprint -> last sent time, owned by
@@ -78,6 +104,7 @@ export function shouldReport(fingerprint, seen, now, count, opts) {
   const cap = typeof o.maxPerSession === 'number' ? o.maxPerSession : MAX_PER_SESSION;
   if (!fingerprint) return false;
   if (count >= cap) return false;
+  if (o.message !== undefined && isNoise(o.message)) return false;
   const last = seen && seen[fingerprint];
   if (typeof last === 'number' && now - last < gap) return false;
   return true;
@@ -99,7 +126,7 @@ export function installErrorReporting(win, send, context) {
     try {
       const report = normalizeError(err, { ...ctx(), ...extra });
       const fp = errorFingerprint(report);
-      if (!shouldReport(fp, seen, report.at, count)) return;
+      if (!shouldReport(fp, seen, report.at, count, { message: report.message })) return;
       seen[fp] = report.at;
       count += 1;
       Promise.resolve(send(report)).catch(() => {});
