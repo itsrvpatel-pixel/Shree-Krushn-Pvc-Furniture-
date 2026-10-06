@@ -39,6 +39,19 @@ t('there is a committed snapshot to fall back on', () => {
   }
 });
 
+t('the live read needs no sign-in', () => {
+  // It used to mint an anonymous token first. Anonymous sign-in is off
+  // now - it was how anyone on the internet could read every customer
+  // record - so that call returns 400 and the build falls back to the
+  // snapshot on EVERY run: seventeen reviews on the site forever, with
+  // nothing anywhere saying so. The fallback working is what made it
+  // invisible, which is why this is pinned.
+  assert.ok(!/accounts:signUp/.test(build),
+    'the build signs in again - anonymous sign-in is disabled, so every build '
+    + 'will silently ship the committed snapshot instead of the real reviews');
+  assert.ok(!/Authorization/.test(build), 'the reviews read still sends a token');
+});
+
 t('the fallback is wired to that file, not to an empty array', () => {
   assert.ok(/reviews\.json/.test(build), 'the build does not read the snapshot');
   assert.ok(/using the committed snapshot/.test(build), 'the fallback path is gone');

@@ -65,25 +65,30 @@ const esc = (v) => String(v == null ? '' : v)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
-async function liveReviews() {
-  const KEY = 'AIzaSyBOlInlieBdYitFR9VYpkqyO7OkzPCLtGY';
-  const stamp = 'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + KEY;
-  const docUrl = 'https://firestore.googleapis.com/v1/projects/shree-krushn-pvc-furniture'
-    + '/databases/(default)/documents/app_data/featured_reviews';
-  const auth = await fetch(stamp, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ returnSecureToken: true }),
-  });
-  if (!auth.ok) throw new Error('auth ' + auth.status);
-  const { idToken } = await auth.json();
-  const res = await fetch(docUrl, { headers: { Authorization: 'Bearer ' + idToken } });
-  if (!res.ok) throw new Error('read ' + res.status);
-  const body = await res.json();
+const REVIEWS_DOC = 'https://firestore.googleapis.com/v1/projects/shree-krushn-pvc-furniture'
+  + '/databases/(default)/documents/app_data/featured_reviews';
+
+function parseReviewsDoc(body) {
   const raw = body && body.fields && body.fields.value && body.fields.value.stringValue;
   const list = raw ? JSON.parse(raw) : [];
   if (!Array.isArray(list) || list.length === 0) throw new Error('empty list');
   return list;
+}
+
+// No sign-in. featured_reviews is on the public list in the per-customer
+// Firestore rules - the same list the app reads before anybody logs in -
+// so the build can just ask for it.
+//
+// It used to mint an anonymous token first. Anonymous sign-in is now
+// turned off (it was the way anyone on the internet could read every
+// customer record), so that call returns 400 and every build quietly
+// fell back to the committed snapshot: the site still had seventeen
+// reviews and would have had seventeen forever, with no error anywhere
+// that said so. The fallback working is exactly what made it invisible.
+async function liveReviews() {
+  const res = await fetch(REVIEWS_DOC);
+  if (!res.ok) throw new Error('read ' + res.status);
+  return parseReviewsDoc(await res.json());
 }
 
 let reviews;
