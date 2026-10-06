@@ -106,13 +106,33 @@ const figure = (r) =>
   + '</blockquote><figcaption>' + esc(r.customerName) + '</figcaption></figure>';
 
 // Seventeen reviews in one phone column ran to four screens, which
-// buried the "book a free visit" button underneath them. The first
-// eight are open; the rest sit in a <details>, so they are still in
-// the HTML for Google to read and one tap away for a person, without
-// pushing the thing the page is actually for off the bottom.
-const SHOWN = 8;
-const first = reviews.slice(0, SHOWN);
-const rest = reviews.slice(SHOWN);
+// buried the "book a free visit" button underneath them. Six are
+// open; the rest sit in a <details>, so they are still in the HTML
+// for Google to read and one tap away for a person, without pushing
+// the thing the page is actually for off the bottom. Six, not eight,
+// on the owner's instruction: "5 to 6 bahar dikhao fir jyada dekhna
+// ho to option do to bada bada jyada na lage."
+//
+// Count alone did not do it. One customer wrote three paragraphs -
+// 849 characters, 628px on a phone, taller than the other five put
+// together, and on a desktop it filled a whole masonry column and
+// left the third one empty. So the six out front are the six newest
+// SHORT ones, and the long ones go in with the rest. Nothing is
+// clipped and nobody's words are cut - every review is still on the
+// page in full, this only decides which six sit outside the fold.
+// If there are not six short ones, long ones fill the gap rather
+// than the row coming up short.
+const SHOWN = 6;
+const LONG = 400;
+const short = reviews.filter((r) => r.text.length <= LONG);
+const first = short.slice(0, SHOWN);
+if (first.length < SHOWN) {
+  for (const r of reviews) {
+    if (first.length >= SHOWN) break;
+    if (!first.includes(r)) first.push(r);
+  }
+}
+const rest = reviews.filter((r) => !first.includes(r));
 const figures = '<div class="revs">' + first.map(figure).join('') + '</div>'
   + (rest.length
     ? '<details class="more-revs"><summary>' + rest.length + ' more reviews</summary>'

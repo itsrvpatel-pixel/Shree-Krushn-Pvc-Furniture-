@@ -52,6 +52,24 @@ t('reviews are escaped before going into HTML', () => {
     'review text or name reaches the page unescaped');
 });
 
+t('six out front, and not one review dropped on the way', () => {
+  // Six on his instruction: "5 to 6 bahar dikhao fir jyada dekhna ho
+  // to option do to bada bada jyada na lage."
+  assert.ok(/const SHOWN = 6;/.test(build), 'the number shown out front has changed');
+  // The six are the newest SHORT ones, because one 849-character
+  // review was taller on a phone than the other five together.
+  assert.ok(/const LONG = \d+;/.test(build) && /r\.text\.length <= LONG/.test(build),
+    'the long-review split is gone - one three-paragraph review will dominate the block again');
+  // Whatever that picking does, the leftovers are everything not
+  // picked. Computed this way it cannot silently lose a review, which
+  // slicing by index twice can.
+  assert.ok(/const rest = reviews\.filter\(\(r\) => !first\.includes\(r\)\);/.test(build),
+    'the rest are no longer derived from what was shown - reviews can go missing');
+  // And if there are not six short ones, the row fills up rather than
+  // coming up short.
+  assert.ok(/if \(first\.length < SHOWN\)/.test(build), 'the fill-up for too few short reviews is gone');
+});
+
 t('only what is shown is marked up for Google', () => {
   // Structured data for reviews a visitor cannot see is what gets a
   // site penalised, so the markup is built from the same list.
