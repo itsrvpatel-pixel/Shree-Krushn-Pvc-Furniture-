@@ -4056,26 +4056,24 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
     const normalized = normalizeIndianPhone(phone);
     if (forMode === 'register' && !name.trim()) { setError(t('Naam daalein')); return; }
     if (!normalized) { setError(t('Sahi 10-digit mobile number daalein (jaise 98765 43210)')); return; }
-    // Fetches just this one customer's document instead of scanning a
-    // list of everyone. Customer documents are keyed by phone precisely so
-    // this lookup is possible without reading anybody else's record - which
-    // is what lets the phase 3 rules allow it.
-    // A failed lookup is NOT "no such customer". Treating the two the
-    // same told registered people their number was not registered the
-    // moment their signal dropped, and let a second account be created
-    // for a phone that already had one.
-    let existing;
-    try {
-      existing = await window.customersStore.getOne(normalized);
-    } catch (e) {
-      console.error('customer lookup failed', e);
-      setError('Could not reach the server. Check your internet and try again.');
-      return;
-    }
-    if (forMode === 'login' && !existing) {
-      setError(t('Ye number register nahi hai. Pehle register karein.')); return;
-    }
-    if (forMode === 'register' && existing) { onCustomerLogin(existing); return; }
+    // Nothing is looked up before the OTP any more, and that is the
+    // point. Two reasons, one of them serious.
+    //
+    // The serious one: this used to end with "if they picked Register
+    // and the number already exists, log them in" - with no OTP at all.
+    // Type a number you know is a customer's, tap Register, and you
+    // were inside their account, reading their address and what they
+    // had paid. The check that was meant to stop a duplicate account
+    // was a way straight past the front door.
+    //
+    // The other: with the per-customer rules published, reading
+    // customers/<phone> while still signed out is denied, so this
+    // lookup would fail for everyone and nobody could log in at all.
+    //
+    // Both go away by asking the same question one step later. After
+    // the OTP the caller is signed in and their token carries the
+    // number, so the lookup is both allowed and trustworthy. See
+    // verifyOtp.
     if (REAL_PHONE_AUTH) {
       setSendingOtp(true);
       const result = await window.phoneAuth.sendOtp('+91' + normalized, 'recaptcha-container');
@@ -4116,20 +4114,32 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
     } else if (otpInput.trim() !== sentOtp) {
       setError(t('Galat OTP - dobara check karein')); return;
     }
+    // One lookup, after the number is proven, for both buttons. A
+    // failed lookup is NOT "no such customer" - treating the two the
+    // same told registered people their number was not registered the
+    // moment their signal dropped, and let a second account be created
+    // for a phone that already had one.
+    let found;
+    try {
+      found = await window.customersStore.getOne(pendingPhone);
+    } catch (e) {
+      console.error('customer lookup failed', e);
+      setError('Could not reach the server. Check your internet and try again.');
+      return;
+    }
+
+    // Already a customer: in, whichever button they pressed. Someone
+    // who taps Register with a number that is already on file is not
+    // trying to do anything clever, they just forgot - and they have
+    // now proved the number is theirs, which is what was missing
+    // before.
+    if (found) { onCustomerLogin(found); return; }
+
     if (otpStage === 'register') {
       onRegister({ id: uid(), name: name.trim(), phone: pendingPhone, phoneVerified: true, referredBy: referredBy.trim() || null, ...normalizeProfile(profile), createdAt: new Date().toISOString() });
-    } else {
-      let found;
-      try {
-        found = await window.customersStore.getOne(pendingPhone);
-      } catch (e) {
-        console.error('customer lookup failed', e);
-        setError('Could not reach the server. Check your internet and try again.');
-        return;
-      }
-      if (found) onCustomerLogin(found);
-      else setError(t('Ye number register nahi hai. Pehle register karein.'));
+      return;
     }
+    setError(t('Ye number register nahi hai. Pehle register karein.'));
   };
 
   const resendOtp = async () => {
