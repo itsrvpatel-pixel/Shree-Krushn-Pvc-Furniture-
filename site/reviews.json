@@ -1,104 +1,224 @@
 [
- {
-  "customerName": "Simi desai",
-  "rating": 5,
-  "text": "Good work Ravi Bhai and team my home furniture complete to time period",
-  "date": "2026-10-05T18:00:53.822Z"
- },
- {
-  "customerName": "Krunal chauhan",
-  "rating": 5,
-  "text": "Ravi bhai se kitchen wardrobe 2 Bhk ka kaam karvaya tha Design samjhne se lekar fitting tak pura kaam achhe se manage kiya Quality aur finishing dono bahut achhi hai Ravi bhai ka behaviour bhi bahut genuine aur cooperative tha or kam accha he",
-  "date": "2026-10-04T19:53:47.199Z"
- },
- {
-  "customerName": "Hitesh dantwani",
-  "rating": 5,
-  "text": "श्री कृष्ण फर्नीचर के साथ मेरा अनुभव शानदार रहा  गुणवत्ता, फिनिशिंग और सेवा तीनों बेहतरीन हैं टीम का काम बेहद प्रोफेशनल है",
-  "date": "2026-10-04T19:45:07.716Z"
- },
- {
-  "customerName": "Sanjay panjari",
-  "rating": 5,
-  "text": "Definitely recommended......👌👌👌👌",
-  "date": "2026-10-04T19:38:47.140Z"
- },
- {
-  "customerName": "Jignesh roy",
-  "rating": 5,
-  "text": "Shree Krushn Pvc Furniture se ghar ka furniture karvaya tha Kaam start karne se pehle unhone hamari requirement samjhi aur design ke regarding proper suggestion diya jo humein kaafi helpful laga\n\nKaam ke time team ka behaviour bhi achha raha. Pvc material ki quality aur finishing dono satisfactory hai Installation bhi properly kiya aur overall work neat aur clean rakha full transparent Beech mein jo chhote changes the usme bhi team ne properly cooperate kiya\n\nSabse achhi baat ye lagi ki jo commitment kiya tha uske according kaam complete kiya. Final furniture ka look bhi ghar mein kaafi achha aa raha hai Overall experience good raha aur future mein furniture ka kaam hoga to definitely Shree Krushn PVC Furniture ko consider karunga Ahmedabad mein PVC furniture ke liye recommended aap bhi apne home ka karva sakte he fully turnkey interiors",
-  "date": "2026-10-04T19:34:33.774Z"
- },
- {
-  "customerName": "Dipak dave",
-  "rating": 5,
-  "text": "Shree Krushn Pvc Furniture se kaam karvaya, experience bahut achha raha. Quality aur finishing dono ekdum mast hai Team bhi helpful aur cooperative hai Kaam time par aur properly complete kiya Highly recommended😊😊",
-  "date": "2026-10-04T19:27:14.809Z"
- },
- {
-  "customerName": "Meenakshi shah",
-  "rating": 5,
-  "text": "Got my home furniture work done from Shree Krushn PVC Furniture Really good experience overall They understood what we wanted and guided us properly with the design Work quality and finishing are very nice and the team was also friendly and cooperative",
-  "date": "2026-10-04T19:23:06.700Z"
- },
- {
-  "customerName": "Paresh vasani",
-  "rating": 5,
-  "text": "The work was completed properly and we are very happy with the final result. Definitely recommend them if you are looking for good PVC furniture work.👍",
-  "date": "2026-10-04T19:18:06.268Z"
- },
- {
-  "customerName": "Mukesh jasani",
-  "rating": 5,
-  "text": "The final result looks even better than we expected. If you’re looking for good-quality PVC furniture with neat finishing and reliable service, I would definitely recommend Shree Krushn PVC Furniture.",
-  "date": "2026-10-04T16:22:55.578Z"
- },
- {
-  "customerName": "Kinjal prajapati",
-  "rating": 5,
-  "text": "Full home work completed in just 1 month....\nPVC furniture,color,electric.pop...",
-  "date": "2026-10-04T16:14:41.918Z"
- },
- {
-  "customerName": "Sachin gohel",
-  "rating": 5,
-  "text": "1. Quality material \n2. Perfect finishing \n3. Smooth handling \n4. Good team work fast work\n5. Good behavior",
-  "date": "2026-10-04T16:06:39.416Z"
- },
- {
-  "customerName": "Piyush Kolvad",
-  "rating": 5,
-  "text": "Great work from shree krushn Pvc Furniture ☑️☑️",
-  "date": "2026-10-04T15:59:21.518Z"
- },
- {
-  "customerName": "Abhishek Kakadiya",
-  "rating": 5,
-  "text": "I find best Pvc Furniture in Ahmedabad and i found shree krushn Pvc Furniture for my home full furniture interiors and i was best furniture vendor find out in Ahmedabad",
-  "date": "2026-10-02T19:52:54.220Z"
- },
- {
-  "customerName": "Tulsi makvana",
-  "rating": 5,
-  "text": "Market me sabse best service provider he good services....",
-  "date": "2026-08-20T14:37:41.475Z"
- },
- {
-  "customerName": "Mehul",
-  "rating": 5,
-  "text": "Good work...👍",
-  "date": "2026-08-18T11:31:37.879Z"
- },
- {
-  "customerName": "Vasant Shah",
-  "rating": 5,
-  "text": "Complete ghar mate furniture karavyu ane overall experience saro rahyo",
-  "date": "2026-08-15T13:45:29.981Z"
- },
- {
-  "customerName": "Vaibhavi patel",
-  "rating": 5,
-  "text": "Ravi bhai team is very intelligent and super fast my home work completed in 12day and all team behaviour is lightly and during work all behaviour is very professional and practical",
-  "date": "2026-08-13T12:17:44.706Z"
- }
+  {
+    "customerName": "Simi desai",
+    "rating": 5,
+    "text": "Good work Ravi Bhai and team my home furniture complete to time period",
+    "date": "2026-10-05T18:00:53.822Z"
+  },
+  {
+    "customerName": "Krunal chauhan",
+    "rating": 5,
+    "text": "Ravi bhai se kitchen wardrobe 2 Bhk ka kaam karvaya tha Design samjhne se lekar fitting tak pura kaam achhe se manage kiya Quality aur finishing dono bahut achhi hai Ravi bhai ka behaviour bhi bahut genuine aur cooperative tha or kam accha he",
+    "date": "2026-10-04T19:53:47.199Z"
+  },
+  {
+    "customerName": "Hitesh dantwani",
+    "rating": 5,
+    "text": "श्री कृष्ण फर्नीचर के साथ मेरा अनुभव शानदार रहा  गुणवत्ता, फिनिशिंग और सेवा तीनों बेहतरीन हैं टीम का काम बेहद प्रोफेशनल है",
+    "date": "2026-10-04T19:45:07.716Z"
+  },
+  {
+    "customerName": "Sanjay panjari",
+    "rating": 5,
+    "text": "Definitely recommended......👌👌👌👌",
+    "date": "2026-10-04T19:38:47.140Z"
+  },
+  {
+    "customerName": "Jignesh roy",
+    "rating": 5,
+    "text": "Shree Krushn Pvc Furniture se ghar ka furniture karvaya tha Kaam start karne se pehle unhone hamari requirement samjhi aur design ke regarding proper suggestion diya jo humein kaafi helpful laga\n\nKaam ke time team ka behaviour bhi achha raha. Pvc material ki quality aur finishing dono satisfactory hai Installation bhi properly kiya aur overall work neat aur clean rakha full transparent Beech mein jo chhote changes the usme bhi team ne properly cooperate kiya\n\nSabse achhi baat ye lagi ki jo commitment kiya tha uske according kaam complete kiya. Final furniture ka look bhi ghar mein kaafi achha aa raha hai Overall experience good raha aur future mein furniture ka kaam hoga to definitely Shree Krushn PVC Furniture ko consider karunga Ahmedabad mein PVC furniture ke liye recommended aap bhi apne home ka karva sakte he fully turnkey interiors",
+    "date": "2026-10-04T19:34:33.774Z"
+  },
+  {
+    "customerName": "Dipak dave",
+    "rating": 5,
+    "text": "Shree Krushn Pvc Furniture se kaam karvaya, experience bahut achha raha. Quality aur finishing dono ekdum mast hai Team bhi helpful aur cooperative hai Kaam time par aur properly complete kiya Highly recommended😊😊",
+    "date": "2026-10-04T19:27:14.809Z"
+  },
+  {
+    "customerName": "Meenakshi shah",
+    "rating": 5,
+    "text": "Got my home furniture work done from Shree Krushn PVC Furniture Really good experience overall They understood what we wanted and guided us properly with the design Work quality and finishing are very nice and the team was also friendly and cooperative",
+    "date": "2026-10-04T19:23:06.700Z"
+  },
+  {
+    "customerName": "Paresh vasani",
+    "rating": 5,
+    "text": "The work was completed properly and we are very happy with the final result. Definitely recommend them if you are looking for good PVC furniture work.👍",
+    "date": "2026-10-04T19:18:06.268Z"
+  },
+  {
+    "customerName": "Mukesh jasani",
+    "rating": 5,
+    "text": "The final result looks even better than we expected. If you’re looking for good-quality PVC furniture with neat finishing and reliable service, I would definitely recommend Shree Krushn PVC Furniture.",
+    "date": "2026-10-04T16:22:55.578Z"
+  },
+  {
+    "customerName": "Kinjal prajapati",
+    "rating": 5,
+    "text": "Full home work completed in just 1 month....\nPVC furniture,color,electric.pop...",
+    "date": "2026-10-04T16:14:41.918Z"
+  },
+  {
+    "customerName": "Sachin gohel",
+    "rating": 5,
+    "text": "1. Quality material \n2. Perfect finishing \n3. Smooth handling \n4. Good team work fast work\n5. Good behavior",
+    "date": "2026-10-04T16:06:39.416Z"
+  },
+  {
+    "customerName": "Piyush Kolvad",
+    "rating": 5,
+    "text": "Great work from shree krushn Pvc Furniture ☑️☑️",
+    "date": "2026-10-04T15:59:21.518Z"
+  },
+  {
+    "customerName": "Abhishek Kakadiya",
+    "rating": 5,
+    "text": "I find best Pvc Furniture in Ahmedabad and i found shree krushn Pvc Furniture for my home full furniture interiors and i was best furniture vendor find out in Ahmedabad",
+    "date": "2026-10-02T19:52:54.220Z"
+  },
+  {
+    "customerName": "Delvadiya Kaushik",
+    "rating": 5,
+    "text": "Design bahot thi choose karne ke liye or main to mere pass time nahi tha ravi bhai ne mere time ke andar Pura ghar complete kar diya muje dekhna bhi nahi pada unho ne Pura apne hisab se jaldi complete kar diya perfection ke sath mera ye experience bahot achha raha jaisa planning kiya tha vaise complete ho gaya pura home⭐️⭐️⭐️⭐️⭐️",
+    "date": "2026-09-30T15:12:09.038Z"
+  },
+  {
+    "customerName": "Kevin Panchal",
+    "rating": 5,
+    "text": "Awesome 👍👍👍👍👌👌",
+    "date": "2026-09-30T14:12:28.220Z"
+  },
+  {
+    "customerName": "Sweta dave",
+    "rating": 5,
+    "text": "Awesome work,perfect finishing,elegant design,modern touch,professional team,lot of designs and finishes options for selection,experienced craft men,overall satisfied 😊",
+    "date": "2026-09-30T13:42:43.380Z"
+  },
+  {
+    "customerName": "Anil kashyap",
+    "rating": 5,
+    "text": "Me 3 year se use kar raha hu sab kush perfect he hardware quality achhi he koi dikkat nahi aayi dusre logo ne dusre vendor se karvaya tha but unko kafi problem aayi or solution bhi nahi mil paye koi ne service nahi diya but shree krushn valo ne service bhi achha diya he thank u🙏",
+    "date": "2026-09-30T13:23:22.175Z"
+  },
+  {
+    "customerName": "Priya mangaroliya",
+    "rating": 5,
+    "text": "Good work good quality good behavior good team👍👌",
+    "date": "2026-09-30T07:09:50.808Z"
+  },
+  {
+    "customerName": "Sudhir patel",
+    "rating": 5,
+    "text": "This agency give work fast and perfect my home my expected time se pehle complete ho gaya i prefer this agency",
+    "date": "2026-09-30T06:54:16.614Z"
+  },
+  {
+    "customerName": "Karan shah",
+    "rating": 5,
+    "text": "Good experience raha hamara pure ghar ka home interior ek hi team ke sath sab kam smooth raha",
+    "date": "2026-09-30T06:50:10.056Z"
+  },
+  {
+    "customerName": "Tulsi makvana",
+    "rating": 5,
+    "text": "Market me sabse best service provider he good services....",
+    "date": "2026-08-20T14:37:41.475Z"
+  },
+  {
+    "customerName": "Mehul",
+    "rating": 5,
+    "text": "Good work...👍",
+    "date": "2026-08-18T11:31:37.879Z"
+  },
+  {
+    "customerName": "Ankur Hingrajiya",
+    "rating": 5,
+    "text": "Im from dhodka and aamni team ahmedabad thi aavine dhodka ma complete kam kari aapyu time to time and puri team professional chhe and experienced team chhe price bhi reasonable chhe service pramane .....",
+    "date": "2026-08-15T13:50:09.203Z"
+  },
+  {
+    "customerName": "Vasant Shah",
+    "rating": 5,
+    "text": "Complete ghar mate furniture karavyu ane overall experience saro rahyo",
+    "date": "2026-08-15T13:45:29.981Z"
+  },
+  {
+    "customerName": "Sheetal kaur",
+    "rating": 5,
+    "text": "humne pure home ka Furniture karvaya tha pvc furniture color electric pop sab or sab kush time to time complete ho gaya unka staff sab sahi he karigar or venders sab overall good👍",
+    "date": "2026-08-15T13:33:08.051Z"
+  },
+  {
+    "customerName": "Dipti modha",
+    "rating": 5,
+    "text": "Good and perfect finis and awesome service 🙏",
+    "date": "2026-08-15T13:20:37.375Z"
+  },
+  {
+    "customerName": "Sachin oza",
+    "rating": 5,
+    "text": "I would especially recommend Shree Krushn PVC Furniture to anyone who is looking for more than just a furniture vendor. Their combination of furniture work, professional project management and digital system gives the whole experience a proper brand-level feel",
+    "date": "2026-08-15T13:16:06.384Z"
+  },
+  {
+    "customerName": "Sweta Rathod",
+    "rating": 5,
+    "text": "Had a very smooth experience with Shree Krushn PVC Furniture. Their web app makes the process much easier, especially for managing enquiries, designs and work updates. We got our kitchen, wardrobes, TV unit, dressing and other furniture done through them. Good quality work and very neat finishing",
+    "date": "2026-08-15T12:54:23.457Z"
+  },
+  {
+    "customerName": "Jatin patel",
+    "rating": 5,
+    "text": "શ્રી કૃષ્ણ પીવીસી ફર્નિચર પાસેથી અમારા આખા ઘરના ફર્નિચરનું કામ કરાવ્યું. રસોડું વોર્ડરોબ ટીવી યુનિટ, ડ્રેસિંગ ટેબલ, મંદિર અને અન્ય ફર્નિચરનું કામ એક જ જગ્યાએ કરાવ્યું શરૂઆતથી અંત સુધી ટીમે સારી રીતે માર્ગદર્શન આપ્યું કામની સફાઈ અને પૂર્ણતા ખૂબ સારી છે અમને કામથી ખૂબ સંતોષ થયો",
+    "date": "2026-08-15T12:48:29.021Z"
+  },
+  {
+    "customerName": "Ajit solanki",
+    "rating": 5,
+    "text": "Achha experience raha....",
+    "date": "2026-08-13T12:42:55.501Z"
+  },
+  {
+    "customerName": "Anup nai",
+    "rating": 5,
+    "text": "Sab material good quality ka use kiya he or mera kam karne ke bad mere baju ke 3 bunglow complete kiya he sab ka response bahut achha he shree krushn pvc furniture service bahut achha raha",
+    "date": "2026-08-13T12:40:46.264Z"
+  },
+  {
+    "customerName": "Prashant patel",
+    "rating": 5,
+    "text": "Quality work and branded materials and good finishes",
+    "date": "2026-08-13T12:37:47.064Z"
+  },
+  {
+    "customerName": "Jayesh shrimali",
+    "rating": 4,
+    "text": "Perfect finishing and lots of options",
+    "date": "2026-08-13T12:35:41.684Z"
+  },
+  {
+    "customerName": "Mihir Patel",
+    "rating": 5,
+    "text": "I had an amazing experience with this company..!! Great work.",
+    "date": "2026-08-13T12:32:05.223Z"
+  },
+  {
+    "customerName": "Yagnik yogi",
+    "rating": 5,
+    "text": "very good work and staff is very polite.. very satisfied work",
+    "date": "2026-08-13T12:27:59.190Z"
+  },
+  {
+    "customerName": "Rakesh gandhi",
+    "rating": 5,
+    "text": "Outstanding laminated PVC work done by Ravi Bhai and his team. It looks like wooden furniture.\n1.Used best quality materials\n2.Skillled workers",
+    "date": "2026-08-13T12:25:47.223Z"
+  },
+  {
+    "customerName": "Vaibhavi patel",
+    "rating": 5,
+    "text": "Ravi bhai team is very intelligent and super fast my home work completed in 12day and all team behaviour is lightly and during work all behaviour is very professional and practical",
+    "date": "2026-08-13T12:17:44.706Z"
+  }
 ]
