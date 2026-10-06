@@ -238,6 +238,7 @@ export const EN = {
   'Kabhi nahi khola': 'Never opened it',
   'App Mein Kya Toota': 'What broke in the app',
   'Errors Dekhein': 'Show errors',
+  'Test error bhejein': 'Send a test error',
   'Dekh raha hai...': 'Looking...',
   'Ek bhi error nahi. Sab theek chal raha hai.': 'Not a single error. Everything is running fine.',
   'List saaf karein': 'Clear the list',

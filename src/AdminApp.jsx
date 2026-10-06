@@ -4831,6 +4831,13 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
   const [errorRows, setErrorRows] = useState(null);
   const [loadingErrors, setLoadingErrors] = useState(false);
 
+  const sendTestError = () => {
+    // Deliberately not awaited and deliberately not caught: this must
+    // travel exactly the route a real unhandled rejection travels.
+    Promise.reject(new Error('Test error - Settings se bheja gaya'));
+    showToast('Test error bhej diya. 2 second baad "Errors Dekhein" dabayein.');
+  };
+
   const loadErrors = async () => {
     setLoadingErrors(true);
     try {
@@ -5683,6 +5690,15 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <div style={styles.plainTextMuted}>Kisi bhi phone par - aapka, customer ka, karigar ka - app mein koi error aaye to wo yahan aa jaata hai. Ek hi bug baar baar ho to ek hi line banti hai, ginti ke saath.</div>
           <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={loadErrors} disabled={loadingErrors}>
             <AlertTriangle size={14} /> {loadingErrors ? t('Dekh raha hai...') : t('Errors Dekhein')}
+          </button>
+          {/* An error reporter nobody has ever seen work is an error
+              reporter nobody should trust - and this one is silent by
+              design, so a broken chain stays broken quietly. This
+              throws a real unhandled rejection rather than calling the
+              writer directly, so it exercises the whole path: the
+              window listener, the dedupe, the rules, the write. */}
+          <button style={{ ...styles.addBtn, marginTop: 6 }} onClick={sendTestError} disabled={loadingErrors}>
+            <Send size={13} /> {t('Test error bhejein')}
           </button>
           {errorRows !== null && (
             <div style={{ marginTop: 10 }}>
