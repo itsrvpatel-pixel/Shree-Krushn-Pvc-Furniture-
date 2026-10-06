@@ -549,17 +549,26 @@ export function paymentProgress(total, paid, stages, status, statusOrder) {
   });
 }
 
+// Whether to offer writing a review at all. Asking somebody to rate
+// work that is still half-built gets you a rating of the waiting, not
+// of the furniture - so the invitation only appears once the job is
+// delivered. A review already on file keeps the row alive whatever the
+// status, because the customer must be able to go back and change it.
+// Reading other people's reviews is NOT gated by this: that is the
+// part a customer wants early, while they are still deciding.
+export function canLeaveReview(job) {
+  if (!job) return false;
+  if (job.review) return true;
+  return job.status === 'delivered' || job.status === 'paid';
+}
+
 // What the review row should say, wherever it is shown. Home and More
-// both offer it now, and writing the three cases out twice is how the
-// two drift apart - which is the exact bug class cleaned up elsewhere
-// in this app today.
+// both offer it, and writing the cases out twice is how the two drift
+// apart - which is the exact bug class cleaned up elsewhere in this
+// app. Only called where canLeaveReview(job) is already true.
 export function reviewPrompt(job) {
   if (job && job.review) return { title: 'Aapka Review', sub: 'Badalna ho to yahan se' };
-  const finished = job && (job.status === 'delivered' || job.status === 'paid');
-  return {
-    title: 'Review Dein',
-    sub: finished ? 'Aapka anubhav kaisa raha?' : 'Kaam poora hone ke baad yahan se',
-  };
+  return { title: 'Review Dein', sub: 'Aapka anubhav kaisa raha?' };
 }
 
 // "5.0 stars - from 17 customers", worked out once. The same line is

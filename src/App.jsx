@@ -38,11 +38,11 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, reviewsSummary, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, reviewsSummary, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -4932,12 +4932,16 @@ export function MoreScreen({ customer, job, testimonials, onOpenProfile, onOpenS
         onClick={onOpenProfile}
       />
 
-      <MoreRow
-        icon={<Star size={18} color={BRAND.navy} />}
-        title={t(reviewPrompt(job).title)}
-        sub={t(reviewPrompt(job).sub)}
-        onClick={onOpenReview}
-      />
+      {/* Same rule as Home: the invitation to write one only exists
+          once there is finished work to write about. */}
+      {canLeaveReview(job) && (
+        <MoreRow
+          icon={<Star size={18} color={BRAND.navy} />}
+          title={t(reviewPrompt(job).title)}
+          sub={t(reviewPrompt(job).sub)}
+          onClick={onOpenReview}
+        />
+      )}
 
       <div style={styles.moreGroupLabel}>{t('Jaankari')}</div>
       {/* Reading other customers' reviews and leaving your own are two
@@ -5193,28 +5197,24 @@ export function CustomerHome({ job, customer, testimonials, setTab, onOpenCalcul
           <HomeAction icon={<Calculator size={17} color={BRAND.navy} />} title='Instant estimate'
             sub={t('Apne naap se khud andaza lagayein')} onClick={onOpenCalculator} />
         )}
-        {/* Always, not only after delivery. It used to appear on this
-            screen at the one moment it was usable and be invisible
-            the rest of the time, so customers who went looking for it
-            could not find it and simply never left one. The gate
-            itself has not moved - ReviewPanel still says a review
-            comes after the work is done - but now the door is in the
-            same place all the way through, and the sub-line says when
-            it opens instead of the row just not being there. */}
         {/* Reading what other people said belongs on the main screen,
             not only in a menu - it is the thing that decides a
-            customer who is still weighing it up. Directly above
-            leaving one, because they are the same subject. */}
+            customer who is still weighing it up, so it is here from
+            day one. Writing one is the opposite: it only appears once
+            the work is delivered. A row that says "come back later"
+            is a row that teaches people to stop tapping it. */}
         {rv.count > 0 && onOpenReviews && (
           <HomeAction icon={<Star size={17} color={BRAND.gold} />}
             title={t('Customer Reviews')}
             sub={tf('{avg} stars - {n} logon ne likha', { avg: rv.avg, n: rv.count })}
             onClick={onOpenReviews} />
         )}
-        <HomeAction icon={<Star size={17} color={BRAND.navy} />}
-          title={t(reviewPrompt(job).title)}
-          sub={t(reviewPrompt(job).sub)}
-          onClick={() => setTab('review')} />
+        {canLeaveReview(job) && (
+          <HomeAction icon={<Star size={17} color={BRAND.navy} />}
+            title={t(reviewPrompt(job).title)}
+            sub={t(reviewPrompt(job).sub)}
+            onClick={() => setTab('review')} />
+        )}
       </div>
     </div>
   );
