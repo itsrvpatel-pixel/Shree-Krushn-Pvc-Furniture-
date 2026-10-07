@@ -258,6 +258,9 @@ const ld = {
 {
   const HOST = 'https://www.shreekrushnpvcfurniture.site';
   const SHARE = [
+    { slug: 'book', img: 'go-book', tab: 'visit',
+      title: 'Free site visit book karein - Shree Krushn PVC Furniture',
+      desc: 'Apna time chunein. Naap lekar exact rate batayenge - koi charge nahi.' },
     { slug: 'visit', img: 'go-visit', tab: 'visit',
       title: 'Aapki visit confirm hai - Shree Krushn PVC Furniture',
       desc: 'Visit ka time, address aur aapke kaam ki poori jaankari app mein dekhein.' },

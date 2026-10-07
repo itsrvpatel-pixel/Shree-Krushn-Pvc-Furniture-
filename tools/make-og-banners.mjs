@@ -25,6 +25,8 @@ const GOLD = '#A8975F';
 const CREAM = '#F8FAFB';
 
 const CARDS = [
+  { name: 'go-book', kicker: 'Free Site Visit', title: 'Free site visit book karein',
+    sub: 'Naap lekar exact rate batayenge - koi charge nahi' },
   { name: 'go-visit', kicker: 'Site Visit', title: 'Aapki visit confirm hai',
     sub: 'Time, address aur poori jaankari app mein dekhein' },
   { name: 'go-estimate', kicker: 'Estimate', title: 'Aapka estimate taiyaar hai',

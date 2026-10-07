@@ -824,5 +824,9 @@ export function visitFollowUp(job, name) {
   if (s === 'estimate') {
     return { intent: 'estimate', text: who + '\n\nAapka estimate taiyaar kar rahe hain. Kuch khaas chahiye ho to abhi bata dijiye, usi hisaab se bana denge.' };
   }
-  return { intent: 'visit', text: who + '\n\nAapne app dekha - achha laga. Free site visit ka time tay kar lein? Naap lekar exact rate bata denge, koi charge nahi.' };
+  // 'book', not 'visit'. This message ASKS them to book one; the
+  // visit card says "Aapki visit confirm hai", which would tell a
+  // customer their visit is booked at the exact moment we are
+  // asking them to book it.
+  return { intent: 'book', text: who + '\n\nAapne app dekha - achha laga. Free site visit ka time tay kar lein? Naap lekar exact rate bata denge, koi charge nahi.' };
 }

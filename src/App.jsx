@@ -1519,7 +1519,7 @@ export async function shareEstimatePdf(job, elementId, showToast) {
 // An unknown intent falls back to the general page rather than
 // building a URL for a page that was never generated: a share link
 // that 404s is worse than a generic preview.
-export const SHARE_INTENTS = ['visit', 'estimate', 'payment', 'work', 'designs'];
+export const SHARE_INTENTS = ['book', 'visit', 'estimate', 'payment', 'work', 'designs'];
 
 export function appLink(intent) {
   const slug = SHARE_INTENTS.includes(intent) ? intent : 'app';
@@ -1529,6 +1529,7 @@ export function appLink(intent) {
 const WA_INVITE = {
   estimate: 'Poora estimate, item-wise rate aur payment schedule yahan dekhein:',
   payment: 'Kitna diya aur kitna baaki hai, poora hisaab yahan dekhein:',
+  book: 'Apna time chunein, free site visit book karein:',
   visit: 'Visit ki jaankari aur apna kaam yahan dekhein:',
   designs: '500+ designs dekhein, jo pasand aaye save kar lein:',
   work: 'Kaam ki roz ki photos aur progress yahan dekhein:',

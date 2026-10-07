@@ -33,7 +33,8 @@ t('the link matches what the message is about', () => {
   assert.equal(visitFollowUp({ status: 'in_progress' }).intent, 'work');
   assert.equal(visitFollowUp({ status: 'delivered' }).intent, 'work');
   assert.equal(visitFollowUp({ status: 'estimate' }).intent, 'estimate');
-  assert.equal(visitFollowUp({ status: 'appointment' }).intent, 'visit');
+  assert.equal(visitFollowUp({ status: 'appointment' }).intent, 'book',
+    'an invitation to book shows the "visit confirmed" card');
 });
 
 t('an estimate already sent changes the ask', () => {
