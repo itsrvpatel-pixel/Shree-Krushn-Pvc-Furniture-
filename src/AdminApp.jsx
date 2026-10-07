@@ -453,7 +453,12 @@ function buildPaymentReminderText(job) {
   lines.push('');
   lines.push(t('Aap jab bhi bhej dein, bata dijiyega - hum receipt bhej denge.'));
   lines.push(t('Koi sawaal ho to poochh lijiye.'));
-  lines.push(...waSignOffLines('estimate'));
+  // 'payment', not 'estimate'. This signed off as an estimate, so a
+  // customer being asked for money got a WhatsApp card that said
+  // "Aapka estimate taiyaar hai" - the wrong thing to show someone
+  // reading a bill, and the sort of mistake that is invisible in the
+  // code and only appears on their phone.
+  lines.push(...waSignOffLines('payment'));
   return lines.join(NEWLINE);
 }
 

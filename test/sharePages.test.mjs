@@ -101,14 +101,44 @@ t('every message in the app has a card that was actually built', () => {
   }
 });
 
-t('no message is sent under an intent that means something else', () => {
-  // The specific one he caught. Pinned by name because "it links to
-  // the estimate page" is invisible in the code and only shows up in
-  // WhatsApp, on the customer's phone, after it has been sent.
+t('each message builder signs off as the thing it is about', () => {
+  // The one he caught, and the reason it needed catching twice: the
+  // first fix was the payment line inside a job screen, while the
+  // real payment REMINDER - the one sent from the Due Payments list -
+  // is built in its own function and was still signing off as an
+  // estimate. A customer reading a bill saw a card saying "Aapka
+  // estimate taiyaar hai".
+  //
+  // Checked by function, because that is the unit a message actually
+  // is. Searching for the intent string anywhere in the file passes
+  // happily while the wrong builder uses the wrong one.
   const admin = readFileSync(new URL('../src/AdminApp.jsx', import.meta.url), 'utf8');
-  const payment = admin.slice(admin.indexOf('Payment due hai'), admin.indexOf('Payment due hai') + 400);
-  assert.ok(/waSignOff\('payment'\)/.test(payment),
-    'the payment message is signed off with another intent again - the customer sees the wrong card');
+  const bodyOf = (src, name) => {
+    const i = src.indexOf('function ' + name + '(');
+    assert.ok(i > 0, 'cannot find ' + name + ' - the message builders have moved');
+    return src.slice(i, src.indexOf('\n}', i));
+  };
+  const MUST = [
+    [admin, 'buildPaymentReminderText', 'payment'],
+    [app, 'buildEstimateWhatsAppText', 'estimate'],
+  ];
+  for (const [src, fn, intent] of MUST) {
+    const body = bodyOf(src, fn);
+    const found = [...body.matchAll(/waSignOff(?:Lines)?\('([a-z]+)'\)/g)].map((m) => m[1]);
+    assert.ok(found.length > 0, fn + ' no longer signs off at all - the message loses its link');
+    for (const got of found) {
+      assert.equal(got, intent,
+        fn + " signs off as '" + got + "' - the customer gets the " + got + ' card for a ' + intent + ' message');
+    }
+  }
+});
+
+t('the payment line inside a job screen is right too', () => {
+  const admin = readFileSync(new URL('../src/AdminApp.jsx', import.meta.url), 'utf8');
+  const i = admin.indexOf('Payment due hai');
+  assert.ok(i > 0, 'the in-job payment message is gone');
+  assert.ok(/waSignOff\('payment'\)/.test(admin.slice(i, i + 400)),
+    'the in-job payment message is signed off with another intent again');
 });
 
 console.log(n + ' assertions passed\n');
