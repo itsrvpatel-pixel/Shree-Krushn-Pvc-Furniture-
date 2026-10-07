@@ -19,13 +19,18 @@
       "permanent": false
     },
     {
+      "source": "/about-pvc-furniture",
+      "destination": "/kaka-pvc-furniture-ahmedabad",
+      "permanent": true
+    },
+    {
       "source": "/handmade-vase-ikigai1",
-      "destination": "/",
+      "destination": "/pvc-modular-kitchen-ahmedabad",
       "permanent": true
     },
     {
       "source": "/handmade-vase-shimai1",
-      "destination": "/",
+      "destination": "/pvc-wardrobe-ahmedabad",
       "permanent": true
     },
     {
