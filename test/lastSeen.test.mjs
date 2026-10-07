@@ -94,12 +94,19 @@ t('the stamp write can never delete another customer', () => {
 });
 
 t('the app only stamps behind the throttle', () => {
+  // The throttle moved inside recordVisit, which hands back the SAME
+  // object when a visit is too soon to record - so identity is the
+  // whole check now, and an app opened eight times in an hour costs
+  // one write rather than eight. Checked by behaviour above; here
+  // only that the app honours it.
   const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  assert.ok(/shouldTouchLastSeen\(mine\.lastSeenAt, Date\.now\(\)\)/.test(app),
+  assert.ok(/recordVisit\(mine, Date\.now\(\)\)/.test(app),
+    'the app no longer records the visit through recordVisit');
+  assert.ok(/if \(stamped !== mine\)/.test(app),
     'the visit stamp is no longer throttled - every app open would cost a write');
-  assert.ok(/saveDiff\(\[\{ \.\.\.mine, lastSeenAt: Date\.now\(\) \}\], \[mine\]\)/.test(app),
+  assert.ok(/saveDiff\(\[stamped\], \[mine\]\)/.test(app),
     'the stamp no longer writes the single record against itself');
-  assert.ok(/lastSeen stamp failed \(ignored\)/.test(app),
+  assert.ok(/visit stamp failed \(ignored\)/.test(app),
     'the stamp can now fail loudly - a background write nobody asked for must never break the app');
 });
 

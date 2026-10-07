@@ -746,3 +746,51 @@ export function appVisitGroups(customers, now) {
   out.never.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
   return out;
 }
+
+// Every visit, not just the last one.
+//
+// Kept as a capped list on the customer's own record rather than in a
+// new collection: a collection would need its own security rules
+// published, and this is a handful of numbers. Newest first, oldest
+// dropped off the end, so the document can never grow without limit -
+// a customer who opens the app every day for three years must not
+// turn into a document nobody can load.
+export const MAX_VISITS = 20;
+
+// Returns the customer unchanged when the visit is inside the
+// throttle window, so the caller can skip the write by identity.
+// lastSeenAt stays in step with visits[0] - everything built before
+// this reads that field, and two sources for one fact is how they
+// start disagreeing.
+export function recordVisit(customer, now, opts) {
+  if (!customer) return customer;
+  const o = opts || {};
+  const max = typeof o.max === 'number' ? o.max : MAX_VISITS;
+  const at = Number(now);
+  if (!Number.isFinite(at) || at <= 0) return customer;
+  if (!shouldTouchLastSeen(customer.lastSeenAt, at, o.gapMs)) return customer;
+  const prev = (Array.isArray(customer.visits) ? customer.visits : [])
+    .map(Number)
+    .filter((v) => Number.isFinite(v) && v > 0);
+  // A stamp already in the list means a clock that went backwards, or
+  // the same visit counted twice. Either way, not a second visit.
+  const next = prev.includes(at) ? prev : [at, ...prev];
+  next.sort((a, b) => b - a);
+  return { ...customer, lastSeenAt: next[0], visits: next.slice(0, max) };
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// "7 Oct, 9:40 am". Written out rather than left to toLocaleString so
+// it reads the same on every phone, and so a test can check it.
+export function visitStamp(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const d = new Date(n);
+  if (Number.isNaN(d.getTime())) return '';
+  const h24 = d.getHours();
+  const h = h24 % 12 === 0 ? 12 : h24 % 12;
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return d.getDate() + ' ' + MONTHS[d.getMonth()] + ', ' + h + ':' + m + (h24 < 12 ? ' am' : ' pm');
+}

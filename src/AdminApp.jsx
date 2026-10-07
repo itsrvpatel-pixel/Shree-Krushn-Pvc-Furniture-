@@ -130,6 +130,7 @@ import {
   groupErrors,
   jobCostBreakdown,
   lastSeenLabel,
+  visitStamp,
   nextDueStage,
   paymentProgress,
   profileCompleteness,
@@ -1778,6 +1779,11 @@ export function AdminCustomerProfile({ customer, job, expenses, allCustomers, on
   );
 
   const seenLabel = lastSeenLabel(customer.lastSeenAt, Date.now());
+  // Newest first, and only real numbers - an old record may carry
+  // anything, and a blank row in the middle of a list of dates
+  // reads as missing data rather than bad data.
+  const visits = (Array.isArray(customer.visits) ? customer.visits : [])
+    .map(Number).filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => b - a);
 
   return (
     <div style={{ padding: '12px 16px 24px' }}>
@@ -1815,6 +1821,20 @@ export function AdminCustomerProfile({ customer, job, expenses, allCustomers, on
         <Row label='App kab khola' value={seenLabel.n == null ? t(seenLabel.key) : tf(seenLabel.key, { n: seenLabel.n })}
           muted={!customer.lastSeenAt} />
       </div>
+
+      {/* The visits before the last one. Only here, not on the list
+          card - on the list this would be five lines of dates per
+          customer, and the list is for scanning. */}
+      {visits.length > 1 && (
+        <>
+          <div style={styles.sectionTitle}>Pichhle visits ({visits.length})</div>
+          <div style={{ ...styles.card, padding: '4px 14px' }}>
+            {visits.map((v, i) => (
+              <Row key={v} label={i === 0 ? 'Aakhri baar' : ''} value={visitStamp(v)} muted={i > 0} />
+            ))}
+          </div>
+        </>
+      )}
 
       {referred.length > 0 && (
         <>
