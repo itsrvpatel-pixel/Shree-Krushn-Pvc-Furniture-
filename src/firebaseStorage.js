@@ -797,8 +797,20 @@ async function requestPermissionAndGetToken() {
     // registration controls, and getToken is handed this registration
     // directly below - so it does not need to control the page at all.
     const SW_SCOPE = '/firebase-cloud-messaging-push-scope';
-    const registration = await navigator.serviceWorker.getRegistration(SW_SCOPE)
-      || await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: SW_SCOPE });
+    let registration = await navigator.serviceWorker.getRegistration(SW_SCOPE);
+    if (registration) {
+      // Reusing is right, but reusing BLINDLY is how a broken worker
+      // stays in charge forever. A registration does not re-check its
+      // script on its own here, so the version installed on the day
+      // something was wrong keeps running - and the one shipped
+      // before this had no push listener, which is exactly how
+      // "accepted by FCM, nothing on the phone" happens. Asking for
+      // an update, paired with skipWaiting in the worker, replaces it
+      // on the spot.
+      try { await registration.update(); } catch (e) { /* offline, or nothing to update */ }
+    } else {
+      registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: SW_SCOPE });
+    }
     const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: registration });
     return { token: token || null, reason: token ? 'ok' : 'no_token' };
   } catch (e) {

@@ -38,6 +38,19 @@ firebase.initializeApp({
 // every notification. try/catch alone solves the problem it was
 // brought in for, without inventing a second way to end up with no
 // listener.
+// Take over straight away instead of waiting.
+//
+// Without these a new version of this file installs and then WAITS
+// until every tab using the old one is gone - and a Home Screen app
+// that is only ever backgrounded, never closed, may keep the old
+// worker for days. That is not cosmetic here: the version shipped
+// before this one had no push listener at all, so every notification
+// was accepted by FCM and then silently dropped by the worker that
+// was still in charge. A fix that cannot reach the phone is not a
+// fix.
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+
 let messaging = null;
 try {
   messaging = firebase.messaging();

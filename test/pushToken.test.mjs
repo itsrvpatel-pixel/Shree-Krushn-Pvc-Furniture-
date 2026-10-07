@@ -227,4 +227,18 @@ t('every send prunes, not just the test button', () => {
     'the pruner reads a captured list instead of the current one');
 });
 
+t('a new worker takes over instead of waiting behind the old one', () => {
+  // The failure this is here for: FCM accepted every message and the
+  // phone showed nothing, because the worker still in charge was the
+  // version that had no push listener. A Home Screen app that is only
+  // ever backgrounded can keep an old worker for days.
+  const sw = readFileSync(new URL('../public/firebase-messaging-sw.js', import.meta.url), 'utf8');
+  assert.ok(/self\.skipWaiting\(\)/.test(sw), 'a new push worker waits behind the old one again');
+  assert.ok(/self\.clients\.claim\(\)/.test(sw), 'the new worker does not take over the existing clients');
+  // And the client must ask for the update, or the registration never
+  // even looks for a new script.
+  assert.ok(/registration\.update\(\)/.test(store),
+    'an existing registration is reused blindly - a broken worker would stay in charge forever');
+});
+
 console.log(n + ' assertions passed\n');
