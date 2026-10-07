@@ -160,7 +160,11 @@ t('the service worker always installs the push listener when it can', () => {
   // permission granted, token issued, message accepted by FCM, and
   // nothing on the phone. try/catch does the job the gate was brought
   // in for without a second way to end up with no listener.
-  const sw = readFileSync(new URL('../public/firebase-messaging-sw.js', import.meta.url), 'utf8');
+  const swRaw = readFileSync(new URL('../public/firebase-messaging-sw.js', import.meta.url), 'utf8');
+  // Comments stripped: the one above the call explains the gate by
+  // name, and matching that would be the test reading the warning
+  // instead of the code. (Caught exactly this way once already.)
+  const sw = swRaw.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
   assert.ok(/try \{\s*\n\s*messaging = firebase\.messaging\(\);/.test(sw),
     'firebase.messaging() is no longer called unconditionally inside the try');
   assert.ok(!/isSupported\(\)/.test(sw),
@@ -168,7 +172,7 @@ t('the service worker always installs the push listener when it can', () => {
   // And the exception must still not kill the file: the tap handler
   // below it has nothing to do with messaging support.
   assert.ok(/catch \(e\) \{/.test(sw), 'the throw is unguarded again - it would kill the whole worker');
-  assert.ok(sw.indexOf('notificationclick') > sw.indexOf('catch (e) {'),
+  assert.ok(swRaw.indexOf('notificationclick') > swRaw.indexOf('catch (e) {'),
     'the tap handler no longer sits after the guard');
 });
 
