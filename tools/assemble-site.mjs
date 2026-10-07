@@ -236,6 +236,85 @@ const ld = {
   console.log('assemble-site: ' + reviews.length + ' reviews on the home page, average ' + avg.toFixed(1));
 }
 
+/* 2c. the share pages.
+
+   Every WhatsApp message the app sends carries a link, and WhatsApp
+   draws a preview card from whatever that page's OG tags say. They all
+   pointed at /app, so a visit reminder, an estimate and a photos
+   update previewed identically: the round logo on white, under the
+   website's SEO title, with the old Nikol address in the description.
+   The owner's words were "professional nahi lag raha", and the worse
+   half is that the card never matched the message.
+
+   So one tiny page per kind of message, each carrying its own title,
+   description and banner, which then sends the reader into the app at
+   the right screen. Generated from one table rather than five
+   near-identical files, because five files drift.
+
+   noindex on purpose: these exist to be shared, not found. Letting
+   Google index them would put five thin pages in front of the real
+   ones.
+*/
+{
+  const HOST = 'https://www.shreekrushnpvcfurniture.site';
+  const SHARE = [
+    { slug: 'visit', img: 'go-visit', tab: 'visit',
+      title: 'Aapki visit confirm hai - Shree Krushn PVC Furniture',
+      desc: 'Visit ka time, address aur aapke kaam ki poori jaankari app mein dekhein.' },
+    { slug: 'estimate', img: 'go-estimate', tab: 'estimate',
+      title: 'Aapka estimate taiyaar hai - Shree Krushn PVC Furniture',
+      desc: 'Item-wise rate, total aur payment schedule - sab app mein, saaf saaf.' },
+    { slug: 'work', img: 'go-work', tab: 'work',
+      title: 'Aapke kaam ki nayi photos - Shree Krushn PVC Furniture',
+      desc: 'Roz ki progress photos aur kaam kis stage par hai, app mein dekhein.' },
+    { slug: 'designs', img: 'go-designs', tab: 'designs',
+      title: '500+ PVC design dekhein - Shree Krushn PVC Furniture',
+      desc: 'Wardrobe, modular kitchen, TV unit, pooja mandir. Jo pasand aaye save kar lein.' },
+    { slug: 'app', img: 'go-app', tab: '',
+      title: 'Aapka kaam, ek app mein - Shree Krushn PVC Furniture',
+      desc: 'Estimate, progress photos, payment aur design gallery - sab ek jagah.' },
+  ];
+  const goDir = path.join(dist, 'go');
+  fs.mkdirSync(goDir, { recursive: true });
+  for (const p of SHARE) {
+    const target = '/app' + (p.tab ? '?do=' + p.tab : '');
+    const page = [
+      '<!doctype html>',
+      '<html lang="en"><head><meta charset="utf-8">',
+      '<meta name="viewport" content="width=device-width, initial-scale=1">',
+      '<meta name="robots" content="noindex, follow">',
+      '<title>' + esc(p.title) + '</title>',
+      '<meta name="description" content="' + esc(p.desc) + '">',
+      '<meta property="og:type" content="website">',
+      '<meta property="og:site_name" content="Shree Krushn PVC Furniture">',
+      '<meta property="og:title" content="' + esc(p.title) + '">',
+      '<meta property="og:description" content="' + esc(p.desc) + '">',
+      '<meta property="og:url" content="' + HOST + '/go/' + p.slug + '">',
+      '<meta property="og:image" content="' + HOST + '/og/' + p.img + '.jpg">',
+      '<meta property="og:image:width" content="1200">',
+      '<meta property="og:image:height" content="630">',
+      '<meta property="og:image:alt" content="' + esc(p.desc) + '">',
+      '<meta property="og:locale" content="en_IN">',
+      '<meta name="twitter:card" content="summary_large_image">',
+      '<meta name="twitter:title" content="' + esc(p.title) + '">',
+      '<meta name="twitter:description" content="' + esc(p.desc) + '">',
+      '<meta name="twitter:image" content="' + HOST + '/og/' + p.img + '.jpg">',
+      // The redirect is in the head so it starts before anything
+      // renders. The meta refresh behind it covers a browser with
+      // JavaScript off, and the link in the body covers both failing -
+      // a share link that dead-ends is worse than an ugly one.
+      '<script>location.replace(' + JSON.stringify(target) + ');</script>',
+      '<meta http-equiv="refresh" content="0; url=' + target + '">',
+      '<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;',
+      'background:#0F1B3D;color:#F8FAFB;font:600 16px/1.6 system-ui,sans-serif;text-align:center;padding:24px}',
+      'a{color:#A8975F}</style>',
+      '</head><body><div>App khul raha hai...<br><a href="' + target + '">Yahan dabayein</a></div></body></html>',
+    ].join('\n');
+    fs.writeFileSync(path.join(goDir, p.slug + '.html'), page);
+  }
+  console.log('assemble-site: ' + SHARE.length + ' share pages at /go');
+}
+
 // 3. say plainly whether the result is what it should be
 const must = ['index.html', 'app/index.html', 'robots.txt', 'sitemap.xml', '404.html',
   'pvc-modular-kitchen-ahmedabad.html', 'assets', 'icon-192.png', 'manifest.json', 'sw.js'];

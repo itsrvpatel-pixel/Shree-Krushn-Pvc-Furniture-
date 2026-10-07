@@ -131,6 +131,7 @@ import {
   jobCostBreakdown,
   lastSeenLabel,
   visitStamp,
+  visitFollowUp,
   nextDueStage,
   paymentProgress,
   profileCompleteness,
@@ -779,6 +780,13 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
             const job = jobs.find((j) => j.customerId === c.id);
             const invite = 'Namaste ' + (c.name || '') + ',' + NEWLINE + NEWLINE
               + 'Aapka kaam, estimate aur photos sab app mein dekh sakte hain.' + waSignOff('work');
+            // Someone who was just in the app was looking at
+            // something. The message says what, by stage - a person
+            // waiting on an estimate and a person whose wardrobe is
+            // half built need different sentences, and the wrong one
+            // says nobody here knows where their job is.
+            const fu = visitFollowUp(job, c.name);
+            const followUpText = fu.text.split('\n').join(NEWLINE) + waSignOff(fu.intent);
             return (
               <div key={c.id} style={styles.reviewCard}>
                 <button style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }}
@@ -793,6 +801,11 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
                   <a href={whatsAppShareUrl(c.phone, invite)} target='_blank' rel='noopener noreferrer'
                     style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
                     <Send size={13} />{t('App Ka Link Bhejein')}</a>
+                )}
+                {c.lastSeenAt && c.phone && (
+                  <a href={whatsAppShareUrl(c.phone, followUpText)} target='_blank' rel='noopener noreferrer'
+                    style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
+                    <Send size={13} />{t('Follow-up Bhejein')}</a>
                 )}
               </div>
             );

@@ -794,3 +794,35 @@ export function visitStamp(ts) {
   const m = String(d.getMinutes()).padStart(2, '0');
   return d.getDate() + ' ' + MONTHS[d.getMonth()] + ', ' + h + ':' + m + (h24 < 12 ? ' am' : ' pm');
 }
+
+// What to say to a customer who has been in the app and left.
+//
+// The point of following up a VISIT is that they were just looking at
+// something - so the message has to be about where they actually are,
+// not a generic nudge. A person waiting on an estimate and a person
+// whose wardrobe is half built need different sentences, and sending
+// the wrong one is worse than sending none: it says nobody here knows
+// what stage you are at.
+//
+// Returns the body and the WhatsApp sign-off intent together, so the
+// link in the message matches what the message is about.
+export function visitFollowUp(job, name) {
+  const who = 'Namaste ' + (name || '') + ',';
+  const s = (job && job.status) || 'appointment';
+  const hasEstimate = !!(job && ((job.items || []).length > 0
+    || (job.estimate && (job.estimate.items || []).length > 0)));
+
+  if (s === 'delivered' || s === 'paid') {
+    return { intent: 'work', text: who + '\n\nAapka kaam poora ho gaya hai. Koi bhi cheez dekhni ho ya kuch service chahiye to bataiye - hum hain.' };
+  }
+  if (s === 'in_progress') {
+    return { intent: 'work', text: who + '\n\nAapke kaam ki taaza photos app mein daal di hain. Dekh lijiye, koi badlav chahiye to abhi bata dijiye.' };
+  }
+  if (hasEstimate) {
+    return { intent: 'estimate', text: who + '\n\nAapne estimate dekha - koi sawaal ho, ya rate mein kuch samajhna ho to bataiye. Hum aapke budget mein adjust kar sakte hain.' };
+  }
+  if (s === 'estimate') {
+    return { intent: 'estimate', text: who + '\n\nAapka estimate taiyaar kar rahe hain. Kuch khaas chahiye ho to abhi bata dijiye, usi hisaab se bana denge.' };
+  }
+  return { intent: 'visit', text: who + '\n\nAapne app dekha - achha laga. Free site visit ka time tay kar lein? Naap lekar exact rate bata denge, koi charge nahi.' };
+}
