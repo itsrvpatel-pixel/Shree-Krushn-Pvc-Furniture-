@@ -645,3 +645,21 @@ export function lastSeenLabel(stored, now) {
   if (months < 12) return { key: '{n} mahine pehle', n: months };
   return { key: '{n} saal pehle', n: Math.floor(days / 365) };
 }
+
+// Why switching notifications on did not work, in words the person
+// holding the phone can act on.
+//
+// Three different screens ask for permission - admin, karigar/partner,
+// customer - and each used to word this its own way. One of them said
+// "permission nahi mili" for every case, including the one where
+// nobody was ever asked for permission because the Web Push key was
+// not set up yet. Being sent to fix a permission that was never
+// refused is a bad half hour.
+export function pushFailureMessage(reason) {
+  return {
+    not_configured: 'Notifications abhi setup nahi hui - Firebase Console se Web Push key chahiye',
+    unsupported: 'Ye browser notifications support nahi karta',
+    denied: 'Notification permission nahi mili - phone ki settings se allow karein',
+    no_token: 'Notification token nahi mila - dobara koshish karein',
+  }[reason] || 'Notifications on nahi ho payi';
+}

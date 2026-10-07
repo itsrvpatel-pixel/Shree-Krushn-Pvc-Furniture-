@@ -733,7 +733,27 @@ export function installWindowStorage() {
 // uses) that identifies THIS specific web app to FCM when requesting a
 // device token - notification permission requests will fail without
 // it. Replace the placeholder below once generated.
-const VAPID_KEY = "REPLACE_WITH_YOUR_VAPID_KEY_FROM_FIREBASE_CONSOLE";
+// The Web Push certificate from Firebase Console -> Project Settings
+// -> Cloud Messaging -> Web Push certificates -> Generate key pair.
+//
+// PUBLIC, unlike the service account key api/send-push.js uses. It
+// identifies this web app to FCM when asking for a device token, and
+// is meant to ship in client code - so it can live here in plain
+// sight, and does not need to be a secret in Vercel.
+//
+// VITE_VAPID_KEY overrides it anyway, for setting it without a code
+// change. Either route works; whichever is set wins, the env one
+// first.
+const VAPID_KEY = import.meta.env.VITE_VAPID_KEY
+  || "REPLACE_WITH_YOUR_VAPID_KEY_FROM_FIREBASE_CONSOLE";
+
+// "Not set up yet" has to be one check, not a string comparison
+// repeated wherever someone remembers to make it.
+function vapidConfigured() {
+  return typeof VAPID_KEY === 'string'
+    && VAPID_KEY.length > 20
+    && !VAPID_KEY.startsWith('REPLACE_WITH');
+}
 
 // Asks the browser for notification permission, and if granted,
 // registers this specific device/browser with FCM and returns its
@@ -750,8 +770,8 @@ const VAPID_KEY = "REPLACE_WITH_YOUR_VAPID_KEY_FROM_FIREBASE_CONSOLE";
 // The reason now comes back with the result so the message can be true.
 async function requestPermissionAndGetToken() {
   try {
-    if (VAPID_KEY.startsWith('REPLACE_WITH')) {
-      console.warn('Push notifications: VAPID_KEY not configured yet in firebaseStorage.js');
+    if (!vapidConfigured()) {
+      console.warn('Push notifications: no Web Push key yet (VITE_VAPID_KEY or VAPID_KEY in firebaseStorage.js)');
       return { token: null, reason: 'not_configured' };
     }
     const { getMessaging, getToken, isSupported } = await import("firebase/messaging");

@@ -38,13 +38,13 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, pushFailureMessage, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
 import { normalizeError, installErrorReporting, groupErrors } from './errorLog.js';
 export { groupErrors };
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, pushFailureMessage, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -3231,12 +3231,7 @@ export default function App() {
     if (!token) {
       // Each of these used to read "Notification permission nahi mili",
       // including the one case where nobody was ever asked.
-      showToast({
-        not_configured: t('Notifications abhi setup nahi hui - Firebase Console se Web Push key chahiye'),
-        unsupported: t('Ye browser notifications support nahi karta'),
-        denied: t('Notification permission nahi mili - phone ki settings se allow karein'),
-        no_token: t('Notification token nahi mila - dobara koshish karein'),
-      }[reason] || t('Notifications on nahi ho payi'), true);
+      showToast(t(pushFailureMessage(reason)), true);
       return false;
     }
     if (adminPushTokens.some((t) => t.token === token)) { showToast('Notifications pehle se on hain'); return true; }
@@ -3528,8 +3523,15 @@ export default function App() {
     const myJobs = jobs.filter((j) => j.assignedStaffId === myStaffId);
     const enableMyPush = async () => {
       if (!window.pushMessaging) { showToast('Push notifications is browser mein supported nahi hai', true); return; }
-      const token = await window.pushMessaging.requestPermissionAndGetToken();
-      if (!token) { showToast('Notification permission nahi mili', true); return; }
+      // Destructured. This read the whole { token, reason } object as
+      // the token: an object is always truthy, so the guard below never
+      // fired and the OBJECT was saved where a token string belongs.
+      // Every push to this karigar would then have been sent to
+      // something that is not a token - silently, since sendPush's
+      // failures are swallowed. It would have looked exactly like
+      // "notifications just don't work".
+      const { token, reason } = await window.pushMessaging.requestPermissionAndGetToken();
+      if (!token) { showToast(t(pushFailureMessage(reason)), true); return; }
       const ok = await persistStaff(staff.map((s) => (s.id === myStaffId ? { ...s, pushToken: token } : s)));
       if (ok) showToast('Notifications on ho gayi');
     };
@@ -4923,8 +4925,11 @@ function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galle
   // notification.
   const enableCustomerPushNotifications = async () => {
     if (!window.pushMessaging) { showToast('Push notifications is browser mein supported nahi hai', true); return; }
-    const token = await window.pushMessaging.requestPermissionAndGetToken();
-    if (!token) { showToast('Notification permission nahi mili', true); return; }
+    // Same bug as the karigar one above, same consequence: the job
+    // carried an object instead of a token and every customer
+    // notification went nowhere.
+    const { token, reason } = await window.pushMessaging.requestPermissionAndGetToken();
+    if (!token) { showToast(t(pushFailureMessage(reason)), true); return; }
     const ok = await onSaveJob({ ...job, customerPushToken: token });
     if (ok) showToast('Notifications on ho gayi');
   };
