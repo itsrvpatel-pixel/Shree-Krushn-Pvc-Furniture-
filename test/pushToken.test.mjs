@@ -16,7 +16,7 @@
 // on, which is why it is pinned here rather than left to be found.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { pushFailureMessage, isIosInBrowser } from '../src/jobCore.js';
+import { pushFailureMessage, isIosInBrowser, pruneDeadPushTokens } from '../src/jobCore.js';
 
 const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 const store = readFileSync(new URL('../src/firebaseStorage.js', import.meta.url), 'utf8');
@@ -174,6 +174,57 @@ t('the service worker always installs the push listener when it can', () => {
   assert.ok(/catch \(e\) \{/.test(sw), 'the throw is unguarded again - it would kill the whole worker');
   assert.ok(swRaw.indexOf('notificationclick') > swRaw.indexOf('catch (e) {'),
     'the tap handler no longer sits after the guard');
+});
+
+t('a dead token is taken out of the list', () => {
+  // The real result he saw: "1 device par gaya, 1 fail
+  // (messaging/registration-token-not-registered)". That second token
+  // will never work again, and left in the list it fails on every
+  // send from then on.
+  const list = [{ token: 'alive' }, { token: 'dead' }, { token: 'also-alive' }];
+  assert.deepEqual(pruneDeadPushTokens(list, ['dead']),
+    [{ token: 'alive' }, { token: 'also-alive' }]);
+  assert.deepEqual(pruneDeadPushTokens(list, ['dead', 'also-alive']), [{ token: 'alive' }]);
+});
+
+t('nothing dead means nothing written', () => {
+  // Returns the SAME array, so the caller can skip the Firestore
+  // write rather than rewriting the list after every notification.
+  const list = [{ token: 'a' }];
+  assert.equal(pruneDeadPushTokens(list, []), list);
+  assert.equal(pruneDeadPushTokens(list, null), list);
+  assert.equal(pruneDeadPushTokens(list, undefined), list);
+  assert.equal(pruneDeadPushTokens(list, ['not-in-the-list']), list);
+  assert.deepEqual(pruneDeadPushTokens(null, ['x']), []);
+  assert.deepEqual(pruneDeadPushTokens(undefined, undefined), []);
+  assert.doesNotThrow(() => pruneDeadPushTokens([null, undefined, { token: 'a' }], ['a']));
+});
+
+t('only permanently dead codes drop a token', () => {
+  // FCM being busy is not a reason to make the owner switch
+  // notifications on again.
+  const api = readFileSync(new URL('../api/send-push.js', import.meta.url), 'utf8');
+  const i = api.indexOf('const PERMANENTLY_DEAD');
+  assert.ok(i > 0, 'the dead-code list is gone from the server');
+  const block = api.slice(i, api.indexOf('];', i));
+  assert.ok(/registration-token-not-registered/.test(block), 'the code he actually hit is not listed');
+  for (const transient of ['unavailable', 'internal-error', 'quota-exceeded', 'server-unavailable']) {
+    assert.ok(!block.includes(transient), 'a transient failure would delete a working token: ' + transient);
+  }
+  // Reported by token, not by index - two arrays that must line up is
+  // a bug waiting for a reordering.
+  assert.ok(/\? targetTokens\[i\] : null/.test(api), 'dead tokens are no longer returned as tokens');
+});
+
+t('every send prunes, not just the test button', () => {
+  const admin = readFileSync(new URL('../src/AdminApp.jsx', import.meta.url), 'utf8');
+  assert.ok(/\.then\(\(r\) => dropDeadTokens\(r && r\.dead\)\)/.test(app),
+    'real notifications no longer clean up after themselves - only the test button would');
+  assert.ok(/onDeadPushTokens\(r\.dead\)/.test(admin), 'the test button no longer prunes');
+  // Read through the ref: this runs after an await, and the captured
+  // list may be several notifications old by then.
+  assert.ok(/adminPushTokensRef\.current/.test(app),
+    'the pruner reads a captured list instead of the current one');
 });
 
 console.log(n + ' assertions passed\n');

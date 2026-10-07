@@ -38,13 +38,13 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, pushFailureMessage, isIosInBrowser, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
 import { normalizeError, installErrorReporting, groupErrors } from './errorLog.js';
 export { groupErrors };
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, pushFailureMessage, isIosInBrowser, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -2005,6 +2005,7 @@ export default function App() {
   // actually delivers TO. More than one entry is normal and expected,
   // since more than one admin device is regularly in use.
   const [adminPushTokens, setAdminPushTokensRaw] = useState([]);
+  const adminPushTokensRef = useLatestRef(adminPushTokens);
   // Reviews are normally read live off job.review, but a job (and its
   // review with it) gets deleted whenever its customer is deleted -
   // routine cleanup of old customer records, once the list gets long,
@@ -3229,7 +3230,9 @@ export default function App() {
     // above) is still there regardless, so nothing is actually lost.
     if (window.pushMessaging) {
       if (ADMIN_BOUND_NOTIFICATION_TYPES.includes(type) && adminPushTokens.length > 0) {
-        window.pushMessaging.sendPush(adminPushTokens.map((t) => t.token), BUSINESS.name, message).catch(() => {});
+        window.pushMessaging.sendPush(adminPushTokens.map((t) => t.token), BUSINESS.name, message)
+          .then((r) => dropDeadTokens(r && r.dead))
+          .catch(() => {});
       } else if (CUSTOMER_BOUND_NOTIFICATION_TYPES.includes(type) && jobId) {
         const targetJob = jobs.find((j) => j.id === jobId);
         if (targetJob && targetJob.customerPushToken) {
@@ -3258,6 +3261,23 @@ export default function App() {
     showToast('Notifications on ho gayi');
     return true;
   }, [adminPushTokens, showToast]);
+  // Tokens the server reported as permanently dead, taken out of the
+  // list. Without this every later send carries the corpse and
+  // reports a failure nobody can act on.
+  //
+  // Reads the list through the ref rather than the closure: this runs
+  // after an await, and the captured value may be several
+  // notifications old by then.
+  const dropDeadTokens = useCallback(async (dead) => {
+    if (!dead || dead.length === 0) return;
+    const current = adminPushTokensRef.current || [];
+    const kept = pruneDeadPushTokens(current, dead);
+    if (kept === current) return;
+    setAdminPushTokensRaw(kept);
+    try { await window.storage.set('admin_push_tokens', JSON.stringify(kept), true); }
+    catch (e) { /* best effort - a stale corpse is not worth an error */ }
+  }, []);
+
   const markNotificationRead = useCallback((notificationId, viewerKey) => {
     persistNotifications(notificationsRef.current.map((n) => (
       n.id === notificationId && !n.readBy.includes(viewerKey) ? { ...n, readBy: [...n.readBy, viewerKey] } : n
@@ -3448,6 +3468,7 @@ export default function App() {
           customersLoading={customersLoading} customersLoadFailed={customersLoadFailed}
           jobs={jobs} setJobs={persistJobs}
           adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications}
+          onDeadPushTokens={dropDeadTokens}
           adminPin={adminPin} setAdminPin={persistPin}
           partnerPin={partnerPin} setPartnerPin={persistPartnerPin}
           dhPartnerPin={dhPartnerPin} setDhPartnerPin={persistDhPartnerPin}

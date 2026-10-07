@@ -92,10 +92,30 @@ export default async function handler(req, res) {
     const reasons = [...new Set((response.responses || [])
       .filter((r) => r && r.error)
       .map((r) => String((r.error && r.error.code) || r.error)))].slice(0, 3);
+    // Which tokens are permanently dead, by token rather than by
+    // index, so the caller can drop them without having to trust that
+    // the two arrays line up. A token stays in the list forever
+    // otherwise: an app that was reinstalled, a token that was
+    // refreshed, a device that was replaced - each leaves a corpse
+    // that fails on every send from then on.
+    //
+    // Only the codes that mean "this will never work again". A send
+    // that failed because FCM was busy is not a reason to make the
+    // owner turn notifications on again.
+    const PERMANENTLY_DEAD = [
+      'messaging/registration-token-not-registered',
+      'messaging/invalid-registration-token',
+      'messaging/invalid-argument',
+    ];
+    const dead = (response.responses || [])
+      .map((r, i) => ((r && r.error && PERMANENTLY_DEAD.includes(String(r.error.code)))
+        ? targetTokens[i] : null))
+      .filter(Boolean);
     res.status(200).json({
       successCount: response.successCount,
       failureCount: response.failureCount,
       ...(reasons.length ? { reasons } : {}),
+      ...(dead.length ? { dead } : {}),
     });
   } catch (e) {
     res.status(500).json({ error: e.message || 'Failed to send notification' });

@@ -688,3 +688,22 @@ export function isIosInBrowser(ua, standalone, maxTouchPoints) {
   const iPadPretendingToBeMac = /Macintosh/.test(s) && Number(maxTouchPoints) > 1;
   return iPhoneOrIPad || iPadPretendingToBeMac;
 }
+
+// Tokens the push server reported as permanently dead, removed from
+// the stored list.
+//
+// A dead token stays in the list forever otherwise - an app that was
+// reinstalled, a token that was refreshed, a device that was replaced
+// - and every send from then on reports a failure that nobody can do
+// anything about. The real one: "1 device par gaya, 1 fail
+// (messaging/registration-token-not-registered)". That second token
+// will never work again.
+//
+// Returns the same array when nothing was dropped, so a caller can
+// skip the write entirely.
+export function pruneDeadPushTokens(list, dead) {
+  const kill = new Set((dead || []).filter(Boolean));
+  if (kill.size === 0) return list || [];
+  const kept = (list || []).filter((t) => !kill.has(t && t.token));
+  return kept.length === (list || []).length ? (list || []) : kept;
+}
