@@ -86,7 +86,7 @@ tpl=open('tools/cat.tpl').read()
 
 for key,slug,h1,title,intro,incl in PAGES:
     photos=pick.get(key,[])
-    grid=''.join('<img src="img/g/%s" alt="%s design %d - Shree Krushn PVC Furniture, Nava Naroda, Ahmedabad" loading="lazy" />'
+    grid=''.join('<img src="img/g/%s" alt="%s design %d - Shree Krushn PVC Furniture, Nikol, Ahmedabad" loading="lazy" />'
                  % (n, E(h1.replace(' in Ahmedabad','')), i+1) for i,n in enumerate(photos))
     incl_html=''.join('<li>%s</li>' % E(x) for x in incl)
     others=''.join('<a class="oc" href="/%s"><img src="img/card/%s" alt="" loading="lazy" /><span>%s</span></a>'
@@ -105,7 +105,7 @@ for key,slug,h1,title,intro,incl in PAGES:
           "url":"https://www.shreekrushnpvcfurniture.com/",
           "priceRange":"From ₹600 per sq ft",
           "telephone":["+91-79902-83116","+91-95123-18775"],
-          "address":{"@type":"PostalAddress","streetAddress":"Mahavir Complex, Hari Villa Road, near Honda Showroom, Bapa Sitaram Chowk, Nava Naroda","addressLocality":"Ahmedabad",
+          "address":{"@type":"PostalAddress","streetAddress":"Mahavir Complex, Hari Villa Road, near Honda Showroom, Bapa Sitaram Chowk, Nikol, Nava Naroda","addressLocality":"Ahmedabad",
                      "addressRegion":"Gujarat","postalCode":"380038","addressCountry":"IN"},
           "areaServed":[{"@type":"City","name":"Ahmedabad"},{"@type":"Place","name":"Nikol, Ahmedabad"},{"@type":"Place","name":"Nava Naroda, Ahmedabad"}]},
         "areaServed":[{"@type":"City","name":"Ahmedabad"},{"@type":"Place","name":"Nikol, Ahmedabad"},{"@type":"Place","name":"Nava Naroda, Ahmedabad"}],

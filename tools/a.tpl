@@ -7,16 +7,16 @@
      property and the search reports stop - leave it in place. -->
 <meta name="google-site-verification" content="ICxYartNOi71d__vEEnXYI19bZkJhWzGE-3M1j-6Xgs" />
 <title>PVC Furniture Ahmedabad | Modular Kitchen &amp; Wardrobe - Shree Krushn</title>
-<meta name="description" content="Shree Krushn PVC Furniture, Nava Naroda, Ahmedabad. Modular kitchen, wardrobe, TV unit, pooja mandir - 100% waterproof, termite proof, full home fitted in about 10 days. Free site visit and a written estimate." />
+<meta name="description" content="Shree Krushn PVC Furniture, Nikol, Ahmedabad. Modular kitchen, wardrobe, TV unit, pooja mandir - 100% waterproof, termite proof, full home fitted in about 10 days. Free site visit and a written estimate." />
 <link rel="canonical" href="https://www.shreekrushnpvcfurniture.com/" />
 <meta property="og:type" content="website" />
 <meta property="og:title" content="PVC Furniture Ahmedabad | Modular Kitchen &amp; Wardrobe - Shree Krushn" />
-<meta property="og:description" content="Shree Krushn PVC Furniture, Nava Naroda, Ahmedabad. Modular kitchen, wardrobe, TV unit, pooja mandir - 100% waterproof, termite proof, full home fitted in about 10 days. Free site visit and a written estimate." />
+<meta property="og:description" content="Shree Krushn PVC Furniture, Nikol, Ahmedabad. Modular kitchen, wardrobe, TV unit, pooja mandir - 100% waterproof, termite proof, full home fitted in about 10 days. Free site visit and a written estimate." />
 <meta property="og:url" content="https://www.shreekrushnpvcfurniture.com/" />
 <meta property="og:image" content="https://www.shreekrushnpvcfurniture.com/og/index.jpg" />
 <meta property="og:image:width" content="900" />
 <meta property="og:image:height" content="472" />
-<meta property="og:image:alt" content="PVC wardrobe fitted by Shree Krushn PVC Furniture, Nava Naroda, Ahmedabad" />
+<meta property="og:image:alt" content="PVC wardrobe fitted by Shree Krushn PVC Furniture, Nikol, Ahmedabad" />
 <meta name="twitter:card" content="summary_large_image" />
 <link rel="icon" type="image/png" href="/icon-192.png" />
 <link rel="preload" href="/fonts/manrope.woff2" as="font" type="font/woff2" crossorigin />
@@ -37,7 +37,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
  ],
  "address": {
   "@type": "PostalAddress",
-  "streetAddress": "Mahavir Complex, Hari Villa Road, near Honda Showroom, Bapa Sitaram Chowk, Nava Naroda",
+  "streetAddress": "Mahavir Complex, Hari Villa Road, near Honda Showroom, Bapa Sitaram Chowk, Nikol, Nava Naroda",
   "addressLocality": "Ahmedabad",
   "addressRegion": "Gujarat",
   "postalCode": "380038",
@@ -63,7 +63,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
   "https://www.facebook.com/ShreeKrushnFiberMart",
   "https://youtube.com/@shreekrushnpvcfurniture"
  ],
- "description": "Shree Krushn PVC Furniture, Nava Naroda, Ahmedabad. Modular kitchen, wardrobe, TV unit, pooja mandir - 100% waterproof, termite proof, full home fitted in about 10 days. Free site visit and a written estimate."
+ "description": "Shree Krushn PVC Furniture, Nikol, Ahmedabad. Modular kitchen, wardrobe, TV unit, pooja mandir - 100% waterproof, termite proof, full home fitted in about 10 days. Free site visit and a written estimate."
 }
 </script>
 </head>
@@ -90,7 +90,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
     <span class="chip"><b>{N}</b> designs done</span>
     <span class="chip">2 year warranty</span>
     <span class="chip">100% virgin PVC</span>
-    <span class="chip">Nava Naroda, Ahmedabad</span>
+    <span class="chip">Nikol, Ahmedabad</span>
   </div>
 </div>
 
@@ -158,9 +158,9 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
 
 <section id="contact" class="w">
   <div class="eyebrow">Get in touch</div>
-  <h2>Nava Naroda, Ahmedabad</h2>
+  <h2>Nikol, Nava Naroda, Ahmedabad</h2>
   <div class="cg">
-    <div><b>Workshop</b><p>Mahavir Complex, Hari Villa Road<br />near Honda Showroom, Bapa Sitaram Chowk<br />Nava Naroda, Ahmedabad<br />Gujarat 380038</p></div>
+    <div><b>Workshop</b><p>Mahavir Complex, Hari Villa Road<br />near Honda Showroom, Bapa Sitaram Chowk<br />Nikol, Nava Naroda, Ahmedabad<br />Gujarat 380038</p></div>
     <div><b>Owner</b><p>Ravi Vasoya</p></div>
     <div><b>Phone</b><a href="tel:{TEL}">{PHONE}</a><br /><a href="tel:+919512318775">{PHONE2}</a></div>
     <div><b>Areas we serve</b><p>All areas of Ahmedabad, including Nikol and Nava Naroda</p></div><div><b>Already a customer?</b><a href="/app">Open your app &rarr;</a></div>
@@ -169,7 +169,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
 </section>
 
 </main>
-<footer class="w"><b>Shree Krushn PVC Furniture</b> &#183; Nava Naroda, Ahmedabad &#183; We furnish the dreams</footer>
+<footer class="w"><b>Shree Krushn PVC Furniture</b> &#183; Nikol, Nava Naroda, Ahmedabad &#183; We furnish the dreams</footer>
 
 <div class="bar" role="navigation" aria-label="Contact Shree Krushn">
   <a class="btn b1" href="/app">Free visit</a>
