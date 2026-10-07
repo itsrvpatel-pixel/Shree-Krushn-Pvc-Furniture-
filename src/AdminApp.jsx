@@ -53,6 +53,7 @@ import {
   UserPlus,
   Users,
   Download,
+  Eye,
   TrendingUp,
   Bell,
   ThumbsUp,
@@ -1336,7 +1337,14 @@ function AdminAllEstimatesList({ jobs, onOpenJob }) {
   );
 }
 
-function AdminCustomers({ customers, setCustomers, customersLoading, customersLoadFailed, jobs, setJobs, expenses, archivedReviews, setArchivedReviews, onOpenJob, showToast, isDhPartner }) {
+export function AdminCustomers({ customers, setCustomers, customersLoading, customersLoadFailed, jobs, setJobs, expenses, archivedReviews, setArchivedReviews, onOpenJob, showToast, isDhPartner }) {
+  // One place, used on every row. lastSeenLabel hands back the phrase
+  // and its number separately so the phrase can be translated; this
+  // puts the two together.
+  const seenText = (ts) => {
+    const l = lastSeenLabel(ts, Date.now());
+    return l.n == null ? t(l.key) : tf(l.key, { n: l.n });
+  };
   const [profileCustomerId, setProfileCustomerId] = useState(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
@@ -1611,6 +1619,16 @@ function AdminCustomers({ customers, setCustomers, customersLoading, customersLo
                     <span style={styles.metaItem}><Phone size={11} /> {formatPhoneDisplay(customer.phone)}</span>
                     {customer.phoneVerified && <span style={styles.verifiedTag}><ShieldCheck size={10} /> Verified</span>}
                     <span style={styles.metaItem}><Calendar size={11} /> {formatDate(customer.createdAt)}</span>
+                    {/* Out here, not only inside the profile. Scanning
+                        the list for who has gone quiet is the thing he
+                        actually does; opening fifty profiles to find
+                        out is not. "Kabhi nahi khola" is the one worth
+                        spotting - it usually means the link never
+                        reached them - so it is the one that is
+                        coloured rather than grey. */}
+                    <span style={customer.lastSeenAt ? styles.metaItem : styles.metaItemWarn}>
+                      <Eye size={11} /> {seenText(customer.lastSeenAt)}
+                    </span>
                     {BUSINESS.branches.length > 1 && job?.branch && <span style={styles.metaItem}>{job.branch}</span>}
                     {job?.city && <span style={styles.metaItem}>{job.city}</span>}
                   </div>

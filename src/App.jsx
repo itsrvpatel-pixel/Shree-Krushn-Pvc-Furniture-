@@ -8966,6 +8966,10 @@ export const styles = {
   cardName: { fontWeight: 800, fontSize: 14.5, letterSpacing: -0.2, marginBottom: 3, color: BRAND.navy },
   cardMeta: { display: 'flex', gap: 10, flexWrap: 'wrap' },
   metaItem: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: BRAND.textMuted, fontWeight: 600 },
+  // Same row, but for the one case worth noticing while scanning a
+  // list: a customer who has never opened the app at all. Usually
+  // means the link never reached them.
+  metaItemWarn: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: '#B5562E', fontWeight: 700 },
   badge: { display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 800, padding: '4px 9px', borderRadius: 20, flexShrink: 0 },
   reqPreview: { marginTop: 10, paddingTop: 8, borderTop: '1px dashed ' + BRAND.line, fontSize: 11.5, color: '#3D6B66', fontWeight: 700 },
   miniRow: { display: 'flex', alignItems: 'center', gap: 8, background: BRAND.paper, border: '1px solid ' + BRAND.line, borderRadius: 10, padding: '6px 8px 6px 12px', fontFamily: 'inherit' },

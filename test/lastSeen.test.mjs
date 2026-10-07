@@ -103,4 +103,27 @@ t('the app only stamps behind the throttle', () => {
     'the stamp can now fail loudly - a background write nobody asked for must never break the app');
 });
 
+t('the list shows it too, not just the profile', () => {
+  // Scanning the list for who has gone quiet is the thing he actually
+  // does. Opening fifty profiles to find out is not.
+  const admin = readFileSync(new URL('../src/AdminApp.jsx', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+
+  const list = admin.slice(admin.indexOf('export function AdminCustomers('), admin.indexOf('function CustomerEditDialog('));
+  assert.ok(/seenText\(customer\.lastSeenAt\)/.test(list),
+    'the customer list no longer shows when they last opened the app');
+  assert.ok(/const seenText = \(ts\) => \{/.test(list),
+    'the list builds the phrase itself instead of using one helper');
+
+  // Never-opened is the row worth spotting - it usually means the link
+  // never reached them - so it must not look like every other grey
+  // line on the card.
+  assert.ok(/customer\.lastSeenAt \? styles\.metaItem : styles\.metaItemWarn/.test(list),
+    'never-opened no longer stands out from the rest of the meta row');
+  assert.ok(/metaItemWarn:/.test(app), 'the warn style is gone from the stylesheet');
+
+  // And still on the profile.
+  assert.ok(/label='App kab khola'/.test(admin), 'the profile row is gone');
+});
+
 console.log(n + ' assertions passed\n');
