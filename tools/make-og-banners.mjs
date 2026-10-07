@@ -62,7 +62,7 @@ const html = (c) => `<!doctype html><html><head><meta charset="utf-8">
   .site{color:#8E9AB4;font-size:21px;font-weight:600}
 </style></head><body>
   <div class="glow"></div>
-  <div class="top"><img src="${logo}" alt=""><div class="brand">Shree Krushn PVC Furniture<span>Nava Naroda, Ahmedabad</span></div></div>
+  <div class="top"><img src="${logo}" alt=""><div class="brand">Shree Krushn PVC Furniture<span>Nikol, Ahmedabad</span></div></div>
   <div class="mid">
     <div class="kicker">${c.kicker}</div>
     <h1>${c.title}</h1>
