@@ -31,6 +31,8 @@ const CARDS = [
     sub: 'Item-wise rate aur payment schedule app mein' },
   { name: 'go-work', kicker: 'Kaam Ki Progress', title: 'Aapke kaam ki nayi photos',
     sub: 'Roz ki progress aur stage app mein dekhein' },
+  { name: 'go-payment', kicker: 'Payment', title: 'Payment ki jaankari',
+    sub: 'Kitna diya, kitna baaki - poora hisaab app mein' },
   { name: 'go-designs', kicker: 'Design Gallery', title: '500+ design dekhein',
     sub: 'Wardrobe, kitchen, TV unit - jo pasand aaye save karein' },
   { name: 'go-app', kicker: 'Shree Krushn PVC Furniture', title: 'Aapka kaam, ek app mein',

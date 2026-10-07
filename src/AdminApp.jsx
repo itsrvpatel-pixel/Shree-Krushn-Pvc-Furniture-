@@ -779,7 +779,10 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
             const l = lastSeenLabel(c.lastSeenAt, Date.now());
             const job = jobs.find((j) => j.customerId === c.id);
             const invite = 'Namaste ' + (c.name || '') + ',' + NEWLINE + NEWLINE
-              + 'Aapka kaam, estimate aur photos sab app mein dekh sakte hain.' + waSignOff('work');
+              // No intent: this one is "here is the app", not a message
+              // about any particular screen, so it gets the general
+              // card rather than the progress-photos one.
+              + 'Aapka kaam, estimate aur photos sab app mein dekh sakte hain.' + waSignOff();
             // Someone who was just in the app was looking at
             // something. The message says what, by stage - a person
             // waiting on an estimate and a person whose wardrobe is
@@ -3305,7 +3308,7 @@ function AdminJobDetail({ job, customer, onSaveCustomer, onSave, showToast, staf
                     <div style={styles.itemSub}>{currency(jobDue(job))} abhi bhi due hai</div>
                   </div>
                   <a
-                    href={whatsAppShareUrl(job.phone, tf('Namaste {name}, aapka kaam {pct}% ho gaya hai. Payment due hai: {due}.', { name: job.customerName, pct: job.workPercent, due: currency(jobDue(job)) }) + waSignOff('estimate'))}
+                    href={whatsAppShareUrl(job.phone, tf('Namaste {name}, aapka kaam {pct}% ho gaya hai. Payment due hai: {due}.', { name: job.customerName, pct: job.workPercent, due: currency(jobDue(job)) }) + waSignOff('payment'))}
                     target='_blank' rel='noopener noreferrer' style={styles.waReminderBtn}
                   >
                     <Send size={13} /> Remind

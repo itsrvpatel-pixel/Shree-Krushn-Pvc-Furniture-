@@ -81,4 +81,34 @@ t('the app links to them, and never to a page that was not generated', () => {
     'an unknown intent no longer falls back - it would build a link to a 404');
 });
 
+t('every message in the app has a card that was actually built', () => {
+  // This is the check that matters, and the one that was missing.
+  // The payment message went out carrying waSignOff('estimate'), so a
+  // customer being asked for money saw a card that said "aapka
+  // estimate taiyaar hai". Nothing was broken - the intent was simply
+  // the wrong word, and nothing anywhere compared the two lists.
+  const admin = readFileSync(new URL('../src/AdminApp.jsx', import.meta.url), 'utf8');
+  const used = new Set();
+  for (const src of [app, admin]) {
+    for (const m of src.matchAll(/waSignOff(?:Lines)?\('([a-z]+)'\)/g)) used.add(m[1]);
+  }
+  assert.ok(used.size >= 4, 'cannot find the sign-off calls any more - found ' + used.size);
+  const built = new Set(slugs.map((s) => s.slug));
+  for (const intent of used) {
+    assert.ok(built.has(intent),
+      'a message uses waSignOff(\'' + intent + '\') but no /go/' + intent + ' page is built - '
+      + 'that message will preview with the general card or none at all');
+  }
+});
+
+t('no message is sent under an intent that means something else', () => {
+  // The specific one he caught. Pinned by name because "it links to
+  // the estimate page" is invisible in the code and only shows up in
+  // WhatsApp, on the customer's phone, after it has been sent.
+  const admin = readFileSync(new URL('../src/AdminApp.jsx', import.meta.url), 'utf8');
+  const payment = admin.slice(admin.indexOf('Payment due hai'), admin.indexOf('Payment due hai') + 400);
+  assert.ok(/waSignOff\('payment'\)/.test(payment),
+    'the payment message is signed off with another intent again - the customer sees the wrong card');
+});
+
 console.log(n + ' assertions passed\n');
