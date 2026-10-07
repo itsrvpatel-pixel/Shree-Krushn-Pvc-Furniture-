@@ -496,6 +496,15 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   // Back returns to the job list instead of shutting the panel.
   useBackToClose(!!activeJobId, () => setActiveJobId(null));
   const activeJob = jobs.find((j) => j.id === activeJobId);
+  // The full customer profile - every visit, every job, what the work
+  // actually made - already existed, but only the customer list could
+  // open it. Standing inside a job you had to go back out, find the
+  // person in the list and open them again. This holds it here at the
+  // top so the job screen can raise it over itself and Back drops you
+  // straight into the job you were already in.
+  const [profileCustomerId, setProfileCustomerId] = useState(null);
+  useBackToClose(!!profileCustomerId, () => setProfileCustomerId(null));
+  const profileCustomer = profileCustomerId ? customers.find((c) => c.id === profileCustomerId) : null;
   // Once the Gallery tab has been visited, it stays MOUNTED (just
   // hidden via CSS when a different tab is active) instead of being
   // unmounted/remounted every time admin switches away and back - see
@@ -510,11 +519,33 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   // matches how they already share visibility into the same jobs list.
   const viewerKey = isPartner ? 'partner' : 'admin';
 
+  // Sits above the job so Back returns to it. A profile opened with no
+  // job behind it (the id outlived the customer) just closes.
+  if (profileCustomer) {
+    const theirJob = jobs.find((j) => j.customerId === profileCustomer.id) || jobs.find((j) => j.phone === profileCustomer.phone);
+    return (
+      <div style={{ paddingBottom: 20 }}>
+        <TopBar title={profileCustomer.name} subtitle='Poori profile' onBack={() => setProfileCustomerId(null)} hideLogout />
+        <AdminCustomerProfile
+          customer={profileCustomer}
+          job={theirJob}
+          expenses={expenses}
+          allCustomers={customers}
+          backLabel={activeJob ? 'Job' : 'Wapas'}
+          onBack={() => setProfileCustomerId(null)}
+          onOpenJob={activeJob ? null : (id) => { setProfileCustomerId(null); setActiveJobId(id); }}
+          onEdit={null}
+          showToast={showToast}
+        />
+      </div>
+    );
+  }
+
   if (activeJob) {
     return (
       <div style={{ paddingBottom: 20 }}>
         <TopBar title={activeJob.customerName} subtitle={isPartner ? 'Partner - Job detail' : (isDhPartner ? 'DH Home Decor - Job detail' : 'Admin - Job detail')} onBack={() => setActiveJobId(null)} hideLogout />
-        <AdminJobDetail key={activeJob.id} job={activeJob} customer={customers.find((c) => c.id === activeJob.customerId) || null} onSaveCustomer={(c) => setCustomers(customers.map((x) => (x.id === c.id ? c : x)))} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} pushNotification={pushNotification} categories={categories} gallery={gallery} />
+        <AdminJobDetail key={activeJob.id} job={activeJob} customer={customers.find((c) => c.id === activeJob.customerId) || null} onOpenCustomerProfile={setProfileCustomerId} onSaveCustomer={(c) => setCustomers(customers.map((x) => (x.id === c.id ? c : x)))} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} pushNotification={pushNotification} categories={categories} gallery={gallery} />
       </div>
     );
   }
@@ -1774,7 +1805,7 @@ export function AdminCustomers({ customers, setCustomers, customersLoading, cust
    Rishi's job cost, and who got it?"), which is the direction you need
    when you are looking at one customer and wondering whether the job
    actually made anything. ---- */
-export function AdminCustomerProfile({ customer, job, expenses, allCustomers, onBack, onOpenJob, onEdit, showToast }) {
+export function AdminCustomerProfile({ customer, job, expenses, allCustomers, onBack, onOpenJob, onEdit, showToast, backLabel = 'Customers' }) {
   const total = job ? jobTotal(job) : 0;
   const paid = job ? jobPaid(job) : 0;
   const due = job ? jobDue(job) : 0;
@@ -1808,7 +1839,9 @@ export function AdminCustomerProfile({ customer, job, expenses, allCustomers, on
 
   return (
     <div style={{ padding: '12px 16px 24px' }}>
-      <button style={styles.linkBtn2} onClick={onBack}><ChevronLeft size={14} /> Customers</button>
+      {/* Says where Back actually goes. Opened from a job it returns to
+          that job, not to the customer list. */}
+      <button style={styles.linkBtn2} onClick={onBack}><ChevronLeft size={14} /> {backLabel}</button>
 
       <div style={{ ...styles.card, marginTop: 10, padding: 14 }}>
         <div style={styles.cardName}>{customer.name}</div>
@@ -1820,8 +1853,11 @@ export function AdminCustomerProfile({ customer, job, expenses, allCustomers, on
         <div style={{ display: 'flex', gap: 8, marginTop: 11, flexWrap: 'wrap' }}>
           <a href={'tel:+91' + customer.phone} style={{ ...styles.cardActionBtn, color: '#2F7D4F' }}><Phone size={12} /> Call</a>
           <a href={whatsAppShareUrl(customer.phone, '')} target='_blank' rel='noopener noreferrer' style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF' }}><Send size={12} /> WhatsApp</a>
-          <button style={styles.cardActionBtn} onClick={onEdit}><Edit3 size={12} /> Edit details</button>
-          {job && <button style={styles.cardActionBtn} onClick={() => onOpenJob(job.id)}>Job kholein <ChevronRight size={12} /></button>}
+          {/* The name-and-phone dialog belongs to the customer list, so
+              it is only offered on the screen that can open it. From a
+              job, the details are editable on the job screen itself. */}
+          {onEdit && <button style={styles.cardActionBtn} onClick={onEdit}><Edit3 size={12} /> Edit details</button>}
+          {job && onOpenJob && <button style={styles.cardActionBtn} onClick={() => onOpenJob(job.id)}>Job kholein <ChevronRight size={12} /></button>}
         </div>
       </div>
 
@@ -2725,7 +2761,7 @@ function EstimateItemEditRow({ item, onSave, onCancel }) {
 /* Shows what the customer told us, and lets an admin fill it in from
    the same screen - usually while on the phone to them, which is when
    the answers actually turn up. */
-export function CustomerDetailsCard({ customer, onSaveCustomer, showToast }) {
+export function CustomerDetailsCard({ customer, onSaveCustomer, showToast, onOpenProfile }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => normalizeProfile(customer));
   if (!customer) return null;
@@ -2746,6 +2782,15 @@ export function CustomerDetailsCard({ customer, onSaveCustomer, showToast }) {
           {summary
             ? <div style={styles.itemDesc}>{summary}</div>
             : <div style={styles.plainTextMuted}>Nothing given yet - tap Edit to fill it in, or ask on the next call.</div>}
+          {/* These four fields are only part of what we know about the
+              person. The rest - every app visit, what the job made,
+              who they referred - is on their profile, which until now
+              could only be reached from the customer list. */}
+          {onOpenProfile && (
+            <button style={{ ...styles.cardActionBtn, marginTop: 10 }} onClick={() => onOpenProfile(customer.id)}>
+              <User size={12} /> Poori profile kholein <ChevronRight size={12} />
+            </button>
+          )}
         </div>
       )}
       {editing && (
@@ -2761,7 +2806,7 @@ export function CustomerDetailsCard({ customer, onSaveCustomer, showToast }) {
   );
 }
 
-function AdminJobDetail({ job, customer, onSaveCustomer, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates, pushNotification, categories, gallery }) {
+function AdminJobDetail({ job, customer, onSaveCustomer, onOpenCustomerProfile, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates, pushNotification, categories, gallery }) {
   const [tab, setTab] = useState('status');
   const [resolvingComplaintId, setResolvingComplaintId] = useState(null);
   const [reqLightbox, setReqLightbox] = useState(null);
@@ -3141,7 +3186,7 @@ function AdminJobDetail({ job, customer, onSaveCustomer, onSave, showToast, staf
                 were only on the customer LIST card and in the edit
                 dialog - neither of which is where an admin actually
                 works, so in practice nobody ever saw them. */}
-            <CustomerDetailsCard customer={customer} onSaveCustomer={onSaveCustomer} showToast={showToast} />
+            <CustomerDetailsCard customer={customer} onSaveCustomer={onSaveCustomer} showToast={showToast} onOpenProfile={onOpenCustomerProfile} />
             <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Move job to stage</div>
             <div style={styles.stageGrid}>
               {STATUS_ORDER.map((s) => {

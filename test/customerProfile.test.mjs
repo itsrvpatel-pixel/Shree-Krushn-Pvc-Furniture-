@@ -167,5 +167,46 @@ t('the editor agrees with normalizeProfile on everything else', () => {
   assert.equal(profileForEditing({ area: 42 }).area, '', 'a non-string area is still empty, not "42"');
 });
 
-console.log(n + ' assertions passed\n');
 
+
+// The full profile, reachable from inside a job.
+//
+// Everything known about a customer - every app visit, what the job
+// made, who they referred - already had a screen. Only the customer
+// list could open it, so from inside a job you had to back out, find
+// the person again and open them. The owner asked for it on the job.
+t('the job screen can open the full customer profile', () => {
+  const card = admin.slice(admin.indexOf('function CustomerDetailsCard('), admin.indexOf('function AdminJobDetail('));
+  assert.ok(/onOpenProfile/.test(card), 'the details card offers no way through to the profile');
+  assert.ok(/onOpenProfile\(customer\.id\)/.test(card), 'the card does not say which customer to open');
+
+  const detail = admin.slice(admin.indexOf('function AdminJobDetail('));
+  assert.ok(/onOpenCustomerProfile/.test(detail.slice(0, 400)), 'the job detail does not take the handler');
+  assert.ok(/onOpenProfile=\{onOpenCustomerProfile\}/.test(detail), 'the job detail never passes it to the card');
+});
+
+t('the profile opens above the job, and Back returns to it', () => {
+  const top = admin.slice(0, admin.indexOf('function AdminHome('));
+  assert.ok(/const \[profileCustomerId, setProfileCustomerId\] = useState\(null\)/.test(top),
+    'AdminApp does not hold the open profile');
+  assert.ok(/useBackToClose\(!!profileCustomerId/.test(top), 'Android Back will not close it');
+  // Rendered before the job, so it sits over it rather than replacing
+  // the job in the stack.
+  const profileAt = top.indexOf('if (profileCustomer)');
+  const jobAt = top.indexOf('if (activeJob)');
+  assert.ok(profileAt > -1 && jobAt > -1 && profileAt < jobAt,
+    'the profile must be checked before the job so Back lands on the job');
+  assert.ok(/onOpenCustomerProfile=\{setProfileCustomerId\}/.test(top),
+    'the job detail is never wired to open it');
+});
+
+t('the profile says where Back goes, and hides what it cannot do', () => {
+  const prof = admin.slice(admin.indexOf('export function AdminCustomerProfile('));
+  assert.ok(/backLabel = 'Customers'/.test(prof), 'the back label is not settable, so it always says Customers');
+  assert.ok(/\{backLabel\}/.test(prof), 'the back button ignores the label');
+  // The name-and-phone dialog belongs to the customer list. Opened from
+  // a job there is nothing to open, so the button must not be there.
+  assert.ok(/\{onEdit && <button/.test(prof), 'Edit details shows even when there is no editor behind it');
+});
+
+console.log(n + ' assertions passed\n');
