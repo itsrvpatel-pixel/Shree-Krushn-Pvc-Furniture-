@@ -126,6 +126,7 @@ import {
   normalizeProfile,
   profileSummary,
   budgetLabel,
+  appVisitGroups,
   groupErrors,
   jobCostBreakdown,
   lastSeenLabel,
@@ -592,8 +593,12 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   );
 }
 
-function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEstimates, overdue, pendingAppointments, pendingExtraWork, onOpenJob, setTab, onSaveJob, showToast, isPartner, isDhPartner }) {
-  const [showList, setShowList] = useState(null); // null | 'inProgress' | 'dueList' | 'todaysVisits' | 'tomorrowsVisits' | 'staleJobs' | 'allEstimates'
+export function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEstimates, overdue, pendingAppointments, pendingExtraWork, onOpenJob, setTab, onSaveJob, showToast, isPartner, isDhPartner }) {
+  const [showList, setShowList] = useState(null); // null | 'inProgress' | 'dueList' | 'todaysVisits' | 'tomorrowsVisits' | 'staleJobs' | 'allEstimates' | 'appVisits'
+  // Who has been in the app and when. Recomputed on render rather
+  // than memoised: it is one pass over a list of fifty, and a stale
+  // "aaj" count is worse than a cheap one.
+  const visits = appVisitGroups(customers, Date.now());
 
   // Every customer/job predates businessUnit, so treating a missing
   // value as Shree Krushn's own (never DH's) keeps existing data
@@ -762,6 +767,56 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
       </div>
     );
   }
+  if (showList === 'appVisits') {
+    const Group = ({ title, people, note }) => (
+      people.length === 0 ? null : (
+        <div style={{ marginTop: 14 }}>
+          <div style={styles.moreGroupLabel}>{title} ({people.length})</div>
+          {note && <div style={styles.plainTextMuted}>{note}</div>}
+          {people.map((c) => {
+            const l = lastSeenLabel(c.lastSeenAt, Date.now());
+            const job = jobs.find((j) => j.customerId === c.id);
+            const invite = 'Namaste ' + (c.name || '') + ',' + NEWLINE + NEWLINE
+              + 'Aapka kaam, estimate aur photos sab app mein dekh sakte hain.' + waSignOff('work');
+            return (
+              <div key={c.id} style={styles.reviewCard}>
+                <button style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }}
+                  onClick={() => job && onOpenJob(job.id)}>
+                  <div style={styles.cardName}>{c.name}</div>
+                  <div style={styles.itemSub}>{l.n == null ? t(l.key) : tf(l.key, { n: l.n })}</div>
+                </button>
+                {/* Only where there is something to do. Everyone else
+                    is just information, and a button on every row
+                    trains you to ignore all of them. */}
+                {!c.lastSeenAt && c.phone && (
+                  <a href={whatsAppShareUrl(c.phone, invite)} target='_blank' rel='noopener noreferrer'
+                    style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
+                    <Send size={13} />{t('App Ka Link Bhejein')}</a>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )
+    );
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          <div style={styles.sectionTitle}>Kisne Kab App Khola</div>
+          <div style={styles.plainTextMuted}>Har customer ka aakhri visit. Jisne kabhi nahi khola, usko aksar app ka link hi nahi mila - unhe neeche se bhej sakte hain.</div>
+          {customers.length === 0 && <div style={styles.emptySmall}>{t('Koi customer nahi hai.')}</div>}
+          <Group title='Aaj' people={visits.today} />
+          <Group title='Is hafte' people={visits.week} />
+          <Group title='Usse purana' people={visits.older} />
+          <Group title='Kabhi nahi khola' people={visits.never}
+            note={visits.never.length > 0 ? 'Inhe link bhej dein - ek tap mein WhatsApp par chala jayega.' : null} />
+        </div>
+      </div>
+    );
+  }
   if (showList === 'staleJobs') {
     return (
       <div>
@@ -894,6 +949,7 @@ function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEsti
         <StatCard icon={<HelpCircle size={16} />} label="Sawaal Ka Jawab" value={pendingQuestionsCount} accent={pendingQuestionsCount > 0} onClick={() => setShowList('pendingQuestions')} />
         <StatCard icon={<FileText size={16} />} label='Estimates Given' value={jobs.filter((j) => (j.items || []).length > 0).length} onClick={() => setShowList('allEstimates')} />
         <StatCard icon={<UserPlus size={16} />} label='New Appointments' value={pendingAppointments} onClick={() => setShowList('newAppointments')} />
+        <StatCard icon={<Eye size={16} />} label='Aaj App Khola' value={visits.today.length} onClick={() => setShowList('appVisits')} />
       </div>
 
       {todaysVisits.length > 0 && (

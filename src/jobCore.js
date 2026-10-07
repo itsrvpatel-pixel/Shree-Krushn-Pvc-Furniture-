@@ -707,3 +707,42 @@ export function pruneDeadPushTokens(list, dead) {
   const kept = (list || []).filter((t) => !kill.has(t && t.token));
   return kept.length === (list || []).length ? (list || []) : kept;
 }
+
+// Who opened the app, and when - grouped the way the question is
+// actually asked.
+//
+// "Kab kisne visit kiya" is really three questions at once: who is
+// active right now, who has drifted, and who has never been in at
+// all. A single list sorted by date answers the first and buries the
+// third, and the third is the one with something to do about it -
+// those are usually the customers the app link never reached.
+//
+// Only the LAST visit is known. The app stamps one timestamp per
+// customer rather than keeping a history, because a history costs a
+// write per visit forever and answers a question nobody has asked
+// yet.
+export function appVisitGroups(customers, now) {
+  const t = Number(now);
+  const DAY = 24 * 60 * 60 * 1000;
+  const out = { today: [], week: [], older: [], never: [] };
+  for (const c of customers || []) {
+    if (!c) continue;
+    const seen = Number(c.lastSeenAt);
+    if (!c.lastSeenAt || !Number.isFinite(seen) || seen <= 0) { out.never.push(c); continue; }
+    // A stamp from the future is a phone with a wrong clock. Counted
+    // as "today" rather than thrown away - they were plainly here.
+    const age = Math.max(0, t - seen);
+    if (age < DAY) out.today.push(c);
+    else if (age < 7 * DAY) out.week.push(c);
+    else out.older.push(c);
+  }
+  const byRecent = (a, b) => Number(b.lastSeenAt) - Number(a.lastSeenAt);
+  out.today.sort(byRecent);
+  out.week.sort(byRecent);
+  out.older.sort(byRecent);
+  // Never-visited has no date to sort on, so by name - a list that
+  // reorders itself every render is a list you cannot keep your place
+  // in.
+  out.never.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  return out;
+}

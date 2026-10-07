@@ -238,6 +238,8 @@ export const EN = {
   'Apne naap se khud andaza lagayein': 'Work out a rough price from your own measurements',
   'Badalna ho to yahan se': 'Change it here',
   'Kabhi nahi khola': 'Never opened it',
+  'App Ka Link Bhejein': 'Send the app link',
+  'Koi customer nahi hai.': 'There are no customers yet.',
   'App Mein Kya Toota': 'What broke in the app',
   'Errors Dekhein': 'Show errors',
   'Test error bhejein': 'Send a test error',
