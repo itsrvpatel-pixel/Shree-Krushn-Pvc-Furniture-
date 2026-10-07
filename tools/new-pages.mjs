@@ -18,8 +18,8 @@ const PAGES = [
 // on the whole list.
 {
   slug: 'kaka-pvc-furniture-ahmedabad',
-  title: 'Kaka PVC Furniture in Ahmedabad | Sheet, Rate, Warranty - Shree Krushn',
-  desc: 'We build with Kaka PVC sheet - what the grades mean, what it costs per sq ft in Ahmedabad, and how to tell the real sheet from a copy. Free site visit.',
+  title: 'Kaka PVC Furniture Ahmedabad | Hollow PVC, Rate, Grades - Shree Krushn',
+  desc: 'We build with Kaka PVC sheet, foam board and hollow PVC - what the grades mean, which sheet goes where, the rate per sq ft in Ahmedabad, and how to tell a real sheet from a copy.',
   h1: 'Kaka PVC Furniture in Ahmedabad',
   serviceType: 'Kaka PVC furniture',
   og: 'index',
@@ -29,7 +29,7 @@ const PAGES = [
     { q: 'What is the price of Kaka PVC furniture per square foot in Ahmedabad?',
       a: 'Our work starts from around Rs 600 per sq ft and goes up with the sheet thickness, the hardware and how much of it is drawers and pull-outs rather than plain shutters. A wardrobe runs lower per foot than a kitchen, because a kitchen is mostly moving parts. We measure at your home and give an itemised written rate before anything is ordered - no deposit for that.' },
     { q: 'Is Kaka PVC furniture good for a home?',
-      a: 'For a kitchen, a bathroom cabinet or anything against an outside wall, it is better than plywood - there is no wood in it, so water cannot swell it and termites have nothing to eat. For a bookshelf carrying heavy weight across a long span, solid wood still bends less. We will say so at the visit rather than sell you the wrong thing.' },
+      a: 'For a kitchen, a bathroom cabinet or anything against an outside wall it beats plywood outright - there is no wood in it, so water cannot swell it and termites have nothing to eat. Long shelves used to be the one weak spot, and they are not any more: for those we build in hollow PVC, which has internal ribs running down the sheet and does not sag the way a plain board does. We pick the sheet per piece of furniture rather than using one board for the whole house.' },
     { q: 'How do I know the sheet is really Kaka and not a copy?',
       a: 'Ask to see the sheet before it is cut. The genuine sheet carries the brand printed along the edge that gets trimmed off, and it has a consistent density - a copy feels lighter and the foam inside looks coarse. We show the stock to the customer on request, and the brand and thickness are written on your estimate, so there is a record of what you paid for.' },
     { q: 'Which is better, wooden furniture or PVC?',
@@ -51,6 +51,19 @@ const PAGES = [
   </ul>
 </section>
 
+<section class="w">
+  <div class="eyebrow">Foam board and hollow board</div>
+  <h2>Two different sheets, and we use both</h2>
+  <p>Most PVC furniture talk is about foam board - a solid sheet, easy to machine, good for shutters and carcass. It has one honest weakness: span it far enough with weight on it and it will bow, the same as any flat board will.</p>
+  <p>Hollow PVC is the answer to that. The sheet is not solid; it carries internal ribs running along its length, so it behaves like a beam rather than a plank. A long shelf, a wide wardrobe loft, a run of overhead kitchen storage - these are where we use it, and they are exactly the places where a plain board starts to dip after a year of weight.</p>
+  <p>We do a lot of work in hollow PVC for that reason. Which sheet goes where is decided piece by piece at the measuring visit, and it is written on your estimate - so you can see what you are paying for rather than being handed one rate for "PVC".</p>
+  <ul class="incl">
+    <li><b>Hollow PVC</b> - long shelves, lofts, wide overhead runs, anything that has to span and carry</li>
+    <li><b>Foam board</b> - shutters, carcass, drawer boxes, anything shaped or routed</li>
+    <li><b>Both are waterproof and termite proof</b> - the choice is about stiffness, not about damp</li>
+  </ul>
+</section>
+
 <div class="why"><div class="w">
   <div class="eyebrow">Where it belongs</div>
   <h2>Rooms where PVC is the right answer</h2>
@@ -68,6 +81,71 @@ const PAGES = [
   <h2>What it costs in Ahmedabad</h2>
   <p>From about Rs 600 per sq ft. What moves the number is the hardware and the proportion of drawers to plain shutters, not the brand name on the sheet. Our full rate card, room by room, is on the <a href="/pvc-furniture-price-ahmedabad">price page</a> - or put your own measurements into the instant estimate and see a figure in a minute, without talking to anyone.</p>
   <div style="margin-top:18px"><a class="btn b3" href="/app?do=estimate">Work out your own estimate</a></div>
+</section>
+`,
+},
+
+// "pvc furniture design" 1,000/mo, "pvc kitchen furniture design" 210,
+// "pvc furniture design for bedroom" 210, "pvc furniture colour
+// combination" 170, "pvc furniture photos" 170, "tv unit pvc furniture
+// design" 140, "pvc furniture design for kitchen" 140, "pvc furniture
+// design for living room" 110, "pvc furniture colour" 390. Close to
+// 2,500 a month of people looking for ideas before they look for a
+// price - and this workshop has 500+ photographs of its own work
+// sitting in the app, which is the one thing most of the competing
+// pages do not have.
+{
+  slug: 'pvc-furniture-design-ahmedabad',
+  title: 'PVC Furniture Design in Ahmedabad | Photos, Colours - Shree Krushn',
+  desc: 'PVC furniture design ideas from work we have actually fitted in Ahmedabad - kitchen, wardrobe, TV unit, bedroom. Colour combinations and 500+ photos.',
+  h1: 'PVC Furniture Design in Ahmedabad',
+  serviceType: 'PVC furniture design',
+  og: 'index',
+  intro: 'Design ideas from homes we have actually fitted, not catalogue renders. Every photo here is a job that was measured, built and handed over in Ahmedabad.',
+  chips: ['<b>500+</b> designs made', 'Real homes, not renders', '2 year warranty', 'Ahmedabad'],
+  faq: [
+    { q: 'Which colour combination looks best in PVC furniture?',
+      a: 'The one that survives the room, not the one that looks best in the shop. A dark matte finish shows every fingerprint in a kitchen, and a high-gloss white shows every scratch in a childrens room. What works in most Ahmedabad flats is a light body with one darker accent - shutters in a wood-grain laminate against a plain carcass, or a dark base with light overheads so the kitchen does not close in. We bring laminate samples to the site visit and hold them against your actual wall and light, which tells you more in two minutes than an hour of scrolling.' },
+    { q: 'Can PVC furniture be made in any design?',
+      a: 'Nearly. It routs, grooves and takes a profile shutter well, and it can be louvred or fluted. Where it differs from plywood is carving and very thin decorative sections - those are better in another material, and we will say so. Anything built to a measurement, which is most of a home, is no harder in PVC than in wood.' },
+    { q: 'Do you have PVC furniture photos of real work?',
+      a: 'Over 500, sorted by room, in the app - kitchens, wardrobes, TV units, mandirs, dressing tables, partitions. They are our own jobs in Ahmedabad homes, photographed after handover. You can browse them without registering and save the ones you like, and the ones you save come up at the measuring visit so nobody has to describe a design from memory.' },
+    { q: 'What is the latest design trend in PVC furniture?',
+      a: 'Handleless shutters with a J-profile or a groove, fluted panels on a TV wall, and matte finishes instead of high gloss. In kitchens, tall units instead of a loft you need a stool for. These are all straightforward in PVC - the sheet takes a profile well - so a modern look does not cost what it used to.' },
+  ],
+  sections: `
+<section class="w" style="padding-top:26px">
+  <div class="eyebrow">By room</div>
+  <h2>Start where the work is</h2>
+  <p>Design is easier to judge room by room than as one big idea. Each of these pages has photos of that room only, with what a job there actually includes.</p>
+  <ul class="incl">
+    <li><a href="/pvc-modular-kitchen-ahmedabad">Modular kitchen</a> - L, U, parallel and island, with pull-outs and loft</li>
+    <li><a href="/pvc-wardrobe-ahmedabad">Wardrobe</a> - 2, 3 and 4 door, sliding, with loft and dresser</li>
+    <li><a href="/pvc-tv-unit-ahmedabad">TV unit and wall panelling</a> - fluted panels, floating units</li>
+    <li><a href="/pvc-dressing-table-ahmedabad">Dressing table</a> - with mirror, drawers and light</li>
+    <li><a href="/pvc-pooja-mandir-ahmedabad">Pooja mandir</a> - wall-mounted and floor-standing</li>
+    <li><a href="/pvc-study-table-ahmedabad">Study table</a> - with book shelf and overhead storage</li>
+    <li><a href="/pvc-partition-elevation-ahmedabad">Partition and elevation</a> - room dividers and feature walls</li>
+  </ul>
+  <div style="margin-top:18px"><a class="btn b3" href="/app?do=designs">Browse all 500+ designs in the app</a></div>
+</section>
+
+<div class="why"><div class="w">
+  <div class="eyebrow">Choosing a finish</div>
+  <h2>What actually decides how it looks in a year</h2>
+  <div class="wgrid">
+    <div class="wi"><h3>Matte over gloss in a kitchen</h3><p>Gloss shows every fingerprint and every wipe mark. Matte hides both and does not dull with cleaning.</p></div>
+    <div class="wi"><h3>Light body, dark accent</h3><p>An all-dark kitchen in a standard Ahmedabad flat makes the room feel half its size. One accent run is usually enough.</p></div>
+    <div class="wi"><h3>Grain direction</h3><p>A wood-grain laminate run the wrong way across two adjacent shutters is the commonest finishing mistake, and it cannot be fixed afterwards.</p></div>
+    <div class="wi"><h3>Handleless costs less than it looks</h3><p>A J-profile or a routed groove removes the handle line entirely, and in PVC it is a cut rather than an extra part.</p></div>
+  </div>
+</div></div>
+
+<section class="w">
+  <div class="eyebrow">From design to a number</div>
+  <h2>Saved designs come to the visit</h2>
+  <p>Pick what you like in the app and save it. Those exact photos come up when we measure, so the conversation starts from a picture instead of a description - which is the single biggest reason finished work ends up looking like what somebody had in mind.</p>
+  <p>If you want the price before you talk to anyone, the <a href="/app?do=estimate">instant estimate</a> works from your own measurements, and the full rate card is on the <a href="/pvc-furniture-price-ahmedabad">price page</a>.</p>
 </section>
 `,
 },
