@@ -16,7 +16,7 @@
 // on, which is why it is pinned here rather than left to be found.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { pushFailureMessage } from '../src/jobCore.js';
+import { pushFailureMessage, isIosInBrowser } from '../src/jobCore.js';
 
 const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 const store = readFileSync(new URL('../src/firebaseStorage.js', import.meta.url), 'utf8');
@@ -108,6 +108,48 @@ t('the Web Push key is a real one, not the placeholder', () => {
   assert.equal(key.length, 87, 'a VAPID public key is 87 characters, this one is ' + key.length);
   assert.ok(key.startsWith('B'), 'a VAPID public key starts with B');
   assert.ok(/^[A-Za-z0-9_-]+$/.test(key), 'the key is not base64url - it will be rejected');
+});
+
+t('an iPhone in a Safari tab gets the instruction, not a dead end', () => {
+  // The one "unsupported" that is not really unsupported. Apple allows
+  // web push only from the Home Screen icon. Telling the owner his
+  // browser cannot do it, when his phone can, costs him the feature.
+  const msg = pushFailureMessage('unsupported', { iosInBrowser: true });
+  assert.ok(/Home Screen/.test(msg), 'an iPhone is still told its browser cannot do this');
+  assert.ok(/Share/.test(msg), 'the message does not say how');
+  // Every other case is untouched.
+  assert.equal(pushFailureMessage('unsupported', { iosInBrowser: false }),
+    'Ye browser notifications support nahi karta');
+  assert.equal(pushFailureMessage('unsupported'), 'Ye browser notifications support nahi karta');
+  assert.equal(pushFailureMessage('denied', { iosInBrowser: true }),
+    'Notification permission nahi mili - phone ki settings se allow karein');
+});
+
+t('the iPhone check knows a Home Screen app from a Safari tab', () => {
+  const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15';
+  const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15';
+  const ANDROID = 'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36';
+
+  assert.equal(isIosInBrowser(IPHONE, false, 5), true);
+  // Already added to the Home Screen - nothing to tell them.
+  assert.equal(isIosInBrowser(IPHONE, true, 5), false);
+  assert.equal(isIosInBrowser(ANDROID, false, 5), false, 'Android does not need the Home Screen');
+  // iPadOS 13+ reports itself as a Mac; touch points are what tell a
+  // real Mac from an iPad.
+  assert.equal(isIosInBrowser(MAC, false, 5), true, 'an iPad pretending to be a Mac is missed');
+  assert.equal(isIosInBrowser(MAC, false, 0), false, 'a real desktop Mac is told about the Home Screen');
+  // Junk in, no crash.
+  for (const junk of [undefined, null, '', 0]) {
+    assert.doesNotThrow(() => isIosInBrowser(junk, junk, junk));
+  }
+});
+
+t('reading the browser cannot break the screen explaining itself', () => {
+  const env = app.slice(app.indexOf('function pushEnv()'), app.indexOf('const SESSION_STORAGE_KEY'));
+  assert.ok(/try \{/.test(env) && /catch \(e\) \{ return \{\}; \}/.test(env),
+    'pushEnv can now throw - a browser without matchMedia would take down the settings screen');
+  assert.equal((app.match(/pushFailureMessage\(reason, pushEnv\(\)\)/g) || []).length, 3,
+    'not every screen passes the browser context - one of them will still say "unsupported" on an iPhone');
 });
 
 console.log(n + ' assertions passed\n');

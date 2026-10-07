@@ -38,13 +38,13 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, pushFailureMessage, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, pushFailureMessage, isIosInBrowser, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
 import { normalizeError, installErrorReporting, groupErrors } from './errorLog.js';
 export { groupErrors };
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, pushFailureMessage, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
+export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, pushFailureMessage, isIosInBrowser, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -93,6 +93,23 @@ const COMPLAINT_STAGE_ORDER = ['open', 'in_progress', 'resolved'];
 // string literal: backslash escapes inside string literals have been observed to get silently stripped when
 // this file is edited/pasted through certain mobile text editors.
 export const NEWLINE = String.fromCharCode(10);
+
+// What the browser can be asked, gathered once. Every reading here is
+// wrapped: a browser that throws on display-mode, or has no navigator,
+// must not take down the one screen that is trying to explain itself.
+function pushEnv() {
+  try {
+    const standalone = (window.navigator && window.navigator.standalone === true)
+      || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    return {
+      iosInBrowser: isIosInBrowser(
+        window.navigator && window.navigator.userAgent,
+        standalone,
+        window.navigator && window.navigator.maxTouchPoints,
+      ),
+    };
+  } catch (e) { return {}; }
+}
 
 // Login session (who's logged in, on this device) is kept in localStorage
 // rather than the shared Firebase-backed storage, since it's per-browser
@@ -3231,7 +3248,7 @@ export default function App() {
     if (!token) {
       // Each of these used to read "Notification permission nahi mili",
       // including the one case where nobody was ever asked.
-      showToast(t(pushFailureMessage(reason)), true);
+      showToast(t(pushFailureMessage(reason, pushEnv())), true);
       return false;
     }
     if (adminPushTokens.some((t) => t.token === token)) { showToast('Notifications pehle se on hain'); return true; }
@@ -3531,7 +3548,7 @@ export default function App() {
       // failures are swallowed. It would have looked exactly like
       // "notifications just don't work".
       const { token, reason } = await window.pushMessaging.requestPermissionAndGetToken();
-      if (!token) { showToast(t(pushFailureMessage(reason)), true); return; }
+      if (!token) { showToast(t(pushFailureMessage(reason, pushEnv())), true); return; }
       const ok = await persistStaff(staff.map((s) => (s.id === myStaffId ? { ...s, pushToken: token } : s)));
       if (ok) showToast('Notifications on ho gayi');
     };
@@ -4929,7 +4946,7 @@ function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galle
     // carried an object instead of a token and every customer
     // notification went nowhere.
     const { token, reason } = await window.pushMessaging.requestPermissionAndGetToken();
-    if (!token) { showToast(t(pushFailureMessage(reason)), true); return; }
+    if (!token) { showToast(t(pushFailureMessage(reason, pushEnv())), true); return; }
     const ok = await onSaveJob({ ...job, customerPushToken: token });
     if (ok) showToast('Notifications on ho gayi');
   };

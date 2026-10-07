@@ -655,11 +655,36 @@ export function lastSeenLabel(stored, now) {
 // nobody was ever asked for permission because the Web Push key was
 // not set up yet. Being sent to fix a permission that was never
 // refused is a bad half hour.
-export function pushFailureMessage(reason) {
+export function pushFailureMessage(reason, env) {
+  // An iPhone in a Safari tab is the one "unsupported" that is not
+  // really unsupported. Apple allows web push only once the app has
+  // been added to the Home Screen and opened from that icon - so the
+  // honest answer is a two-step instruction, not a dead end. Telling
+  // the owner his browser cannot do it, when his phone can, costs him
+  // the feature entirely.
+  if (reason === 'unsupported' && env && env.iosInBrowser) {
+    return 'iPhone par pehle app ko Home Screen par add karein - Share button dabayein, phir "Add to Home Screen". Us icon se app kholkar yahi button dobara dabayein.';
+  }
   return {
     not_configured: 'Notifications abhi setup nahi hui - Firebase Console se Web Push key chahiye',
     unsupported: 'Ye browser notifications support nahi karta',
     denied: 'Notification permission nahi mili - phone ki settings se allow karein',
     no_token: 'Notification token nahi mila - dobara koshish karein',
   }[reason] || 'Notifications on nahi ho payi';
+}
+
+// An iPhone or iPad being used in a browser tab rather than from the
+// Home Screen icon.
+//
+// iPadOS 13 and later report themselves as "Macintosh", so a Mac that
+// also has a touchscreen is the one thing that tells them apart -
+// desktop Safari on a real Mac has no touch points. Getting this
+// wrong in that direction is harmless: the worst case is a Mac user
+// being told about the Home Screen, which simply does not apply.
+export function isIosInBrowser(ua, standalone, maxTouchPoints) {
+  if (standalone) return false;
+  const s = String(ua || '');
+  const iPhoneOrIPad = /iPad|iPhone|iPod/.test(s);
+  const iPadPretendingToBeMac = /Macintosh/.test(s) && Number(maxTouchPoints) > 1;
+  return iPhoneOrIPad || iPadPretendingToBeMac;
 }

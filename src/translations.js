@@ -207,6 +207,8 @@ export const EN = {
   'Notifications on ho gayi': 'Notifications turned on',
   'Notifications pehle se on hain': 'Notifications are already on',
   'Notifications on nahi ho payi': 'Could not turn on notifications',
+  'iPhone par pehle app ko Home Screen par add karein - Share button dabayein, phir "Add to Home Screen". Us icon se app kholkar yahi button dobara dabayein.':
+    'On iPhone, add the app to your Home Screen first - tap Share, then "Add to Home Screen". Open the app from that icon and press this button again.',
   'Notification permission nahi mili': 'Notification permission was not granted',
   'Notification permission nahi mili - phone ki settings se allow karein': 'Notification permission was not granted - allow it in your phone settings',
   'Notification token nahi mila - dobara koshish karein': 'Could not get a notification token - please try again',
