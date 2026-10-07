@@ -24,18 +24,26 @@ firebase.initializeApp({
 // needs - "This browser doesn't support the API's required to use the
 // Firebase SDK (messaging/unsupported-browser)". Unguarded, that
 // exception kills this whole script, and with it the notification-tap
-// handler below, which has nothing to do with messaging support.
+// handler below, which has nothing to do with messaging support. So
+// it is wrapped.
 //
-// Not supporting push is fine and expected on plenty of phones. The
-// worker simply does less on those, rather than dying on line one.
+// Wrapped, and NOT gated on isSupported() - that gate was here for a
+// day and was a mistake. Calling firebase.messaging() is what installs
+// the SDK's own 'push' event listener, and that listener is what
+// actually displays an incoming notification. Skip the call and the
+// worker has no push listener at all: permission granted, token
+// issued, message accepted by FCM, and nothing ever appears on the
+// phone. isSupported() has its own view of this service worker scope,
+// and one disagreement between it and reality was enough to silence
+// every notification. try/catch alone solves the problem it was
+// brought in for, without inventing a second way to end up with no
+// listener.
 let messaging = null;
 try {
-  if (firebase.messaging.isSupported && firebase.messaging.isSupported()) {
-    messaging = firebase.messaging();
-  }
+  messaging = firebase.messaging();
 } catch (e) {
-  // Unsupported browser. Nothing to listen to; everything else here
-  // still works.
+  // Unsupported browser. Nothing to listen to; everything else in this
+  // file still works.
 }
 
 // Background handler - fires when a push arrives and no tab has the

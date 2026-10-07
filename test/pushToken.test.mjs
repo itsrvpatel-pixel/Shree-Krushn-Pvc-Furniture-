@@ -152,4 +152,24 @@ t('reading the browser cannot break the screen explaining itself', () => {
     'not every screen passes the browser context - one of them will still say "unsupported" on an iPhone');
 });
 
+t('the service worker always installs the push listener when it can', () => {
+  // Calling firebase.messaging() is what installs the SDK's own
+  // 'push' event listener, and that listener is what displays an
+  // incoming notification. Gating the call on isSupported() meant one
+  // disagreement about this scope silenced every notification:
+  // permission granted, token issued, message accepted by FCM, and
+  // nothing on the phone. try/catch does the job the gate was brought
+  // in for without a second way to end up with no listener.
+  const sw = readFileSync(new URL('../public/firebase-messaging-sw.js', import.meta.url), 'utf8');
+  assert.ok(/try \{\s*\n\s*messaging = firebase\.messaging\(\);/.test(sw),
+    'firebase.messaging() is no longer called unconditionally inside the try');
+  assert.ok(!/isSupported\(\)/.test(sw),
+    'the isSupported gate is back - it can leave the worker with no push listener at all');
+  // And the exception must still not kill the file: the tap handler
+  // below it has nothing to do with messaging support.
+  assert.ok(/catch \(e\) \{/.test(sw), 'the throw is unguarded again - it would kill the whole worker');
+  assert.ok(sw.indexOf('notificationclick') > sw.indexOf('catch (e) {'),
+    'the tap handler no longer sits after the guard');
+});
+
 console.log(n + ' assertions passed\n');
