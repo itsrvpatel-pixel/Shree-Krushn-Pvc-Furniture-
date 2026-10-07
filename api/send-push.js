@@ -82,9 +82,20 @@ export default async function handler(req, res) {
       tokens: targetTokens,
     };
     const response = await admin.messaging().sendEachForMulticast(message);
+    // The per-token reasons come back and were being thrown away, which
+    // left "failureCount: 1" as the entire diagnosis. They are the
+    // difference between a stale token from a reinstalled app
+    // (registration-token-not-registered), a key that does not match
+    // the project (mismatched-credential) and a token that was never
+    // valid - three completely different fixes. Capped and
+    // de-duplicated so one bad batch cannot return a wall of text.
+    const reasons = [...new Set((response.responses || [])
+      .filter((r) => r && r.error)
+      .map((r) => String((r.error && r.error.code) || r.error)))].slice(0, 3);
     res.status(200).json({
       successCount: response.successCount,
       failureCount: response.failureCount,
+      ...(reasons.length ? { reasons } : {}),
     });
   } catch (e) {
     res.status(500).json({ error: e.message || 'Failed to send notification' });

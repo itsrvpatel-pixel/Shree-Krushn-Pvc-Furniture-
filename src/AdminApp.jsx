@@ -4849,6 +4849,33 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
   const [errorRows, setErrorRows] = useState(null);
   const [loadingErrors, setLoadingErrors] = useState(false);
 
+  const [sendingTestPush, setSendingTestPush] = useState(false);
+  const [testPushResult, setTestPushResult] = useState('');
+
+  const sendTestPush = async () => {
+    setSendingTestPush(true);
+    setTestPushResult('');
+    try {
+      const r = await window.pushMessaging.sendPush(
+        adminPushTokens.map((x) => x.token),
+        'Shree Krushn PVC Furniture',
+        'Test notification - sab theek chal raha hai.',
+      );
+      if (r && r.error) { setTestPushResult('Nahi gaya: ' + r.error); return; }
+      const ok = (r && r.successCount) || 0;
+      const bad = (r && r.failureCount) || 0;
+      // The reasons are the whole point of asking. A stale token from a
+      // reinstalled app and a key that does not match the project both
+      // read as "1 fail" without them.
+      setTestPushResult(ok + ' device par gaya' + (bad ? ', ' + bad + ' fail'
+        + (r.reasons ? ' (' + r.reasons.join(', ') + ')' : '') : ''));
+    } catch (e) {
+      setTestPushResult('Nahi gaya: ' + String((e && e.message) || e));
+    } finally {
+      setSendingTestPush(false);
+    }
+  };
+
   const sendTestError = () => {
     // Deliberately not awaited and deliberately not caught: this must
     // travel exactly the route a real unhandled rejection travels.
@@ -5670,6 +5697,19 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={enableAdminPushNotifications}><Bell size={14} />{t('Is Device Par Notifications On Karein')}</button>
         {adminPushTokens.length > 0 && (
           <div style={{ ...styles.itemSub, marginTop: 8 }}>{adminPushTokens.length} device(s) par notifications on hain</div>
+        )}
+        {/* Permission granted is not the same as notifications
+            arriving. Between the two sit the token, the Vercel
+            function, FCM and the phone - and every real trigger is an
+            event that is awkward to stage on purpose. One tap proves
+            the whole chain, and names what broke when it does not. */}
+        {adminPushTokens.length > 0 && (
+          <>
+            <button style={{ ...styles.addBtn, marginTop: 6 }} onClick={sendTestPush} disabled={sendingTestPush}>
+              <Send size={13} /> {sendingTestPush ? t('Bhej raha hai...') : t('Test notification bhejein')}
+            </button>
+            {testPushResult && <div style={{ ...styles.itemSub, marginTop: 8 }}>{testPushResult}</div>}
+          </>
         )}
       </div>
 
