@@ -745,7 +745,7 @@ export function installWindowStorage() {
 // change. Either route works; whichever is set wins, the env one
 // first.
 const VAPID_KEY = import.meta.env.VITE_VAPID_KEY
-  || "REPLACE_WITH_YOUR_VAPID_KEY_FROM_FIREBASE_CONSOLE";
+  || "BPi0tuamcz79EtaO9Am7fYe4AekrKMDMnEh8mLpQDiSknUpSJyfkmLAk-KBfJ0wne5vD3NiX-qa-TxXsi09acZg";
 
 // "Not set up yet" has to be one check, not a string comparison
 // repeated wherever someone remembers to make it.
@@ -780,7 +780,25 @@ async function requestPermissionAndGetToken() {
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') return { token: null, reason: 'denied' };
     const messaging = getMessaging(app);
-    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    // An explicit scope, and it matters more than it looks.
+    //
+    // A service worker registration is keyed by SCOPE, not by script.
+    // This file and the PWA's own sw.js both sit at the root, so both
+    // default to scope '/' - and registering the second one there
+    // REPLACES the first. Turning notifications on would have killed
+    // the app-shell worker, and main.jsx re-registering sw.js on the
+    // next load would have killed this one straight back. The two
+    // would have taken turns, which from the outside is push that
+    // works one day and not the next.
+    //
+    // This is the scope Firebase's own SDK uses when it registers the
+    // worker itself, so nothing else is expecting a different one. A
+    // push event reaches its registration whatever pages that
+    // registration controls, and getToken is handed this registration
+    // directly below - so it does not need to control the page at all.
+    const SW_SCOPE = '/firebase-cloud-messaging-push-scope';
+    const registration = await navigator.serviceWorker.getRegistration(SW_SCOPE)
+      || await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: SW_SCOPE });
     const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: registration });
     return { token: token || null, reason: token ? 'ok' : 'no_token' };
   } catch (e) {

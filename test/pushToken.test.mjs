@@ -85,4 +85,29 @@ t('the Web Push key can be set without a code change, and "unset" is one check',
     'the placeholder could now be treated as a real key');
 });
 
+t('the two service workers do not fight over the same scope', () => {
+  // A registration is keyed by SCOPE, not by script. sw.js (the PWA
+  // shell) and firebase-messaging-sw.js both sit at the root, so both
+  // default to '/' - and the second registration replaces the first.
+  // Switching notifications on would kill the app-shell worker, and
+  // the next load would kill the push one straight back: push that
+  // works one day and not the next.
+  const main = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
+  assert.ok(/register\('\/sw\.js'\)/.test(main), 'the PWA worker registration has moved');
+  assert.ok(/scope: SW_SCOPE/.test(store) && /firebase-cloud-messaging-push-scope/.test(store),
+    'the push worker is registered at the default scope again - it will replace the PWA worker');
+  assert.ok(/getRegistration\(SW_SCOPE\)/.test(store),
+    'every attempt re-registers instead of reusing the existing worker');
+});
+
+t('the Web Push key is a real one, not the placeholder', () => {
+  const m = store.match(/\|\|\s*"([^"]+)"/);
+  assert.ok(m, 'the fallback key is gone from firebaseStorage.js');
+  const key = m[1];
+  assert.ok(!key.startsWith('REPLACE_WITH'), 'the placeholder is back - nothing will ever send');
+  assert.equal(key.length, 87, 'a VAPID public key is 87 characters, this one is ' + key.length);
+  assert.ok(key.startsWith('B'), 'a VAPID public key starts with B');
+  assert.ok(/^[A-Za-z0-9_-]+$/.test(key), 'the key is not base64url - it will be rejected');
+});
+
 console.log(n + ' assertions passed\n');
