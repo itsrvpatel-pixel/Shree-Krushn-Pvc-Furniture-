@@ -858,7 +858,13 @@ export function changeRequests(job) {
   // be shown, and treated as answered if the estimate moved on after
   // it was written.
   const note = job && typeof job.estimateResponseNote === 'string' ? job.estimateResponseNote.trim() : '';
-  if (!note) return [];
+  // A request with no words at all is still a request. The old screen
+  // let the customer send the box empty, so some of these exist, and
+  // showing nothing is how the owner ended up staring at a job knowing
+  // only that something had been asked. The screens render the empty
+  // ones as "they asked, but wrote nothing - call them".
+  const asked = (job && job.estimateStatus) === 'change_requested';
+  if (!note && !asked) return [];
   return [{
     id: 'legacy-note',
     text: note,

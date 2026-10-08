@@ -7168,7 +7168,7 @@ function EstimateView({ job, onSave, showToast }) {
                   ? 'Ye change ho gaya - naya estimate upar hai'
                   : 'Aapka change request bheja gaya hai - hum jald contact karenge'}
               </div>
-              <div style={{ marginTop: 4, fontWeight: 600 }}>"{r.text}"</div>
+              {r.text && <div style={{ marginTop: 4, fontWeight: 600 }}>"{r.text}"</div>}
               {r.at && <div style={{ ...styles.hintText, marginTop: 2 }}>{formatDate(r.at)}</div>}
             </div>
           ))}

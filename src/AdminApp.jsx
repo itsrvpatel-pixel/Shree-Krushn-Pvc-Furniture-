@@ -2291,7 +2291,9 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
           </div>
           {asked.map((r) => (
             <div key={r.id} style={{ marginTop: 8 }}>
-              <div style={{ ...styles.itemDesc, fontWeight: 700 }}>&ldquo;{r.text}&rdquo;</div>
+              {r.text
+                ? <div style={{ ...styles.itemDesc, fontWeight: 700 }}>&ldquo;{r.text}&rdquo;</div>
+                : <div style={{ ...styles.itemDesc, fontWeight: 700 }}>Likha kuch nahi - customer ko call karke poochein</div>}
               {r.at && <div style={styles.itemSub}>{formatDate(r.at)}</div>}
             </div>
           ))}
@@ -3217,6 +3219,25 @@ function AdminJobDetail({ job, customer, onSaveCustomer, onOpenCustomerProfile, 
                 were only on the customer LIST card and in the edit
                 dialog - neither of which is where an admin actually
                 works, so in practice nobody ever saw them. */}
+            {/* Opening a job lands on Status, not Estimate, so a
+                customer waiting on a changed estimate was one tab away
+                from being seen at all. */}
+            {openChangeRequests(job).length > 0 && (
+              <button
+                style={{ ...styles.formCard, borderColor: '#E65100', background: '#FFF8F0', marginBottom: 10, width: '100%', textAlign: 'left', cursor: 'pointer' }}
+                onClick={() => setTab('estimate')}
+              >
+                <div style={{ ...styles.fieldLabel, color: '#E65100' }}>
+                  Customer ne estimate mein change maanga hai ({openChangeRequests(job).length})
+                </div>
+                {openChangeRequests(job).map((r) => (
+                  <div key={r.id} style={{ ...styles.itemDesc, fontWeight: 700, marginTop: 4 }}>
+                    {r.text ? '\u201C' + r.text + '\u201D' : 'Likha kuch nahi - call karke poochein'}
+                  </div>
+                ))}
+                <div style={{ ...styles.hintText, marginTop: 6 }}>Estimate tab kholne ke liye yahan dabayein &rsaquo;</div>
+              </button>
+            )}
             <CustomerDetailsCard customer={customer} onSaveCustomer={onSaveCustomer} showToast={showToast} onOpenProfile={onOpenCustomerProfile} />
             <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Move job to stage</div>
             <div style={styles.stageGrid}>

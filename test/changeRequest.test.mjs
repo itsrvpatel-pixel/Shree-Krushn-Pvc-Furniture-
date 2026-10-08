@@ -145,4 +145,34 @@ t('every change request reaches the owner', () => {
     'the change-request notification still hangs off estimateStatus changing');
 });
 
+
+// The owner opened the job and still saw nothing. Two reasons, both
+// of them ours.
+t('a request sent with the box left empty is still shown', () => {
+  // The old screen let this through: status set, no words saved. Those
+  // jobs exist, and showing nothing is how the owner ends up knowing
+  // only that something was asked.
+  const empty = { id: 'j', estimateStatus: 'change_requested', estimateResponseNote: null };
+  const open = openChangeRequests(empty);
+  assert.equal(open.length, 1, 'an empty request disappears instead of asking him to call');
+  assert.equal(open[0].text, '');
+  // Still nothing to show once it is settled, or where none was sent.
+  assert.equal(openChangeRequests({ id: 'j', estimateStatus: 'approved' }).length, 0);
+  assert.equal(openChangeRequests({ id: 'j' }).length, 0);
+});
+
+t('a waiting request is on the tab a job opens on', () => {
+  const a = code(admin);
+  // AdminJobDetail opens on 'status'. The alert used to be on
+  // 'estimate' only, one tab away from ever being seen.
+  const status = a.slice(a.indexOf("{tab === 'status' &&"), a.indexOf("{tab === 'estimate' &&"));
+  assert.ok(/openChangeRequests\(job\)/.test(status), 'nothing on the Status tab says a customer is waiting');
+  assert.ok(/setTab\('estimate'\)/.test(status), 'the alert does not lead anywhere');
+});
+
+t('both screens say something when the request has no words', () => {
+  assert.ok(/Likha kuch nahi/.test(code(admin)), 'the admin shows an empty quote mark and nothing else');
+  assert.ok(/\{r\.text && /.test(code(app)), 'the customer screen shows empty quote marks');
+});
+
 console.log(n + ' assertions passed');
