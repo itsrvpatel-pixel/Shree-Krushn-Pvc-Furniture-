@@ -95,6 +95,8 @@ import {
   estimateItemAmount,
   buildOptionPair,
   finalizeEstimateDraft,
+  openChangeRequests,
+  answerChangeRequests,
   estimateItemSqft,
   fileToDataUri,
   formatDate,
@@ -2268,8 +2270,37 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
   };
   const removeTemplate = (id) => setItemTemplates(itemTemplates.filter((t) => t.id !== id));
 
+  // What the customer actually asked for. This was written to the job
+  // and then displayed nowhere on this side - he got a notification
+  // saying a change had been requested and no way to find out what,
+  // short of reading the activity log. It goes at the very top of the
+  // estimate tab because it is the reason he opened the tab.
+  const asked = openChangeRequests(job);
+  const markAnswered = () => {
+    if (!window.confirm('Naya estimate bhej diya?\n\nCustomer ko dikhega ki ye change ho gaya hai, aur unka Approve button wapas aa jayega.')) return;
+    onSave(answerChangeRequests(job, staffName, Date.now()));
+    showToast('Customer ko bata diya gaya');
+  };
+
   return (
     <div>
+      {asked.length > 0 && (
+        <div style={{ ...styles.formCard, borderColor: '#E65100', background: '#FFF8F0', marginBottom: 12 }}>
+          <div style={{ ...styles.fieldLabel, color: '#E65100' }}>
+            Customer ne change maanga hai ({asked.length})
+          </div>
+          {asked.map((r) => (
+            <div key={r.id} style={{ marginTop: 8 }}>
+              <div style={{ ...styles.itemDesc, fontWeight: 700 }}>&ldquo;{r.text}&rdquo;</div>
+              {r.at && <div style={styles.itemSub}>{formatDate(r.at)}</div>}
+            </div>
+          ))}
+          <div style={styles.hintText}>Neeche items badal kar, phir ye button dabayein.</div>
+          <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={markAnswered}>
+            <Check size={14} /> Naya estimate bhej diya
+          </button>
+        </div>
+      )}
       <AdminEstimateDraftsPanel job={job} onSave={onSave} showToast={showToast} staffName={staffName} />
       <EstimateChoiceNote job={job} />
 
@@ -3164,7 +3195,7 @@ function AdminJobDetail({ job, customer, onSaveCustomer, onOpenCustomerProfile, 
       <div style={styles.tabRow}>
         <TabBtn active={tab === 'appointment'} onClick={() => setTab('appointment')} label='Appointment' />
         <TabBtn active={tab === 'status'} onClick={() => setTab('status')} label='Status' />
-        <TabBtn active={tab === 'estimate'} onClick={() => setTab('estimate')} label='Estimate' />
+        <TabBtn active={tab === 'estimate'} onClick={() => setTab('estimate')} label='Estimate' dot={openChangeRequests(job).length > 0} />
         <TabBtn active={tab === 'extrawork'} onClick={() => setTab('extrawork')} label='Extra Work' />
         <TabBtn active={tab === 'payment'} onClick={() => setTab('payment')} label='Payment' />
         <TabBtn active={tab === 'req'} onClick={() => setTab('req')} label='Requirements' />
@@ -3699,8 +3730,15 @@ function AdminJobDetail({ job, customer, onSaveCustomer, onOpenCustomerProfile, 
   );
 }
 
-function TabBtn({ active, onClick, label }) {
-  return <button onClick={onClick} style={{ ...styles.tabBtn, ...(active ? styles.tabBtnActive : {}) }}>{label}</button>;
+function TabBtn({ active, onClick, label, dot }) {
+  return (
+    <button onClick={onClick} style={{ ...styles.tabBtn, ...(active ? styles.tabBtnActive : {}) }}>
+      {label}
+      {/* A customer waiting on a changed estimate is the one thing on
+          this row worth interrupting for. */}
+      {dot ? <span style={styles.tabDot} /> : null}
+    </button>
+  );
 }
 
 /* ---- Admin gallery manager ---- */

@@ -38,13 +38,13 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
 import { normalizeError, installErrorReporting, groupErrors } from './errorLog.js';
 export { groupErrors };
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
+export { uid, logActivity, finalizeEstimateDraft, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -3820,11 +3820,19 @@ export default function App() {
           // Estimate response (approve / change request / cancel): only
           // fires the moment estimateStatus actually changes, so editing
           // other job fields afterward doesn't re-trigger a stale alert.
+          // Every change request, not only the first. Keyed off the
+          // request itself the way extra work below is, because
+          // estimateStatus is already 'change_requested' by the time a
+          // second one arrives - so the old test never fired for it and
+          // the owner never heard. The text comes through now too; he
+          // had no way to read it at all.
+          for (const r of newChangeRequests(j, prevJob)) {
+            pushNotification('estimate_change_request',
+              tf('{name} ne estimate mein change maanga: {what}', { name: j.customerName, what: r.text }), j.id);
+          }
           if (j.estimateStatus && j.estimateStatus !== prevJob?.estimateStatus) {
             if (j.estimateStatus === 'approved') {
               pushNotification('estimate_approved', tf('{name} ne estimate approve kiya - kaam shuru karein', { name: j.customerName }), j.id);
-            } else if (j.estimateStatus === 'change_requested') {
-              pushNotification('estimate_change_request', tf('{name} ne estimate mein change maanga hai', { name: j.customerName }), j.id);
             } else if (j.estimateStatus === 'cancelled') {
               pushNotification('estimate_cancelled', j.customerName + ' ne estimate cancel kar diya', j.id);
             }
@@ -6953,7 +6961,15 @@ function EstimateView({ job, onSave, showToast }) {
   };
 
   const respondToEstimate = (status, note) => {
-    let next = { ...jobRef.current, estimateStatus: status, estimateResponseNote: note || null, estimateRespondedAt: new Date().toISOString() };
+    let next;
+    if (status === 'change_requested') {
+      // An empty box used to save, show "bhej di gayi", and tell the
+      // owner nothing. Now it says so instead of pretending.
+      next = addChangeRequest(jobRef.current, note, Date.now());
+      if (!next) { showToast(t('Pehle likhein ki kya change chahiye'), true); return; }
+    } else {
+      next = { ...jobRef.current, estimateStatus: status, estimateRespondedAt: new Date().toISOString() };
+    }
     const activityText = status === 'approved'
       ? t('Customer ne estimate approve kiya - kaam shuru karein')
       : status === 'change_requested'
@@ -7133,12 +7149,29 @@ function EstimateView({ job, onSave, showToast }) {
             <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32' }}>
               <ThumbsUp size={15} />{t('Aapne ye estimate approve kar diya hai - kaam shuru ho jayega.')}</div>
           )}
-          {estimateStatus === 'change_requested' && (
-            <div style={{ ...styles.estimateStatusBanner, background: '#FFF3E0', color: '#E65100' }}>
-              <MessageSquare size={15} /> Aapka change request bheja gaya hai - hum jald contact karenge.
-              {job.estimateResponseNote && <div style={{ marginTop: 4, fontWeight: 600 }}>"{job.estimateResponseNote}"</div>}
+          {/* Every request the customer has sent, each showing whether
+              it has been answered yet. One overwritten line used to
+              stand in for all of them, so a second request looked
+              exactly like the first and an answered one looked exactly
+              like a pending one - which is what "kuch show nahi ho
+              raha" actually meant. */}
+          {changeRequests(job).map((r) => (
+            <div
+              key={r.id}
+              style={{ ...styles.estimateStatusBanner, display: 'block',
+                background: r.answeredAt ? '#E8F5E9' : '#FFF3E0',
+                color: r.answeredAt ? '#2E7D32' : '#E65100' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <MessageSquare size={15} />
+                {r.answeredAt
+                  ? 'Ye change ho gaya - naya estimate upar hai'
+                  : 'Aapka change request bheja gaya hai - hum jald contact karenge'}
+              </div>
+              <div style={{ marginTop: 4, fontWeight: 600 }}>"{r.text}"</div>
+              {r.at && <div style={{ ...styles.hintText, marginTop: 2 }}>{formatDate(r.at)}</div>}
             </div>
-          )}
+          ))}
           {estimateStatus === 'cancelled' && (
             <div style={{ ...styles.estimateStatusBanner, background: '#FFEBEE', color: '#C62828' }}>
               <XCircle size={15} />{t('Aapne ye estimate cancel kar diya hai.')}</div>
@@ -9045,6 +9078,7 @@ export const styles = {
   miniCallBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 15, background: '#DFF0E4', flexShrink: 0, textDecoration: 'none' },
 
   tabRow: { display: 'flex', padding: '10px 16px 0', gap: 5, overflowX: 'auto', position: 'sticky', top: 62, background: BRAND.cream, zIndex: 20 },
+  tabDot: { display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#E65100', marginLeft: 5, verticalAlign: 'middle' },
   tabBtn: { flexShrink: 0, background: '#EEF0F5', border: 'none', borderRadius: 9, padding: '8px 10px', fontSize: 11.5, fontWeight: 700, color: BRAND.textMuted, cursor: 'pointer' },
   tabBtnActive: { background: BRAND.navy, color: '#FDFCF8' },
 

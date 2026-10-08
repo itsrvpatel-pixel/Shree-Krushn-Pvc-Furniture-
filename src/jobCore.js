@@ -830,3 +830,95 @@ export function visitFollowUp(job, name) {
   // asking them to book it.
   return { intent: 'book', text: who + '\n\nAapne app dekha - achha laga. Free site visit ka time tay kar lein? Naap lekar exact rate bata denge, koi charge nahi.' };
 }
+
+/* ---- What the customer asked to be changed in the estimate ----
+
+   The customer could already tap "Change Chahiye", type what they
+   wanted and send it. Three things were wrong with where it went.
+
+   It was stored in one field, estimateResponseNote, which the NEXT
+   request overwrote. It was rendered in exactly one place - the
+   customer's own screen - so the owner got a notification saying a
+   change had been asked for and had no way at all to read what it
+   was, except by scrolling the activity log. And the notification
+   only fired when estimateStatus CHANGED, so a second request, with
+   the status already 'change_requested', reached him silently.
+
+   From the customer's side all three add up to the same thing: they
+   sent it, saw their own words echoed back, and nothing happened.
+
+   So requests are a list now, each one answered separately, and the
+   old single note is read as the first entry so nothing already sent
+   is lost. */
+
+export function changeRequests(job) {
+  const list = Array.isArray(job && job.estimateChangeRequests) ? job.estimateChangeRequests : [];
+  if (list.length) return list;
+  // A job from before the list existed. Its one note still deserves to
+  // be shown, and treated as answered if the estimate moved on after
+  // it was written.
+  const note = job && typeof job.estimateResponseNote === 'string' ? job.estimateResponseNote.trim() : '';
+  if (!note) return [];
+  return [{
+    id: 'legacy-note',
+    text: note,
+    at: (job && job.estimateRespondedAt) || null,
+    answeredAt: (job && job.estimateStatus) === 'change_requested' ? null : ((job && job.estimateRespondedAt) || null),
+    answeredBy: null,
+  }];
+}
+
+export function openChangeRequests(job) {
+  return changeRequests(job).filter((r) => !r.answeredAt);
+}
+
+// Blank text is not a request - it tells the owner nothing and leaves
+// the customer looking at a banner that says their message was sent.
+// Returns null so the caller can say so rather than saving silence.
+export function addChangeRequest(job, text, now, id) {
+  const body = String(text == null ? '' : text).trim();
+  if (!body) return null;
+  const entry = {
+    id: id || ('cr-' + new Date(now || Date.now()).getTime()),
+    text: body,
+    at: new Date(now || Date.now()).toISOString(),
+    answeredAt: null,
+    answeredBy: null,
+  };
+  return {
+    ...job,
+    estimateStatus: 'change_requested',
+    estimateChangeRequests: [...changeRequests(job), entry],
+    // Kept in step so anything still reading the old field - a PDF, an
+    // old build someone has not reloaded - shows the latest request
+    // rather than a stale one.
+    estimateResponseNote: body,
+    estimateRespondedAt: entry.at,
+  };
+}
+
+/* The owner has sent the changed estimate. Closes every open request
+   and clears estimateStatus, which is what puts the customer's Approve
+   button back and replaces "your request was sent" with "the new
+   estimate is here". */
+export function answerChangeRequests(job, byName, now) {
+  const open = openChangeRequests(job);
+  if (!open.length) return job;
+  const at = new Date(now || Date.now()).toISOString();
+  return {
+    ...job,
+    estimateStatus: null,
+    estimateAnsweredAt: at,
+    estimateChangeRequests: changeRequests(job).map((r) => (
+      r.answeredAt ? r : { ...r, answeredAt: at, answeredBy: byName || 'Admin' }
+    )),
+  };
+}
+
+// True the moment a request arrives that was not there before. The
+// notification used to key off estimateStatus changing, which is why
+// the second request and every one after it was silent.
+export function newChangeRequests(job, prevJob) {
+  const before = new Set(changeRequests(prevJob || {}).map((r) => r.id));
+  return changeRequests(job).filter((r) => !before.has(r.id));
+}
