@@ -492,7 +492,7 @@ function StatCard({ icon, label, value, accent, onClick }) {
   );
 }
 
-function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, customersLoading, customersLoadFailed, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, onDeadPushTokens, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, archivedReviews, setArchivedReviews, pendingGalleryPhotos, setPendingGalleryPhotos, staffName, isPartner, isDhPartner, onLogout, showToast, pushNotification }) {
+function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, customersLoading, customersLoadFailed, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, onDeadPushTokens, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, googleReviewLink, setGoogleReviewLink, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, archivedReviews, setArchivedReviews, pendingGalleryPhotos, setPendingGalleryPhotos, staffName, isPartner, isDhPartner, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   // Back returns to the job list instead of shutting the panel.
@@ -610,7 +610,8 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
       {tab === 'settings' && (
         (isPartner || isDhPartner)
           ? <PartnerSettings staffName={staffName} onLogout={onLogout} />
-          : <AdminSettings adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} dhPartnerPin={dhPartnerPin} setDhPartnerPin={setDhPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} pendingGalleryPhotos={pendingGalleryPhotos} setPendingGalleryPhotos={setPendingGalleryPhotos} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} faqs={faqs} setFaqs={setFaqs} materialSpecs={materialSpecs} setMaterialSpecs={setMaterialSpecs} companyBenefits={companyBenefits} setCompanyBenefits={setCompanyBenefits} adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications} onDeadPushTokens={onDeadPushTokens} onLogout={onLogout} showToast={showToast} />
+          : <AdminSettings
+            googleReviewLink={googleReviewLink} setGoogleReviewLink={setGoogleReviewLink} adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} dhPartnerPin={dhPartnerPin} setDhPartnerPin={setDhPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} pendingGalleryPhotos={pendingGalleryPhotos} setPendingGalleryPhotos={setPendingGalleryPhotos} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} faqs={faqs} setFaqs={setFaqs} materialSpecs={materialSpecs} setMaterialSpecs={setMaterialSpecs} companyBenefits={companyBenefits} setCompanyBenefits={setCompanyBenefits} adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications} onDeadPushTokens={onDeadPushTokens} onLogout={onLogout} showToast={showToast} />
       )}
 
       <BottomNav
@@ -4905,7 +4906,7 @@ function DataCheckPanel({ gallery, showToast }) {
   );
 }
 
-function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, pendingGalleryPhotos, setPendingGalleryPhotos, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, adminPushTokens, enableAdminPushNotifications, onDeadPushTokens, onLogout, showToast }) {
+function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, pendingGalleryPhotos, setPendingGalleryPhotos, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, googleReviewLink, setGoogleReviewLink, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, adminPushTokens, enableAdminPushNotifications, onDeadPushTokens, onLogout, showToast }) {
   // Same union fix as GalleryBrowser/AdminGallery's matching comment -
   // used here so a category with real gallery photos never becomes
   // unmanageable from Settings just because it isn't (or is no longer)
@@ -5917,6 +5918,33 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
             {testPushResult && <div style={{ ...styles.itemSub, marginTop: 8 }}>{testPushResult}</div>}
           </>
         )}
+      </div>
+
+      {/* Thirty-seven reviews live inside this app, where only our own
+          website can read them. Google counts none of them, and the
+          three shops above us in the map list have twelve, twenty-six
+          and thirty. Paste the profile's review link here and every
+          customer whose work is finished gets a one-tap row on their
+          home screen. Kept as a setting, not baked into the build: the
+          Google profile behind it was rebuilt this week. */}
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={styles.fieldLabel}>Google review link</div>
+        <div style={styles.hintText}>
+          Google Business Profile kholein &rarr; &ldquo;Ask for reviews&rdquo; &rarr; link copy karein.
+          Yahan paste karte hi har us customer ko, jiska kaam poora ho gaya hai, app ke home par
+          &ldquo;Google par bhi review dein&rdquo; button dikhne lagega.
+        </div>
+        <input
+          style={{ ...styles.input, marginTop: 8 }}
+          placeholder='https://g.page/r/.../review'
+          defaultValue={googleReviewLink || ''}
+          onBlur={(e) => { if (e.target.value.trim() !== (googleReviewLink || '')) setGoogleReviewLink(e.target.value); }}
+        />
+        {googleReviewLink
+          ? <div style={{ ...styles.itemSub, marginTop: 8, color: '#2F7D4F' }}>
+              Button chalu hai. <a href={googleReviewLink} target='_blank' rel='noopener noreferrer' style={{ textDecoration: 'underline' }}>Khud dekh lein</a>
+            </div>
+          : <div style={{ ...styles.itemSub, marginTop: 8 }}>Abhi khali hai - customer ko koi button nahi dikh raha.</div>}
       </div>
 
       <div style={{ ...styles.card, marginTop: 12, borderColor: BRAND.navy, borderWidth: 1.5 }}>

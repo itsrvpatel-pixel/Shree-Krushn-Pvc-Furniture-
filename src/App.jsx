@@ -38,13 +38,13 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
 import { normalizeError, installErrorReporting, groupErrors } from './errorLog.js';
 export { groupErrors };
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
+export { uid, logActivity, finalizeEstimateDraft, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -1998,6 +1998,10 @@ export default function App() {
   // selected. Separate from actual estimate items (which admin builds
   // by hand with real, per-job rates) - this is only for a rough,
   // instant approximation before an admin-built estimate exists.
+  // Pasted in Settings rather than baked in: the Google profile it
+  // points at was rebuilt this week, and a link in the bundle means a
+  // deploy every time it moves.
+  const [googleReviewLink, setGoogleReviewLinkRaw] = useState('');
   const [estimateRates, setEstimateRatesRaw] = useState([
     { id: 'r1', name: 'Laminate', rate: '1000', unit: 'sqft' },
     { id: 'r2', name: 'Without Laminate', rate: '700', unit: 'sqft' },
@@ -2326,12 +2330,12 @@ export default function App() {
             showToast(what + ': ' + m.migrated + ' record naye format mein aa gaye');
           }
         });
-        const [p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw, featuredRaw] = await Promise.all([
+        const [p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw, featuredRaw, gReviewRaw] = await Promise.all([
           safeGetStatus('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), sharedNotificationsGet(), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
           safeGet('archived_reviews'), safeGet('admin_push_tokens'), safeGet('faqs'), safeGet('dh_partner_pin'), safeGet('pending_gallery_photos'),
-          safeGet('material_specs'), safeGet('company_benefits'), safeGet('featured_reviews'),
+          safeGet('material_specs'), safeGet('company_benefits'), safeGet('featured_reviews'), safeGet('google_review_link'),
         ]);
 
         // Each document is applied on its own. These used to be a bare run
@@ -2369,6 +2373,8 @@ export default function App() {
         applyDoc('pending gallery photos', pendingGalleryRaw, setPendingGalleryPhotos);
         applyDoc('material specs', materialSpecsRaw, setMaterialSpecsRaw);
         applyDoc('company benefits', companyBenefitsRaw, setCompanyBenefitsRaw);
+        // A plain string, like the PINs above - not a JSON document.
+        if (gReviewRaw) setGoogleReviewLinkRaw(gReviewRaw);
         if (!applyDoc('featured reviews', featuredRaw, setFeaturedReviews)) {
           featuredNeedsBackfillRef.current = true;
         }
@@ -3132,6 +3138,14 @@ export default function App() {
     }
   }, []);
 
+  const persistGoogleReviewLink = useCallback(async (raw) => {
+    const link = normalizeReviewLink(raw);
+    if (raw && raw.trim() && !link) { showToast('Ye Google ka link nahi lag raha - dobara copy karein', true); return false; }
+    setGoogleReviewLinkRaw(link);
+    try { await window.storage.set('google_review_link', link, true); showToast(link ? 'Google review link save ho gaya' : 'Link hata diya'); return true; }
+    catch (err) { showToast('Link save nahi hua', true); return false; }
+  }, []);
+
   const persistEstimateRates = useCallback((rates) => persistSharedList(
     'estimate_rates', rates, estimateRatesRef.current, setEstimateRatesRaw, 'Rates save'), [persistSharedList]);
   const persistFaqs = useCallback((list) => persistSharedList(
@@ -3505,6 +3519,7 @@ export default function App() {
           itemTemplates={itemTemplates} setItemTemplates={setItemTemplates}
           attendance={attendance}
           estimateRates={estimateRates} setEstimateRates={persistEstimateRates}
+          googleReviewLink={googleReviewLink} setGoogleReviewLink={persistGoogleReviewLink}
           faqs={faqs} setFaqs={persistFaqs}
           materialSpecs={materialSpecs} setMaterialSpecs={persistMaterialSpecs}
           companyBenefits={companyBenefits} setCompanyBenefits={persistCompanyBenefits}
@@ -3773,6 +3788,7 @@ export default function App() {
       <CustomerApp
         customer={customer}
         onSaveCustomer={saveOwnCustomer}
+        googleReviewLink={googleReviewLink}
         gallery={gallery}
         loadGalleryData={loadGalleryData} galleryLoading={galleryLoading}
         job={myJob}
@@ -4987,7 +5003,7 @@ const CUSTOMER_TAB_PARENT = {
   instant_estimate: 'home',
 };
 
-function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, faqs, materialSpecs, companyBenefits, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
+function CustomerApp({ customer, onSaveCustomer, googleReviewLink, gallery, loadGalleryData, galleryLoading, job, appointmentItemOptions, categories, brochures, testimonials, estimateRates, faqs, materialSpecs, companyBenefits, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, onSaveJob, onLogout, showToast }) {
   // Registers this customer's own device for push notifications
   // (visit confirmed, payment due, etc.) - the token is stored
   // directly on their job record, since that's what pushNotification
@@ -5108,7 +5124,7 @@ function CustomerApp({ customer, onSaveCustomer, gallery, loadGalleryData, galle
         }
       />
 
-      {tab === 'home' && <CustomerHome job={job} customer={customer} testimonials={testimonials} onOpenReviews={() => setShowReviews(true)} setTab={setTab} onOpenCalculator={() => setTab('instant_estimate')} onLogout={onLogout} onOpenProfile={() => setShowProfile(true)} />}
+      {tab === 'home' && <CustomerHome job={job} customer={customer} testimonials={testimonials} googleReviewLink={googleReviewLink} onOpenReviews={() => setShowReviews(true)} setTab={setTab} onOpenCalculator={() => setTab('instant_estimate')} onLogout={onLogout} onOpenProfile={() => setShowProfile(true)} />}
       {tab === 'appointment' && <AppointmentPanel job={job} onSave={onSaveJob} showToast={showToast} itemOptions={appointmentItemOptions} />}
       {galleryEverVisited && (
         <div style={{ display: tab === 'gallery' ? 'block' : 'none' }}>
@@ -5337,7 +5353,7 @@ function MoreRow({ icon, title, sub, onClick, href, danger }) {
     : <button type='button' style={styles.moreRow} onClick={onClick}>{inner}</button>;
 }
 
-export function CustomerHome({ job, customer, testimonials, setTab, onOpenCalculator, onLogout, onOpenProfile, onOpenReviews }) {
+export function CustomerHome({ job, customer, testimonials, googleReviewLink, setTab, onOpenCalculator, onLogout, onOpenProfile, onOpenReviews }) {
   const st = STATUS[job.status] || STATUS.appointment;
   const total = jobTotal(job);
   const due = jobDue(job);
@@ -5478,6 +5494,16 @@ export function CustomerHome({ job, customer, testimonials, setTab, onOpenCalcul
             title={t(reviewPrompt(job).title)}
             sub={t(reviewPrompt(job).sub)}
             onClick={() => setTab('review')} />
+        )}
+        {/* Thirty-seven reviews sit inside this app where only our own
+            website can read them. Google counts none of them, and the
+            shops above us in the map list have twelve to thirty. Same
+            gate as the row above: only once the work is done. */}
+        {canAskForGoogleReview(job, googleReviewLink) && (
+          <HomeAction icon={<Star size={17} color={'#D2552B'} />}
+            title={t('Google par bhi review dein')}
+            sub={t('Ek tap - naye customer ko hum par bharosa aata hai')}
+            onClick={() => window.open(normalizeReviewLink(googleReviewLink), '_blank', 'noopener')} />
         )}
       </div>
     </div>

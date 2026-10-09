@@ -928,3 +928,44 @@ export function newChangeRequests(job, prevJob) {
   const before = new Set(changeRequests(prevJob || {}).map((r) => r.id));
   return changeRequests(job).filter((r) => !before.has(r.id));
 }
+
+/* ---- The Google review link ----
+
+   The app already collects reviews, and 37 of them sit inside it where
+   only our own website can read them. Google counts none of those, and
+   the three shops above us in the local pack have twelve, twenty-six
+   and thirty. Asking the same finished customers for a Google review is
+   the single cheapest way past them.
+
+   The link is not hard-coded: it lives in Settings, because it belongs
+   to a Google profile that has already been rebuilt once this week, and
+   a link baked into the bundle would mean a deploy every time it moves.
+
+   Pasted by hand from a phone, so it is checked rather than trusted. An
+   empty or malformed value simply means no button - a dead link in
+   front of a happy customer is worse than no button at all. */
+
+export function normalizeReviewLink(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return '';
+  let u;
+  try { u = new URL(s); } catch (e) { return ''; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return '';
+  // Google hands these out in a few shapes - g.page/r/.../review,
+  // search.google.com/local/writereview, maps.app.goo.gl short links,
+  // g.co/kgs. Anything not on a Google host is a paste gone wrong.
+  const host = u.hostname.replace(/^www\./, '');
+  // google.com itself matters: the www. is stripped above, so a maps
+  // place link arrives here as the bare domain and endsWith('.google.com')
+  // does not catch it.
+  const ok = host === 'g.page' || host === 'g.co'
+    || host === 'google.com' || host.endsWith('.google.com')
+    || host === 'maps.app.goo.gl' || host === 'goo.gl';
+  return ok ? u.toString() : '';
+}
+
+// The button only belongs in front of someone whose work is done - the
+// same bar the app's own review already has to clear.
+export function canAskForGoogleReview(job, link) {
+  return !!normalizeReviewLink(link) && canLeaveReview(job);
+}
