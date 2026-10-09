@@ -40,14 +40,29 @@ t('every screen destructures the result, none takes the object', () => {
 });
 
 t('nothing is saved from a call that failed', () => {
-  // The guard that never fired. Each site must bail on a null token
-  // before it writes anything.
+  // The guard that never fired. Every site that writes a token must
+  // bail on a null one first - EVERY one, not just the first in the
+  // file: the silent refresh added later writes the same field from a
+  // second place, and checking only indexOf would have waved it past.
+  //
+  // Two shapes of guard count. The explicit `if (!token)` the tap
+  // handlers use, and the changed-check helpers the background
+  // refresh uses, which return false for anything falsy and so never
+  // reach the write.
+  const guarded = /if \(!token\) \{|customerTokenChanged\(token,|tokenNeedsSaving\(token,/;
+  let sites = 0;
   for (const marker of ['customerPushToken: token', 'pushToken: token']) {
-    const i = app.indexOf(marker);
+    let i = app.indexOf(marker);
     assert.ok(i > 0, 'cannot find where the token is saved: ' + marker);
-    const before = app.slice(Math.max(0, i - 700), i);
-    assert.ok(/if \(!token\) \{/.test(before), 'no bail-out before saving: ' + marker);
+    while (i > 0) {
+      sites++;
+      const before = app.slice(Math.max(0, i - 700), i);
+      assert.ok(guarded.test(before),
+        'no bail-out before saving at index ' + i + ': ' + marker);
+      i = app.indexOf(marker, i + marker.length);
+    }
   }
+  assert.ok(sites >= 3, 'expected at least three places that save a token, found ' + sites);
 });
 
 t('one wording for every reason, shared by all three screens', () => {

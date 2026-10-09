@@ -969,3 +969,42 @@ export function normalizeReviewLink(raw) {
 export function canAskForGoogleReview(job, link) {
   return !!normalizeReviewLink(link) && canLeaveReview(job);
 }
+
+/* ---- Keeping the push token alive ----
+
+   A token was only ever fetched when somebody tapped "Notifications On
+   Karein". FCM tokens do not last: they rotate when site data is
+   cleared, when the app is reinstalled, when the browser decides to,
+   and - the one that actually bit - when the service worker is
+   replaced. This project replaced its push worker twice in a week, and
+   every device's token died with it.
+
+   The server then correctly dropped each dead token, nothing ever
+   registered the new one, and the whole app went silent with no error
+   anywhere: the owner saw permission still granted, we saw no tokens,
+   and neither side had any reason to suspect the other.
+
+   So a device that has ALREADY granted permission re-fetches on every
+   start and saves the token if it has changed. No prompt - there is
+   nothing to ask, the answer is already yes. */
+
+export function pushPermissionGranted(win) {
+  try {
+    const N = win && win.Notification;
+    return !!N && N.permission === 'granted';
+  } catch (e) { return false; }
+}
+
+// Admin keeps a list of devices; a token already in it is not news.
+export function tokenNeedsSaving(token, stored) {
+  if (!token || typeof token !== 'string') return false;
+  const list = Array.isArray(stored) ? stored : [];
+  return !list.some((t) => (typeof t === 'string' ? t : t && t.token) === token);
+}
+
+// A customer's job holds exactly one. Replacing it with the same value
+// would be a pointless write on every single app open.
+export function customerTokenChanged(token, job) {
+  if (!token || typeof token !== 'string') return false;
+  return (job && job.customerPushToken) !== token;
+}

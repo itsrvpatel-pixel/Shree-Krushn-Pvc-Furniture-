@@ -38,13 +38,13 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
 import { normalizeError, installErrorReporting, groupErrors } from './errorLog.js';
 export { groupErrors };
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
+export { uid, logActivity, finalizeEstimateDraft, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -3299,6 +3299,28 @@ export default function App() {
     showToast('Notifications on ho gayi');
     return true;
   }, [adminPushTokens, showToast]);
+  // A device that already said yes gets its token refreshed on every
+  // start. FCM rotates them - most sharply when the service worker is
+  // replaced, which happened twice this week - and until now the new
+  // one was only ever picked up by tapping the button again. Nobody
+  // taps a button that is already on, so the app went quiet and
+  // nothing anywhere said why.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!window.pushMessaging || !pushPermissionGranted(window)) return;
+      let token = null;
+      try { ({ token } = await window.pushMessaging.requestPermissionAndGetToken()); }
+      catch (e) { return; }
+      if (cancelled || !tokenNeedsSaving(token, adminPushTokensRef.current)) return;
+      const next = [...(adminPushTokensRef.current || []), { token, addedAt: new Date().toISOString() }];
+      setAdminPushTokensRaw(next);
+      try { await window.storage.set('admin_push_tokens', JSON.stringify(next), true); }
+      catch (e) { /* best effort - it will be tried again next start */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Tokens the server reported as permanently dead, taken out of the
   // list. Without this every later send carries the corpse and
   // reports a failure nobody can act on.
@@ -5009,6 +5031,27 @@ function CustomerApp({ customer, onSaveCustomer, googleReviewLink, gallery, load
   // directly on their job record, since that's what pushNotification
   // (top level of App) looks up when sending a customer-bound
   // notification.
+  // Read through a ref, not the closure: this runs once on mount and
+  // writes back a whole job, so it must not save a copy captured
+  // before the customer touched anything else.
+  const jobForPushRef = useLatestRef(job);
+  // Same silent refresh as admin's. A customer who turned notifications
+  // on weeks ago has a token that died with the service worker swap,
+  // and would never have tapped the button again - it already said on.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!window.pushMessaging || !pushPermissionGranted(window)) return;
+      let token = null;
+      try { ({ token } = await window.pushMessaging.requestPermissionAndGetToken()); }
+      catch (e) { return; }
+      if (cancelled || !customerTokenChanged(token, jobForPushRef.current)) return;
+      onSaveJob({ ...jobForPushRef.current, customerPushToken: token });
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const enableCustomerPushNotifications = async () => {
     if (!window.pushMessaging) { showToast('Push notifications is browser mein supported nahi hai', true); return; }
     // Same bug as the karigar one above, same consequence: the job
