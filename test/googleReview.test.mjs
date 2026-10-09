@@ -87,4 +87,42 @@ t('the customer gets the row, gated the same way', () => {
     'the row opens whatever string is stored, unchecked');
 });
 
+
+// "App mein customer ne review diya, Google par nahi gaya."
+//
+// It cannot. Google only accepts a review written by the person
+// themselves, signed into their own account, on Google's page - there
+// is no API that posts one on their behalf, and anything claiming to
+// is planting fake reviews, which gets a profile suspended.
+//
+// The nearest honest thing is to ask at the one moment they have just
+// proved they are willing: the second after they submit the app
+// review. The home-screen row was no use for this - nobody walks back
+// to the home screen after writing a review.
+t('the ask is on the review screen, not only the home screen', () => {
+  const c = code(app);
+  const panel = c.slice(c.indexOf('function ReviewPanel('), c.indexOf('function KarigarApp('));
+  assert.ok(panel.length > 200, 'could not find the review screen');
+  assert.ok(/canAskForGoogleReview\(/.test(panel), 'the review screen never offers Google');
+  assert.ok(/justSubmitted/.test(panel), 'the ask does not follow the moment they submit');
+  assert.ok(/normalizeReviewLink\(googleReviewLink\)/.test(panel), 'it opens the raw setting unchecked');
+});
+
+t('what they wrote can be carried across', () => {
+  const c = code(app);
+  const panel = c.slice(c.indexOf('function ReviewPanel('), c.indexOf('function KarigarApp('));
+  // Retyping the same sentence on Google is most of the reason people
+  // start and give up.
+  assert.ok(/clipboard\.writeText/.test(panel), 'their own words cannot be copied');
+  // And a clipboard that refuses must say so rather than silently
+  // doing nothing - it is blocked often enough on an in-app browser.
+  assert.ok(/catch\(/.test(panel.replace(/\s/g, '')), 'a failed copy is silent');
+});
+
+t('the ask still only reaches a finished job with a link set', () => {
+  // Same gate as everywhere else - this screen must not invent its own.
+  assert.equal(canAskForGoogleReview({ status: 'in_progress' }, 'https://g.page/r/x/review'), false);
+  assert.equal(canAskForGoogleReview({ status: 'delivered' }, ''), false);
+});
+
 console.log(n + ' assertions passed');

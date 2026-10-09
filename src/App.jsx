@@ -5140,7 +5140,7 @@ function CustomerApp({ customer, onSaveCustomer, googleReviewLink, gallery, load
         </div>
       )}
       {tab === 'progress' && <ProgressView job={job} onSave={onSaveJob} showToast={showToast} customer={customer} categories={categories} pushNotification={pushNotification} />}
-      {tab === 'review' && <ReviewPanel job={job} onSave={onSaveJob} showToast={showToast} />}
+      {tab === 'review' && <ReviewPanel job={job} onSave={onSaveJob} showToast={showToast} googleReviewLink={googleReviewLink} />}
       {tab === 'more' && (
         <MoreScreen
           customer={customer}
@@ -7578,7 +7578,7 @@ function ProgressView({ job, onSave, showToast, customer, categories, pushNotifi
 }
 
 /* ---- Review panel ---- */
-function ReviewPanel({ job, onSave, showToast }) {
+function ReviewPanel({ job, onSave, showToast, googleReviewLink }) {
   const [rating, setRating] = useState(job.review?.rating || 0);
   const [hoverRating, setHoverRating] = useState(0);
   const [text, setText] = useState(job.review?.text || '');
@@ -7591,6 +7591,14 @@ function ReviewPanel({ job, onSave, showToast }) {
   const canReview = job.status === 'delivered' || job.status === 'paid';
   const jobRef = useRef(job);
   useEffect(() => { jobRef.current = job; }, [job]);
+  // An app review cannot become a Google one - Google only takes a
+  // review written by the person themselves, signed in, on its own
+  // page. The nearest thing is to ask at the one moment they have
+  // just proved they are willing, which is the second after they
+  // submit this. The row on the home screen was no use: nobody walks
+  // back to the home screen after writing a review.
+  const [justSubmitted, setJustSubmitted] = useState(false);
+  const askGoogle = canAskForGoogleReview(jobRef.current, googleReviewLink);
 
   const submit = () => {
     if (!rating) { showToast('Rating select karein', true); return; }
@@ -7598,6 +7606,7 @@ function ReviewPanel({ job, onSave, showToast }) {
     next = logActivity(next, 'Review submitted (' + rating + '*)');
     jobRef.current = next;
     onSave(next);
+    setJustSubmitted(true);
     showToast('Review submit ho gayi. Dhanyavaad!');
   };
 
@@ -7625,6 +7634,38 @@ function ReviewPanel({ job, onSave, showToast }) {
       </div>
       <textarea style={{ ...styles.input, minHeight: 90, resize: 'vertical', marginTop: 10 }} value={text} onChange={(e) => setText(e.target.value)} placeholder={t('Kaam, quality, service ke baare mein likhein...')} />
       <button style={styles.primaryBtn2} onClick={submit}><Send size={14} /> {job.review ? t('Review Update Karein') : 'Submit Review'}</button>
+
+      {/* Shown straight after they submit, and from then on whenever
+          they come back to this screen with a review already on file.
+          Their own words are offered for copying, because retyping the
+          same thing on Google is most of the reason people do not. */}
+      {askGoogle && (justSubmitted || job.review) && (
+        <div style={{ ...styles.formCard, marginTop: 16, borderColor: BRAND.gold }}>
+          <div style={styles.fieldLabel}>{t('Ek chhoti si request')}</div>
+          <div style={styles.plainTextMuted}>
+            {t('Yahi baat Google par bhi likh dein to naye customer ko hum par bharosa aata hai. Ek minute lagega.')}
+          </div>
+          {(text.trim() || job.review?.text) && (
+            <button
+              style={{ ...styles.cardActionBtn, marginTop: 10 }}
+              onClick={() => {
+                const own = text.trim() || job.review?.text || '';
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(own)
+                    .then(() => showToast(t('Copy ho gaya - Google par paste kar dein')))
+                    .catch(() => showToast(t('Copy nahi hua, haath se likh dein'), true));
+                } else {
+                  showToast(t('Copy nahi hua, haath se likh dein'), true);
+                }
+              }}
+            >{t('Apna likha hua copy karein')}</button>
+          )}
+          <button
+            style={{ ...styles.primaryBtn, marginTop: 10 }}
+            onClick={() => window.open(normalizeReviewLink(googleReviewLink), '_blank', 'noopener')}
+          ><Star size={14} /> {t('Google par review dein')}</button>
+        </div>
+      )}
     </div>
   );
 }
