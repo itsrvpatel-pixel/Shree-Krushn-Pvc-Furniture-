@@ -35,7 +35,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export const STREET = 'Mahavir Complex, Hari Villa Road, near Honda Showroom, Bapa Sitaram Chowk, Nikol, Nava Naroda';
 export const LOCALITY = 'Ahmedabad';
-export const PIN = '380038';
+// Google's own listing geocodes the pin on Hari Villa Road to 382345,
+// and that is the record a customer navigates by and the local pack is
+// built from. The site followed 380038 for months; where the two
+// disagree, the one Google holds wins, because matching it is the
+// entire point of writing the address the same way everywhere.
+export const PIN = '382345';
 export const AREA_LINE = 'Nikol, Nava Naroda, Ahmedabad';
 export const SHORT = 'Nikol, Ahmedabad';
 
@@ -55,6 +60,11 @@ const RULES = [
   // the heading above it, and the footer line
   ['<h2>Nava Naroda, Ahmedabad</h2>', '<h2>' + AREA_LINE + '</h2>'],
   ['&#183; Nava Naroda, Ahmedabad &#183;', '&#183; ' + AREA_LINE + ' &#183;'],
+
+  // the pincode itself, wherever it already reads correctly
+  ['Gujarat 380038', 'Gujarat ' + PIN],
+  ['"postalCode": "380038"', '"postalCode": "' + PIN + '"'],
+  ['"postalCode":"380038"', '"postalCode":"' + PIN + '"'],
 
   // short labels
   ['<span class="chip">Nava Naroda, Ahmedabad</span>', '<span class="chip">' + SHORT + '</span>'],

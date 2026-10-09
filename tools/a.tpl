@@ -40,7 +40,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
   "streetAddress": "Mahavir Complex, Hari Villa Road, near Honda Showroom, Bapa Sitaram Chowk, Nikol, Nava Naroda",
   "addressLocality": "Ahmedabad",
   "addressRegion": "Gujarat",
-  "postalCode": "380038",
+  "postalCode": "382345",
   "addressCountry": "IN"
  },
  "areaServed": {
@@ -160,7 +160,7 @@ font-display:optional;src:url(/fonts/manrope.woff2) format('woff2')}
   <div class="eyebrow">Get in touch</div>
   <h2>Nikol, Nava Naroda, Ahmedabad</h2>
   <div class="cg">
-    <div><b>Workshop</b><p>Mahavir Complex, Hari Villa Road<br />near Honda Showroom, Bapa Sitaram Chowk<br />Nikol, Nava Naroda, Ahmedabad<br />Gujarat 380038</p></div>
+    <div><b>Workshop</b><p>Mahavir Complex, Hari Villa Road<br />near Honda Showroom, Bapa Sitaram Chowk<br />Nikol, Nava Naroda, Ahmedabad<br />Gujarat 382345</p></div>
     <div><b>Owner</b><p>Ravi Vasoya</p></div>
     <div><b>Phone</b><a href="tel:{TEL}">{PHONE}</a><br /><a href="tel:+919512318775">{PHONE2}</a></div>
     <div><b>Areas we serve</b><p>All areas of Ahmedabad, including Nikol and Nava Naroda</p></div><div><b>Already a customer?</b><a href="/app">Open your app &rarr;</a></div>
