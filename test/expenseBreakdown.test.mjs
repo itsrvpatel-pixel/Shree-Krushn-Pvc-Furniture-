@@ -190,4 +190,93 @@ t('the screen opens a kind into its people', () => {
     'the people list ignores the month toggle and will not match the row total');
 });
 
+
+/* ---- This month against last, and sending it on ---- */
+import { prevMonthKey, monthLabel, compareBreakdowns, expenseReportText } from '../src/jobCore.js';
+
+const months = [
+  { type: 'Karigar Payment', payee: 'Suresh', amount: 10000, date: '2026-10-02' },
+  { type: 'Material', payee: 'Hexa', amount: 15000, date: '2026-10-05' },
+  { type: 'Karigar Payment', payee: 'Ramu', amount: 9000, date: '2026-09-21' },
+  { type: 'Material', payee: 'Crystal', amount: 12000, date: '2026-09-20' },
+];
+const oct = expenseBreakdown(months, { monthKey: '2026-10' });
+const sep = expenseBreakdown(months, { monthKey: '2026-09' });
+
+t('the month before is found by string, not by date maths', () => {
+  assert.equal(prevMonthKey('2026-10'), '2026-09');
+  assert.equal(prevMonthKey('2026-01'), '2025-12', 'January must roll back a year');
+  assert.equal(prevMonthKey('2026-13'), '');
+  assert.equal(prevMonthKey('rubbish'), '');
+  assert.equal(monthLabel('2026-10'), 'October 2026');
+  assert.equal(monthLabel('nope'), '');
+});
+
+t('each kind is compared with the same kind last month', () => {
+  const c = compareBreakdowns(oct, sep);
+  const byType = Object.fromEntries(c.byType.map((r) => [r.type, r]));
+  assert.equal(byType.Material.was, 12000);
+  assert.equal(byType.Material.diff, 3000);
+  assert.equal(byType.Material.direction, 'up');
+  assert.equal(byType['Karigar Payment'].diff, 1000);
+  // A kind with nothing in either month is not "changed".
+  assert.equal(byType.Transport.direction, 'same');
+  assert.equal(c.total, 25000);
+  assert.equal(c.wasTotal, 21000);
+  assert.equal(c.direction, 'up');
+});
+
+t('spending less reads as less', () => {
+  const c = compareBreakdowns(sep, oct);
+  assert.equal(c.direction, 'down');
+  assert.equal(c.diff, -4000);
+});
+
+t('a first month is not compared against nothing', () => {
+  // "100% zyada" against a month that does not exist is worse than
+  // saying nothing, so the screen has something to check.
+  const c = compareBreakdowns(oct, expenseBreakdown([], { monthKey: '2026-09' }));
+  assert.equal(c.hasPrevious, false);
+  assert.equal(compareBreakdowns(oct, sep).hasPrevious, true);
+  assert.equal(compareBreakdowns(oct, null).hasPrevious, false);
+});
+
+t('the WhatsApp message says the month, the kinds and the total', () => {
+  const text = expenseReportText(oct, { monthKey: '2026-10', comparison: compareBreakdowns(oct, sep) });
+  assert.ok(text.includes('October 2026'), 'the month is not named');
+  assert.ok(text.includes('Karigar Payment: Rs. 10,000'), 'a kind is missing');
+  assert.ok(text.includes('Kul: Rs. 25,000'), 'no total');
+  assert.ok(text.includes('Rs. 4,000 zyada'), 'the comparison is missing');
+  // A kind with nothing in it is noise in a chat bubble.
+  assert.ok(!text.includes('Transport'), 'empty kinds are listed');
+  // Plain Rs., not the glyph: it comes out as a box in plenty of chat
+  // apps, and this is read on a phone.
+  assert.ok(!text.includes('₹'), 'the rupee glyph will not render reliably');
+});
+
+t('the message holds up with nothing to report', () => {
+  const empty = expenseBreakdown([], { monthKey: '2026-10' });
+  const text = expenseReportText(empty, { monthKey: '2026-10', comparison: compareBreakdowns(empty, null) });
+  assert.ok(text.includes('Koi kharch nahi likha gaya'), 'an empty month says nothing at all');
+  assert.ok(text.includes('Kul: Rs. 0'));
+  assert.ok(!text.includes('pichhle mahine'), 'it compares an empty month against nothing');
+});
+
+t('collected and left over are included when known', () => {
+  const text = expenseReportText(oct, { monthKey: '2026-10', collected: 40000 });
+  assert.ok(text.includes('Jama hua: Rs. 40,000'));
+  assert.ok(text.includes('Bacha: Rs. 15,000'));
+  // And left out entirely when not passed, rather than shown as zero.
+  assert.ok(!expenseReportText(oct, { monthKey: '2026-10' }).includes('Jama hua'));
+});
+
+t('the screen shows the comparison and can send it', () => {
+  assert.ok(/compareBreakdowns\(/.test(code), 'nothing compares the two months');
+  assert.ok(/prevMonthKey\(thisMonth\)/.test(code), 'last month is never looked up');
+  assert.ok(/costScope !== 'month' \? null/.test(code),
+    'all-time is compared against a month, which means nothing');
+  assert.ok(/costCompare\.hasPrevious/.test(code), 'a first month is compared against nothing');
+  assert.ok(/expenseReportText\(costBreakdown/.test(code), 'there is no way to send the month on');
+});
+
 console.log(n + ' assertions passed');

@@ -1093,3 +1093,89 @@ export function expenseBreakdown(expenses, opts) {
     byPayee: [...byPayee.values()].sort((a, b) => b.total - a.total),
   };
 }
+
+/* ---- Comparing one month with the last, and sending it on ---- */
+
+// '2026-01' -> '2025-12'. String maths rather than Date, so there is
+// no timezone to get wrong.
+export function prevMonthKey(key) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(key || ''));
+  if (!m) return '';
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  if (mo < 1 || mo > 12) return '';
+  return mo === 1
+    ? (y - 1) + '-12'
+    : y + '-' + String(mo - 1).padStart(2, '0');
+}
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+
+export function monthLabel(key) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(key || ''));
+  if (!m) return '';
+  const i = Number(m[2]) - 1;
+  return (MONTH_NAMES[i] || '') + ' ' + m[1];
+}
+
+/* Each kind, this month against last. direction is what the owner
+   actually reads - whether more went out, not whether a number rose,
+   which for spending are the same thing but worth naming once rather
+   than at three call sites. */
+export function compareBreakdowns(current, previous) {
+  const prevByType = new Map((previous && previous.byType ? previous.byType : []).map((r) => [r.type, r.amount]));
+  const byType = (current && current.byType ? current.byType : []).map((r) => {
+    const was = prevByType.get(r.type) || 0;
+    const diff = r.amount - was;
+    return {
+      ...r,
+      was,
+      diff,
+      direction: diff > 0 ? 'up' : (diff < 0 ? 'down' : 'same'),
+    };
+  });
+  const nowTotal = (current && current.total) || 0;
+  const wasTotal = (previous && previous.total) || 0;
+  const diff = nowTotal - wasTotal;
+  return {
+    byType,
+    total: nowTotal,
+    wasTotal,
+    diff,
+    direction: diff > 0 ? 'up' : (diff < 0 ? 'down' : 'same'),
+    // Nothing to compare against is not the same as "no change", and
+    // saying "100% zyada" against a month that does not exist is
+    // worse than saying nothing.
+    hasPrevious: !!(previous && previous.entries > 0),
+  };
+}
+
+/* The month's spending as a WhatsApp message. Plain "Rs." and no
+   table characters: this is read on a phone, in a chat bubble, where
+   a rupee glyph and aligned columns both come out wrong often enough
+   to matter. */
+export function expenseReportText(breakdown, opts) {
+  const o = opts || {};
+  const rs = (n) => 'Rs. ' + (Number(n) || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  const lines = [];
+  lines.push(o.business || 'Shree Krushn PVC Furniture');
+  lines.push('Kharch - ' + (monthLabel(o.monthKey) || 'ab tak'));
+  lines.push('');
+  for (const row of breakdown.byType) {
+    if (!row.amount) continue;
+    lines.push(row.type + ': ' + rs(row.amount) + ' (' + row.count + ')');
+  }
+  if (!breakdown.entries) lines.push('Koi kharch nahi likha gaya.');
+  lines.push('');
+  lines.push('Kul: ' + rs(breakdown.total));
+  if (o.comparison && o.comparison.hasPrevious && o.comparison.direction !== 'same') {
+    lines.push('Pichhle mahine se ' + rs(Math.abs(o.comparison.diff))
+      + (o.comparison.direction === 'up' ? ' zyada' : ' kam'));
+  }
+  if (o.collected !== undefined) {
+    lines.push('Jama hua: ' + rs(o.collected));
+    lines.push('Bacha: ' + rs((Number(o.collected) || 0) - breakdown.total));
+  }
+  return lines.join('\n');
+}

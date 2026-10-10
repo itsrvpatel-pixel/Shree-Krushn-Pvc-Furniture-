@@ -134,6 +134,10 @@ import {
   EXPENSE_TYPES,
   expenseBreakdown,
   monthKeyOf,
+  prevMonthKey,
+  monthLabel,
+  compareBreakdowns,
+  expenseReportText,
   lastSeenLabel,
   visitStamp,
   visitFollowUp,
@@ -4226,10 +4230,17 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
   const [openType, setOpenType] = useState(null);
   // Before the early returns below, like everything else here - the
   // Rules of Hooks bug that blanked the app twice on this screen.
+  const thisMonth = monthKeyOf(new Date());
   const costBreakdown = useMemo(() => expenseBreakdown(
     visibleExpenses,
-    costScope === 'month' ? { monthKey: monthKeyOf(new Date()) } : {},
-  ), [visibleExpenses, costScope]);
+    costScope === 'month' ? { monthKey: thisMonth } : {},
+  ), [visibleExpenses, costScope, thisMonth]);
+  // Only when a month is on screen: comparing all-time against
+  // anything is meaningless.
+  const costCompare = useMemo(() => (costScope !== 'month' ? null : compareBreakdowns(
+    costBreakdown,
+    expenseBreakdown(visibleExpenses, { monthKey: prevMonthKey(thisMonth) }),
+  )), [costScope, costBreakdown, visibleExpenses, thisMonth]);
   const payeeSummary = useMemo(() => {
     const groups = {};
     for (const e of visibleExpenses) {
@@ -4360,6 +4371,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
         <div style={styles.formCard}>
           {costBreakdown.byType.map((row) => {
             const open = openType === row.type;
+            const cmpFor = costCompare && costCompare.byType.find((x) => x.type === row.type);
             // Who the money in this row went to. Karigar-wise for the
             // labour row, supplier-wise for material - same question,
             // so the same code rather than two screens.
@@ -4389,6 +4401,17 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
                       {row.share}% &middot; {row.count} entry
                     </div>
                   </div>
+                  {/* Against the same month last time. Shown only
+                      where there is a last time to compare with -
+                      "100% zyada" against a month with nothing in it
+                      is worse than saying nothing. */}
+                  {cmpFor && cmpFor.direction !== 'same' && costCompare && costCompare.hasPrevious && (
+                    <div style={{ ...styles.itemSub, textAlign: 'left', marginTop: 3, color: cmpFor.direction === 'up' ? '#B5562E' : '#2F7D4F' }}>
+                      {cmpFor.direction === 'up' ? '\u25B2' : '\u25BC'} {currency(Math.abs(cmpFor.diff))} pichhle mahine se
+                      {' '}{cmpFor.direction === 'up' ? 'zyada' : 'kam'}
+                      {' '}({currency(cmpFor.was)} tha)
+                    </div>
+                  )}
                 </button>
                 {open && (
                   <div style={{ marginTop: 8, marginLeft: 10, paddingLeft: 10, borderLeft: '2px solid ' + BRAND.line }}>
@@ -4413,10 +4436,32 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
           })}
           <div style={{ display: 'flex', marginTop: 14, paddingTop: 10, borderTop: '1px solid ' + BRAND.line }}>
             <div style={{ ...styles.itemDesc, flex: 1, fontWeight: 800 }}>
-              Kul kharch{costScope === 'month' ? ' (is mahine)' : ''}
+              Kul kharch{costScope === 'month' ? ' (' + monthLabel(thisMonth) + ')' : ''}
             </div>
             <div style={{ ...styles.itemAmount, fontWeight: 800 }}>{currency(costBreakdown.total)}</div>
           </div>
+          {costCompare && costCompare.hasPrevious && (
+            <div style={{ ...styles.itemSub, marginTop: 4, color: costCompare.direction === 'up' ? '#B5562E' : '#2F7D4F' }}>
+              {costCompare.direction === 'same'
+                ? 'Pichhle mahine jitna hi'
+                : (costCompare.direction === 'up' ? '\u25B2 ' : '\u25BC ') + currency(Math.abs(costCompare.diff))
+                  + ' pichhle mahine se ' + (costCompare.direction === 'up' ? 'zyada' : 'kam')}
+              {' '}({monthLabel(prevMonthKey(thisMonth))}: {currency(costCompare.wasTotal)})
+            </div>
+          )}
+          {costBreakdown.entries > 0 && (
+            <button
+              style={{ ...styles.cardActionBtn, marginTop: 12, background: '#25D366', color: '#FFF' }}
+              onClick={() => {
+                const text = expenseReportText(costBreakdown, {
+                  monthKey: costScope === 'month' ? thisMonth : '',
+                  comparison: costCompare,
+                  collected: totalCollected,
+                });
+                window.open(whatsAppShareUrl(null, text), '_blank', 'noopener');
+              }}
+            ><Send size={13} /> WhatsApp par bhejein</button>
+          )}
           {costBreakdown.entries === 0 && (
             <div style={{ ...styles.plainTextMuted, marginTop: 8 }}>
               {costScope === 'month' ? 'Is mahine abhi koi kharch nahi likha gaya.' : 'Abhi koi kharch nahi likha gaya.'}
