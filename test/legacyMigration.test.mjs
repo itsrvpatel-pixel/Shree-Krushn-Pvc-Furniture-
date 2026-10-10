@@ -36,24 +36,48 @@ console.log('legacyMigration');
 
 // The block that decides whether the migration runs at all.
 const guard = (() => {
-  const i = code.indexOf('const migrations');
+  // From where the gate is decided, not from where it is used - the
+  // claim is read on the line above `const migrations`.
+  const i = code.indexOf('const claim = await window.appAuth.roleClaim()');
   assert.ok(i > 0, 'the startup migration has moved');
   return code.slice(i, code.indexOf('migrations.forEach', i));
 })();
 
-t('a customer never runs the owner-wide migration', () => {
-  assert.ok(/role === 'customer'/.test(guard),
-    'a customer still runs a migration that reads every job and every customer');
+t('the migration runs only for a token that really carries a role', () => {
+  // The first version of this gate asked the stored session and
+  // whether sign-in had completed. Both were the wrong question.
+  // localStorage goes on saying "admin" across a refresh whether or
+  // not the Firebase session behind it came back, and ensureSignedIn()
+  // is satisfied by an ANONYMOUS user - so on a refresh where the
+  // staff session had not been restored, the migration ran, every
+  // read in it was correctly denied, and a red "could not load the
+  // old data" banner appeared about a migration finished long ago.
+  assert.ok(/await window\.appAuth\.roleClaim\(\)/.test(guard),
+    'the gate no longer asks the live token what role it carries');
+  assert.ok(/const migrations = !claim/.test(guard),
+    'the migration runs without a role claim');
+  // Specifically NOT the remembered session, which is what was wrong.
+  assert.ok(!/storedSession/.test(guard),
+    'the gate trusts localStorage again, which survives a lost Firebase session');
 });
 
-t('it does not run signed out either', () => {
-  assert.ok(/!signedIn/.test(guard),
-    'a slow sign-in still produces a data-loss message about a permissions failure');
-  assert.ok(/signedIn = await Promise\.race/.test(code),
-    'nothing records whether sign-in actually completed');
-  // The race must stay - the app has to start on a bad connection.
+t('the app still waits for sign-in, and still gives up on a dead network', () => {
+  assert.ok(/await Promise\.race\(\[/.test(code), 'nothing waits for a session before reading');
   assert.ok(/setTimeout\(\(\) => resolve\(false\), 12000\)/.test(code),
     'the startup timeout was removed; the app will hang on a dead network');
+});
+
+t('being refused is not reported as a fault', () => {
+  // Belt and braces for the same banner. Even if something slips
+  // past the gate, a permission-denied read means the rules worked -
+  // there is nothing for anyone who sees the message to do about it.
+  const stores = readFileSync(new URL('../src/jobsStore.js', import.meta.url), 'utf8');
+  assert.ok(/permission-denied/.test(stores), 'a denied read is indistinguishable from a real failure');
+  assert.ok(/reason: 'not-allowed'/.test(stores), 'there is no reason code for being refused');
+  const reported = /m\.reason === 'error' \|\| m\.reason === 'legacy-unreadable'/.test(code);
+  assert.ok(reported, 'the real failure cases are no longer reported at all');
+  assert.ok(!/not-allowed'\)/.test(code.slice(code.indexOf('migrations.forEach'), code.indexOf('migrations.forEach') + 600)),
+    'being refused now raises the red banner again');
 });
 
 t('the message still fires for a real failure', () => {

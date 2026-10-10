@@ -633,6 +633,31 @@ async function raiseOutageAlert(code) {
  * action would mean telling every karigar a new PIN every time a
  * phone goes missing.
  */
+/* The role on the live Firebase token, or null.
+ *
+ * Not the same question as "is this person logged in", and the
+ * difference is what put a red error on his screen. ensureSignedIn()
+ * returns true for an ANONYMOUS user as well, and the session kept in
+ * localStorage goes on saying "admin" across a refresh whether or not
+ * the Firebase session behind it came back. Anything that must know
+ * "may this caller read staff-only collections" has to ask the token.
+ *
+ * Returns null when there is no user, no claim, or the token cannot be
+ * read - all three mean the same thing to a caller: do not try.
+ */
+async function roleClaim() {
+  try {
+    const user = auth.currentUser;
+    if (!user || user.isAnonymous) return null;
+    const res = await withTimeout(user.getIdTokenResult(), LOGIN_TIMEOUT_MS, 'id token claims');
+    const role = res && res.claims && res.claims.role;
+    return typeof role === 'string' && role ? role : null;
+  } catch (e) {
+    console.error('roleClaim failed', e);
+    return null;
+  }
+}
+
 async function signOutEverywhere() {
   let idToken = null;
   try {
@@ -944,7 +969,7 @@ export function installWindowStorage() {
   window.storage.subscribe = (key, onValue) => subscribeKey(key, onValue);
   window.jobsStore = jobsStore;
   window.customersStore = customersStore;
-  window.appAuth = { ensureSignedIn: () => ensureSignedIn() };
+  window.appAuth = { ensureSignedIn: () => ensureSignedIn(), roleClaim: () => roleClaim() };
   window.dataCheck = { probe: () => rawProbe() };
   window.staffAuth = {
     login: (pin) => staffLogin(pin),

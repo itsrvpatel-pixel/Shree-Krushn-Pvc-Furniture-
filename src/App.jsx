@@ -2325,17 +2325,18 @@ export default function App() {
         // up and rendering unauthenticated is always the better failure -
         // the user then sees the app, or its own error, rather than a
         // blank screen.
-        // Whether we actually got signed in, as opposed to the 12s
-        // timeout winning. It matters below: every read the migration
-        // makes is denied to a signed-out client, and reporting that as
-        // "purane data load nahi ho paye - admin ko batayein" sends the
-        // owner looking for a data problem when the truth is a slow
-        // network. The race itself stays - the app must start either
-        // way - but it no longer lies about why.
-        let signedIn = false;
+        // Wait for a Firebase session before reading anything, but
+        // never for ever: on a dead network the app must still start
+        // and show its own error rather than hang on "Loading...".
+        //
+        // Nothing is kept from this. Whether the race was won no
+        // longer decides anything, because it was the wrong question:
+        // it is satisfied by an ANONYMOUS user, who may read almost
+        // nothing. What the staff-only work below is gated on is the
+        // role claim on the live token, asked for directly.
         try {
-          signedIn = await Promise.race([
-            window.appAuth.ensureSignedIn().then(() => true),
+          await Promise.race([
+            window.appAuth.ensureSignedIn(),
             new Promise((resolve) => setTimeout(() => resolve(false), 12000)),
           ]);
         } catch (e) { /* carry on unauthenticated */ }
@@ -2367,7 +2368,17 @@ export default function App() {
         // got a red "purane data se load nahi ho paye - admin ko
         // batayein" on every single app open, for a migration that is
         // not theirs to run and finished long ago anyway.
-        const migrations = (!signedIn || (storedSession && storedSession.role === 'customer'))
+        // Gated on what the LIVE token says, not on what localStorage
+        // remembers. The old gate asked the stored session, which goes
+        // on saying "admin" across a refresh whether or not the
+        // Firebase session behind it came back - and ensureSignedIn()
+        // is satisfied by an ANONYMOUS user. So on a refresh where the
+        // staff session had not been restored, this ran, every read in
+        // it was correctly denied, and the person got a red "could not
+        // load the old data" banner about a migration that finished
+        // long ago and was never theirs to run.
+        const claim = await window.appAuth.roleClaim();
+        const migrations = !claim
           ? []
           : await Promise.all([
             window.jobsStore.migrateLegacyIfNeeded(),

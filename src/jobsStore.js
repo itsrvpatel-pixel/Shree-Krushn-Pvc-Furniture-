@@ -213,10 +213,22 @@ export function createRecordStore(db, { collectionName, legacyKey, field, idOf }
       }
       return { migrated: written, skipped: unkeyable.length, reason: 'migrated' };
     } catch (e) {
-      // Reported, not swallowed: the caller surfaces this, because the
-      // symptom of a failed migration is an app that looks empty.
+      const code = String((e && e.code) || e);
+      // Being told no is not a fault. This migration reads app_data
+      // and then LISTS two collections, all of which are staff-only;
+      // anyone else attempting it is denied at the first read, which
+      // is correct and means nothing is wrong. Reporting it as an
+      // error is what put a red "could not load the old data" banner
+      // on screen after every refresh - frightening, about a
+      // migration that finished long ago, and not actionable by
+      // anybody who saw it.
+      if (code.includes('permission-denied') || code.includes('insufficient')) {
+        return { migrated: 0, skipped: 0, reason: 'not-allowed' };
+      }
+      // Everything else is still reported, because the symptom of a
+      // migration that genuinely failed is an app that looks empty.
       console.error('recordStore.migrateLegacyIfNeeded failed:', collectionName, e);
-      return { migrated: 0, skipped: 0, reason: 'error', error: String(e && e.code ? e.code : e) };
+      return { migrated: 0, skipped: 0, reason: 'error', error: code };
     }
   }
 
