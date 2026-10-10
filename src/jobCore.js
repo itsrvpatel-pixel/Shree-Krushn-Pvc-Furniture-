@@ -1008,3 +1008,82 @@ export function customerTokenChanged(token, job) {
   if (!token || typeof token !== 'string') return false;
   return (job && job.customerPushToken) !== token;
 }
+
+/* ---- Where the money actually went ----
+
+   The Expenses screen could tell you who was paid and how much in
+   total, and one stat card said "Karigar Paid". It could not tell you
+   how much of a month went on material, or on transport, and a job
+   screen said nothing about its own cost at all - that lived only on
+   the customer profile, two screens away from where the work is.
+
+   One function for both, so a job's breakdown and the month's
+   breakdown can never disagree about what counts. */
+
+// The canonical list, exported so the Expenses form and every
+// breakdown read from one place. Order is deliberate: the two that get
+// asked about are first.
+export const EXPENSE_TYPES = ['Karigar Payment', 'Material', 'Transport', 'Other'];
+
+// Local YYYY-MM. Not toISOString: that shifts to UTC, which in India
+// drops anything logged before 5:30am into the previous month.
+export function monthKeyOf(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+export function expenseBreakdown(expenses, opts) {
+  const o = opts || {};
+  const list = (Array.isArray(expenses) ? expenses : []).filter((e) => {
+    if (!e) return false;
+    if (o.jobId !== undefined && e.jobId !== o.jobId) return false;
+    if (o.monthKey && monthKeyOf(e.date) !== o.monthKey) return false;
+    return true;
+  });
+
+  const amounts = new Map();
+  const counts = new Map();
+  const byPayee = new Map();
+  let total = 0;
+
+  for (const e of list) {
+    const amount = Number(e.amount) || 0;
+    total += amount;
+    // An expense saved before a type existed, or with one since
+    // renamed, is still money out - it goes to Other rather than
+    // vanishing from a total that is supposed to add up.
+    const type = EXPENSE_TYPES.includes(e.type) ? e.type : 'Other';
+    amounts.set(type, (amounts.get(type) || 0) + amount);
+    counts.set(type, (counts.get(type) || 0) + 1);
+
+    const key = String(e.payee || '').trim().toLowerCase() || '(naam nahi)';
+    const who = byPayee.get(key)
+      || { name: String(e.payee || '').trim() || '(naam nahi)', total: 0, count: 0 };
+    who.total += amount;
+    who.count += 1;
+    byPayee.set(key, who);
+  }
+
+  // Every type, every time, in a fixed order - a row reading zero is
+  // an answer ("nothing on material this month"), and a row that
+  // appears and disappears makes two months impossible to compare.
+  const byType = EXPENSE_TYPES.map((type) => {
+    const amount = amounts.get(type) || 0;
+    return {
+      type,
+      amount,
+      count: counts.get(type) || 0,
+      share: total > 0 ? Math.round((amount / total) * 100) : 0,
+    };
+  });
+
+  return {
+    total,
+    entries: list.length,
+    byType,
+    karigar: amounts.get('Karigar Payment') || 0,
+    material: amounts.get('Material') || 0,
+    byPayee: [...byPayee.values()].sort((a, b) => b.total - a.total),
+  };
+}

@@ -131,6 +131,9 @@ import {
   appVisitGroups,
   groupErrors,
   jobCostBreakdown,
+  EXPENSE_TYPES,
+  expenseBreakdown,
+  monthKeyOf,
   lastSeenLabel,
   visitStamp,
   visitFollowUp,
@@ -159,7 +162,6 @@ import {
 // existing per-photo "move to category" edit action.
 const UNCATEGORIZED = 'Uncategorized';
 
-const EXPENSE_TYPES = ['Karigar Payment', 'Material', 'Transport', 'Other'];
 
 const PAYMENT_METHODS = ['Cash', 'UPI', 'Bank Transfer', 'Cheque', 'Card'];
 
@@ -547,7 +549,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
     return (
       <div style={{ paddingBottom: 20 }}>
         <TopBar title={activeJob.customerName} subtitle={isPartner ? 'Partner - Job detail' : (isDhPartner ? 'DH Home Decor - Job detail' : 'Admin - Job detail')} onBack={() => setActiveJobId(null)} hideLogout />
-        <AdminJobDetail key={activeJob.id} job={activeJob} customer={customers.find((c) => c.id === activeJob.customerId) || null} onOpenCustomerProfile={setProfileCustomerId} onSaveCustomer={(c) => setCustomers(customers.map((x) => (x.id === c.id ? c : x)))} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} pushNotification={pushNotification} categories={categories} gallery={gallery} />
+        <AdminJobDetail key={activeJob.id} job={activeJob} expenses={expenses} customer={customers.find((c) => c.id === activeJob.customerId) || null} onOpenCustomerProfile={setProfileCustomerId} onSaveCustomer={(c) => setCustomers(customers.map((x) => (x.id === c.id ? c : x)))} onSave={(j) => setJobs(jobs.map((jj) => (jj.id === j.id ? j : jj)))} showToast={showToast} appointmentItemOptions={appointmentItemOptions} staff={staff} staffName={staffName} itemTemplates={itemTemplates} setItemTemplates={setItemTemplates} pushNotification={pushNotification} categories={categories} gallery={gallery} />
       </div>
     );
   }
@@ -2840,7 +2842,7 @@ export function CustomerDetailsCard({ customer, onSaveCustomer, showToast, onOpe
   );
 }
 
-function AdminJobDetail({ job, customer, onSaveCustomer, onOpenCustomerProfile, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates, pushNotification, categories, gallery }) {
+function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustomerProfile, onSave, showToast, staff, staffName, itemTemplates, setItemTemplates, pushNotification, categories, gallery }) {
   const [tab, setTab] = useState('status');
   const [resolvingComplaintId, setResolvingComplaintId] = useState(null);
   const [reqLightbox, setReqLightbox] = useState(null);
@@ -3240,6 +3242,47 @@ function AdminJobDetail({ job, customer, onSaveCustomer, onOpenCustomerProfile, 
               </button>
             )}
             <CustomerDetailsCard customer={customer} onSaveCustomer={onSaveCustomer} showToast={showToast} onOpenProfile={onOpenCustomerProfile} />
+            {/* What this job has cost so far. The breakdown existed but
+                only on the customer profile, two screens away from
+                where the work is actually looked at. */}
+            {(() => {
+              const cost = expenseBreakdown(expenses || [], { jobId: job.id });
+              const collected = jobPaid(job);
+              if (cost.entries === 0) return null;
+              return (
+                <div style={{ ...styles.formCard, marginBottom: 10 }}>
+                  <div style={styles.fieldLabel}>Is job par kitna kharch</div>
+                  {cost.byType.filter((r) => r.amount > 0).map((r) => (
+                    <div key={r.type} style={{ display: 'flex', marginTop: 8 }}>
+                      <div style={{ ...styles.itemDesc, flex: 1 }}>{r.type}</div>
+                      <div style={styles.itemSub}>{r.count} entry</div>
+                      <div style={{ ...styles.itemAmount, marginLeft: 10 }}>{currency(r.amount)}</div>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', marginTop: 12, paddingTop: 10, borderTop: '1px solid ' + BRAND.line }}>
+                    <div style={{ ...styles.itemDesc, flex: 1, fontWeight: 800 }}>Kul kharch</div>
+                    <div style={{ ...styles.itemAmount, fontWeight: 800 }}>{currency(cost.total)}</div>
+                  </div>
+                  {/* Against money actually in hand, not the estimate -
+                      an unpaid job is not a profitable one. */}
+                  <div style={{ display: 'flex', marginTop: 6 }}>
+                    <div style={{ ...styles.itemDesc, flex: 1 }}>Jama hua</div>
+                    <div style={styles.itemAmount}>{currency(collected)}</div>
+                  </div>
+                  <div style={{ display: 'flex', marginTop: 6 }}>
+                    <div style={{ ...styles.itemDesc, flex: 1, fontWeight: 800 }}>Abhi tak bacha</div>
+                    <div style={{ ...styles.itemAmount, fontWeight: 800, color: collected - cost.total >= 0 ? '#2F7D4F' : '#B5562E' }}>
+                      {currency(collected - cost.total)}
+                    </div>
+                  </div>
+                  {cost.byPayee.length > 0 && (
+                    <div style={{ ...styles.itemSub, marginTop: 10 }}>
+                      {cost.byPayee.slice(0, 4).map((p) => p.name + ' ' + currency(p.total)).join(' \u00B7 ')}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Move job to stage</div>
             <div style={styles.stageGrid}>
               {STATUS_ORDER.map((s) => {
@@ -4179,6 +4222,13 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
   // insensitive match so "Ramu Kaka" and "ramu kaka " land in the same
   // group), so admin can see at a glance who's been paid how much in
   // total, without having to scroll the full mixed history.
+  const [costScope, setCostScope] = useState('month');
+  // Before the early returns below, like everything else here - the
+  // Rules of Hooks bug that blanked the app twice on this screen.
+  const costBreakdown = useMemo(() => expenseBreakdown(
+    visibleExpenses,
+    costScope === 'month' ? { monthKey: monthKeyOf(new Date()) } : {},
+  ), [visibleExpenses, costScope]);
   const payeeSummary = useMemo(() => {
     const groups = {};
     for (const e of visibleExpenses) {
@@ -4293,6 +4343,48 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
         <StatCard icon={<IndianRupee size={16} />} label='Collected' value={currency(totalCollected)} />
         <StatCard icon={<Users size={16} />} label='Karigar Paid' value={currency(karigarTotal)} />
         <StatCard icon={<TrendingUp size={16} />} label='Net Profit' value={currency(netProfit)} accent />
+      </div>
+
+      {/* Where the money went, by kind. "Karigar Paid" as a single
+          stat card was the only answer this screen had, so how much of
+          a month went on material or transport could not be read at
+          all without adding the list up by hand. */}
+      <div style={{ marginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ ...styles.fieldLabel, flex: 1 }}>Kis cheez par kitna</div>
+          <button style={styles.cardActionBtn} onClick={() => setCostScope((v) => (v === 'month' ? 'all' : 'month'))}>
+            {costScope === 'month' ? 'Is mahine' : 'Shuru se'}
+          </button>
+        </div>
+        <div style={styles.formCard}>
+          {costBreakdown.byType.map((row) => (
+            <div key={row.type} style={{ marginTop: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <div style={{ ...styles.itemDesc, flex: 1, color: row.amount ? BRAND.navy : BRAND.textMuted }}>{row.type}</div>
+                <div style={{ ...styles.itemAmount, color: row.amount ? BRAND.navy : BRAND.textMuted }}>{currency(row.amount)}</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                <div style={{ flex: 1, height: 6, borderRadius: 999, background: '#EEF0F5', overflow: 'hidden' }}>
+                  <div style={{ width: row.share + '%', height: '100%', background: row.type === 'Karigar Payment' ? BRAND.navy : BRAND.gold }} />
+                </div>
+                <div style={{ ...styles.itemSub, minWidth: 92, textAlign: 'right' }}>
+                  {row.share}% &middot; {row.count} entry
+                </div>
+              </div>
+            </div>
+          ))}
+          <div style={{ display: 'flex', marginTop: 14, paddingTop: 10, borderTop: '1px solid ' + BRAND.line }}>
+            <div style={{ ...styles.itemDesc, flex: 1, fontWeight: 800 }}>
+              Kul kharch{costScope === 'month' ? ' (is mahine)' : ''}
+            </div>
+            <div style={{ ...styles.itemAmount, fontWeight: 800 }}>{currency(costBreakdown.total)}</div>
+          </div>
+          {costBreakdown.entries === 0 && (
+            <div style={{ ...styles.plainTextMuted, marginTop: 8 }}>
+              {costScope === 'month' ? 'Is mahine abhi koi kharch nahi likha gaya.' : 'Abhi koi kharch nahi likha gaya.'}
+            </div>
+          )}
+        </div>
       </div>
 
       {payeeSummary.length > 0 && (
