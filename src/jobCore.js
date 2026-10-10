@@ -1269,3 +1269,56 @@ export function closingFailureMessage(reason) {
   if (reason === 'before-last-closing') return 'Choose a date after the last closed period';
   return 'The books could not be closed';
 }
+
+/* What to do when a lazy chunk fails to load.
+ *
+ * A deploy while the app is open is the ordinary cause: the running
+ * page holds the previous build's hashed filename, that file is gone
+ * the moment the new build lands, and the import 404s. A reload fixes
+ * it completely, because it fetches today's index.html and with it
+ * today's filenames.
+ *
+ * The whole difficulty is doing that once. Reload on every failure and
+ * a chunk that is genuinely broken - a bad build, a dead CDN - puts
+ * the app in a loop the person cannot escape, on their own phone, with
+ * no way to reach a button. So one reload per tab, and the flag is
+ * cleared as soon as any import succeeds, which lets the next deploy
+ * have its own.
+ *
+ * Storage is passed in rather than read here, because sessionStorage
+ * throws on access in a private window rather than returning null, and
+ * because that is what makes this testable. Anything it throws means
+ * we cannot know whether we have already reloaded - and reloading on a
+ * maybe is how loops start - so the answer is to rethrow and let the
+ * error be seen.
+ */
+export function chunkReloadDecision(storage, key) {
+  const k = key || 'chunk-reloaded';
+  let already;
+  try {
+    already = storage && storage.getItem(k) === '1';
+  } catch (e) {
+    return 'rethrow';
+  }
+  if (already) return 'rethrow';
+  try {
+    storage.setItem(k, '1');
+  } catch (e) {
+    // Cannot record that we are about to reload, so a reload could
+    // repeat forever. Not worth the risk.
+    return 'rethrow';
+  }
+  return 'reload';
+}
+
+// Called after any lazy chunk loads, so the next deploy gets its own
+// single reload. Never throws: a tidy-up failure must not break a
+// chunk that has just loaded perfectly well.
+export function clearChunkReloadFlag(storage, key) {
+  try {
+    storage.removeItem(key || 'chunk-reloaded');
+    return true;
+  } catch (e) {
+    return false;
+  }
+}

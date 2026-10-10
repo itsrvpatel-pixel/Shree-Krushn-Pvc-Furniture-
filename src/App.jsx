@@ -38,7 +38,7 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, chunkReloadDecision, clearChunkReloadFlag } from './jobCore.js';
 import { normalizeError, installErrorReporting, groupErrors } from './errorLog.js';
 export { groupErrors };
 import { t, tf } from './i18n.js';
@@ -4023,7 +4023,51 @@ function ToastEl({ toast }) {
    fallback below is what fills the half second that takes; it matches
    the app's other loading states rather than flashing something
    different. --- */
-const AdminApp = React.lazy(() => import('./AdminApp.jsx'));
+/* A deploy while the app is open breaks this import, and nothing
+   about the service worker can help: the page already running holds
+   the OLD hashed filename, and that file is gone from the server the
+   moment a new build lands. The import 404s, React.lazy rejects, and
+   the admin panel never opens - "Importing a module script failed",
+   seven times in one afternoon on his phone while this was being
+   worked on.
+
+   A reload fixes it completely, because it fetches today's index.html
+   and with it today's filenames. So: reload once, silently, and only
+   once. The flag is per tab and is cleared the moment an import
+   succeeds, so the next deploy gets its own single reload, while a
+   chunk that is genuinely broken fails loudly on the second try
+   instead of reloading forever.
+
+   sessionStorage throws in a private window rather than returning
+   null, so every touch of it is wrapped - a storage failure must not
+   turn a recoverable error into an unrecoverable one. With no storage
+   the reload simply does not happen and the error surfaces, which is
+   the safe way round. */
+const RELOADED_KEY = 'chunk-reloaded';
+
+// The decision itself lives in jobCore.js, where it can be tested
+// against a storage that throws. This is only the wiring.
+export function lazyWithReload(load) {
+  return React.lazy(() => load().then(
+    (mod) => { clearChunkReloadFlag(safeSessionStorage(), RELOADED_KEY); return mod; },
+    (err) => {
+      if (chunkReloadDecision(safeSessionStorage(), RELOADED_KEY) === 'rethrow') throw err;
+      window.location.reload();
+      // Never settles. The reload is already on its way, and resolving
+      // or rejecting here would flash an error screen over a page that
+      // is about to be replaced.
+      return new Promise(() => {});
+    }
+  ));
+}
+
+// Reading window.sessionStorage can itself throw; the decision needs
+// an object or a null, not an exception.
+function safeSessionStorage() {
+  try { return window.sessionStorage; } catch (e) { return null; }
+}
+
+const AdminApp = lazyWithReload(() => import('./AdminApp.jsx'));
 
 function AdminLoading() {
   return (
