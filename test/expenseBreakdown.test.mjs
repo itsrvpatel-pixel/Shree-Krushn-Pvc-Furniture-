@@ -181,12 +181,15 @@ t('the type filter and the totals agree', () => {
 
 t('the screen opens a kind into its people', () => {
   assert.ok(/openType/.test(code), 'the type rows do not expand');
-  assert.ok(/expenseBreakdown\(visibleExpenses, \{\s*type: row\.type/.test(code),
+  // Checked by intent rather than by the exact expression: the source
+  // of the rows changed when book closings arrived, and a test that
+  // pins the spelling fails on a change that is not a regression.
+  const people = code.slice(code.indexOf('const people = open'), code.indexOf('const people = open') + 420);
+  assert.ok(/expenseBreakdown\(/.test(people) && /type: row\.type/.test(people),
     'the expanded list is not filtered to that kind');
   // And must follow whichever scope the card is showing, or the names
   // would not add up to the figure right above them.
-  const block = code.slice(code.indexOf('const people = open'), code.indexOf('const people = open') + 420);
-  assert.ok(/costScope === 'month'/.test(block),
+  assert.ok(/costScope === 'month'/.test(people),
     'the people list ignores the month toggle and will not match the row total');
 });
 

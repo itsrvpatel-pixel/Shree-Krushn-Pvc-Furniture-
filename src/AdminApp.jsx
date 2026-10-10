@@ -138,6 +138,12 @@ import {
   monthLabel,
   compareBreakdowns,
   expenseReportText,
+  sortedClosings,
+  latestClosing,
+  sinceLastClosing,
+  closingSnapshot,
+  canCloseAt,
+  closingFailureMessage,
   lastSeenLabel,
   visitStamp,
   visitFollowUp,
@@ -498,7 +504,7 @@ function StatCard({ icon, label, value, accent, onClick }) {
   );
 }
 
-function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, customersLoading, customersLoadFailed, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, onDeadPushTokens, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, googleReviewLink, setGoogleReviewLink, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, archivedReviews, setArchivedReviews, pendingGalleryPhotos, setPendingGalleryPhotos, staffName, isPartner, isDhPartner, onLogout, showToast, pushNotification }) {
+function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, customers, setCustomers, customersLoading, customersLoadFailed, jobs, setJobs, adminPushTokens, enableAdminPushNotifications, onDeadPushTokens, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, expenses, setExpenses, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, brochures, addBrochure, removeBrochure, notifications, markNotificationRead, markAllNotificationsRead, itemTemplates, setItemTemplates, attendance, allData, estimateRates, setEstimateRates, faqs, setFaqs, googleReviewLink, setGoogleReviewLink, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, archivedReviews, setArchivedReviews, pendingGalleryPhotos, setPendingGalleryPhotos, bookClosings, setBookClosings, staffName, isPartner, isDhPartner, onLogout, showToast, pushNotification }) {
   const [tab, setTab] = useState('home');
   const [activeJobId, setActiveJobId] = useState(null);
   // Back returns to the job list instead of shutting the panel.
@@ -612,7 +618,8 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
         </div>
       )}
       {tab === 'reviews' && !isDhPartner && <AdminReviews jobs={jobs} setJobs={setJobs} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} showToast={showToast} />}
-      {tab === 'expenses' && !isPartner && <AdminExpenses expenses={expenses} setExpenses={setExpenses} jobs={jobs} showToast={showToast} onOpenJob={setActiveJobId} isDhPartner={isDhPartner} />}
+      {tab === 'expenses' && !isPartner && <AdminExpenses
+            bookClosings={bookClosings || []} setBookClosings={setBookClosings} expenses={expenses} setExpenses={setExpenses} jobs={jobs} showToast={showToast} onOpenJob={setActiveJobId} isDhPartner={isDhPartner} />}
       {tab === 'settings' && (
         (isPartner || isDhPartner)
           ? <PartnerSettings staffName={staffName} onLogout={onLogout} />
@@ -4187,7 +4194,7 @@ function ReviewEditForm({ job, onSave, onCancel }) {
 /* ---- Admin: Karigar (worker) payments & company expenses - kept
    separate from customer job revenue. Company earning (from jobs) minus
    these expenses gives real net profit. ---- */
-function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDhPartner }) {
+function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDhPartner, bookClosings, setBookClosings }) {
   const [type, setType] = useState(EXPENSE_TYPES[0]);
   const [payee, setPayee] = useState('');
   const [amount, setAmount] = useState('');
@@ -4227,14 +4234,23 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
   // group), so admin can see at a glance who's been paid how much in
   // total, without having to scroll the full mixed history.
   const [costScope, setCostScope] = useState('month');
+  const [showClosings, setShowClosings] = useState(false);
+  const lastClosing = latestClosing(bookClosings);
+  // The open book: everything logged since the last closing. With no
+  // closing yet this is simply everything, which is what it was before.
+  const openBookExpenses = useMemo(
+    () => sinceLastClosing(visibleExpenses, bookClosings),
+    [visibleExpenses, bookClosings],
+  );
   const [openType, setOpenType] = useState(null);
   // Before the early returns below, like everything else here - the
   // Rules of Hooks bug that blanked the app twice on this screen.
   const thisMonth = monthKeyOf(new Date());
-  const costBreakdown = useMemo(() => expenseBreakdown(
-    visibleExpenses,
-    costScope === 'month' ? { monthKey: thisMonth } : {},
-  ), [visibleExpenses, costScope, thisMonth]);
+  const costBreakdown = useMemo(() => (
+    costScope === 'month' ? expenseBreakdown(visibleExpenses, { monthKey: thisMonth })
+      : costScope === 'book' ? expenseBreakdown(openBookExpenses, {})
+        : expenseBreakdown(visibleExpenses, {})
+  ), [visibleExpenses, openBookExpenses, costScope, thisMonth]);
   // Only when a month is on screen: comparing all-time against
   // anything is meaningless.
   const costCompare = useMemo(() => (costScope !== 'month' ? null : compareBreakdowns(
@@ -4253,6 +4269,64 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
     }
     return Object.values(groups).sort((a, b) => b.total - a.total);
   }, [visibleExpenses]);
+
+  const closeBooks = () => {
+    const upTo = new Date().toISOString();
+    const check = canCloseAt(upTo, bookClosings);
+    if (!check.ok) { showToast(closingFailureMessage(check.reason), true); return; }
+    const collectedNow = visibleJobs.reduce((sum, j) => sum + jobPaid(j), 0);
+    const snap = closingSnapshot(visibleExpenses, collectedNow, upTo, lastClosing ? lastClosing.upTo : null);
+    const label = monthLabel(monthKeyOf(upTo));
+    if (!window.confirm(
+      'Aaj tak ka hisab band karein?\n\n'
+      + 'Is period ka kharch: ' + currency(snap.expense) + '\n'
+      + 'Karigar: ' + currency(snap.karigar) + '\n'
+      + 'Material: ' + currency(snap.material) + '\n\n'
+      + 'Kuch delete nahi hoga - purana sab "Purane hisab" mein dikhta rahega. '
+      + 'Sirf chalu total aaj se zero se ginna shuru karega.',
+    )) return;
+    setBookClosings([
+      ...(bookClosings || []),
+      { id: uid(), upTo, closedAt: upTo, label, totals: snap },
+    ]);
+    setCostScope('book');
+    showToast('Hisab band ho gaya - naya hisab aaj se shuru');
+  };
+
+  if (showClosings) {
+    const all = sortedClosings(bookClosings).slice().reverse();
+    return (
+      <div>
+        <div style={{ padding: '12px 16px 0' }}>
+          <button style={styles.backLink} onClick={() => setShowClosings(false)}><ArrowLeft size={13} /> Expenses</button>
+        </div>
+        <div style={{ padding: '12px 16px 24px' }}>
+          <div style={styles.sectionTitle}>Purane hisab</div>
+          <div style={styles.plainTextMuted}>
+            Har band kiye gaye period ka hisab, usi din ka. Record delete nahi hote - ye sirf
+            batata hai ki us din tak kya tha.
+          </div>
+          {all.length === 0 && <div style={styles.emptySmall}>Abhi koi hisab band nahi kiya gaya.</div>}
+          {all.map((c) => (
+            <div key={c.id} style={{ ...styles.card, marginTop: 10, padding: 14 }}>
+              <div style={styles.cardName}>{c.label || formatDate(c.upTo)} tak</div>
+              <div style={styles.itemSub}>{formatDate(c.upTo)} ko band kiya</div>
+              <div style={{ marginTop: 10 }}>
+                {[['Karigar', c.totals && c.totals.karigar], ['Material', c.totals && c.totals.material],
+                  ['Kul kharch', c.totals && c.totals.expense], ['Jama hua', c.totals && c.totals.collected],
+                  ['Bacha', c.totals && c.totals.profit]].map(([k, v]) => (
+                    <div key={k} style={{ display: 'flex', marginTop: 4 }}>
+                      <div style={{ ...styles.itemDesc, flex: 1, fontWeight: k === 'Bacha' ? 800 : 600 }}>{k}</div>
+                      <div style={{ ...styles.itemAmount, fontWeight: k === 'Bacha' ? 800 : 700 }}>{currency(v || 0)}</div>
+                    </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (showProfitReport) {
     return (
@@ -4347,6 +4421,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
           <button style={styles.linkBtn2} onClick={() => setShowDueList(true)}>Due Payments</button>
           <button style={styles.linkBtn2} onClick={() => setShowMonthlyReport(true)}>Monthly Report</button>
           <button style={styles.linkBtn2} onClick={() => setShowProfitReport(true)}>Project Profit Report</button>
+          <button style={styles.linkBtn2} onClick={() => setShowClosings(true)}>Purane hisab</button>
         </div>
       </div>
       <div style={styles.plainTextMuted}>{t('Customer se aayi payment alag, karigar/company kharch alag track hota hai.')}</div>
@@ -4364,8 +4439,11 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
       <div style={{ marginTop: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ ...styles.fieldLabel, flex: 1 }}>Kis cheez par kitna</div>
-          <button style={styles.cardActionBtn} onClick={() => setCostScope((v) => (v === 'month' ? 'all' : 'month'))}>
-            {costScope === 'month' ? 'Is mahine' : 'Shuru se'}
+          <button
+            style={styles.cardActionBtn}
+            onClick={() => setCostScope((v) => (v === 'month' ? (lastClosing ? 'book' : 'all') : (v === 'book' ? 'all' : 'month')))}
+          >
+            {costScope === 'month' ? 'Is mahine' : (costScope === 'book' ? 'Is hisab me' : 'Shuru se')}
           </button>
         </div>
         <div style={styles.formCard}>
@@ -4376,9 +4454,9 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
             // labour row, supplier-wise for material - same question,
             // so the same code rather than two screens.
             const people = open
-              ? expenseBreakdown(visibleExpenses, {
+              ? expenseBreakdown(costScope === 'book' ? openBookExpenses : visibleExpenses, {
                 type: row.type,
-                ...(costScope === 'month' ? { monthKey: monthKeyOf(new Date()) } : {}),
+                ...(costScope === 'month' ? { monthKey: thisMonth } : {}),
               }).byPayee
               : [];
             return (
@@ -4436,7 +4514,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
           })}
           <div style={{ display: 'flex', marginTop: 14, paddingTop: 10, borderTop: '1px solid ' + BRAND.line }}>
             <div style={{ ...styles.itemDesc, flex: 1, fontWeight: 800 }}>
-              Kul kharch{costScope === 'month' ? ' (' + monthLabel(thisMonth) + ')' : ''}
+              Kul kharch{costScope === 'month' ? ' (' + monthLabel(thisMonth) + ')' : (costScope === 'book' ? ' (' + formatDate(lastClosing.upTo) + ' ke baad)' : ' (shuru se)')}
             </div>
             <div style={{ ...styles.itemAmount, fontWeight: 800 }}>{currency(costBreakdown.total)}</div>
           </div>
@@ -4447,6 +4525,17 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
                 : (costCompare.direction === 'up' ? '\u25B2 ' : '\u25BC ') + currency(Math.abs(costCompare.diff))
                   + ' pichhle mahine se ' + (costCompare.direction === 'up' ? 'zyada' : 'kam')}
               {' '}({monthLabel(prevMonthKey(thisMonth))}: {currency(costCompare.wasTotal)})
+            </div>
+          )}
+          {/* Closing is a bookmark, not a delete - see jobCore's note.
+              Offered where the running total is, because that is the
+              number it resets. */}
+          <button style={{ ...styles.cardActionBtn, marginTop: 12 }} onClick={closeBooks}>
+            Aaj tak ka hisab band karein
+          </button>
+          {lastClosing && (
+            <div style={{ ...styles.itemSub, marginTop: 6 }}>
+              Pichhla hisab {formatDate(lastClosing.upTo)} ko band hua tha.
             </div>
           )}
           {costBreakdown.entries > 0 && (

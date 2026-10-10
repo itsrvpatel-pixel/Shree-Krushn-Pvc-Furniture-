@@ -38,13 +38,13 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress } from './jobCore.js';
 import { normalizeError, installErrorReporting, groupErrors } from './errorLog.js';
 export { groupErrors };
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
+export { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -2002,6 +2002,9 @@ export default function App() {
   // points at was rebuilt this week, and a link in the bundle means a
   // deploy every time it moves.
   const [googleReviewLink, setGoogleReviewLinkRaw] = useState('');
+  // Book closings: a bookmark per period, never a delete. See
+  // jobCore's own note on why the old records stay.
+  const [bookClosings, setBookClosingsRaw] = useState([]);
   const [estimateRates, setEstimateRatesRaw] = useState([
     { id: 'r1', name: 'Laminate', rate: '1000', unit: 'sqft' },
     { id: 'r2', name: 'Without Laminate', rate: '700', unit: 'sqft' },
@@ -2051,6 +2054,7 @@ export default function App() {
   // and apply only that on top of the server's current copy. See
   // persistSharedList and mergeListWithServer.
   const estimateRatesRef = useLatestRef(estimateRates);
+  const bookClosingsRef = useLatestRef(bookClosings);
   const faqsRef = useLatestRef(faqs);
   const materialSpecsRef = useLatestRef(materialSpecs);
   const companyBenefitsRef = useLatestRef(companyBenefits);
@@ -2350,12 +2354,12 @@ export default function App() {
             showToast(what + ': ' + m.migrated + ' record naye format mein aa gaye');
           }
         });
-        const [p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw, featuredRaw, gReviewRaw] = await Promise.all([
+        const [p, st, exp, pp, aio, br, cats, notifs, tmpl, att, estRates, archRev, adminTokens, faqsRaw, dhPp, pendingGalleryRaw, materialSpecsRaw, companyBenefitsRaw, featuredRaw, gReviewRaw, closingsRaw] = await Promise.all([
           safeGetStatus('admin_pin'), safeGet('staff'),
           safeGet('expenses'), safeGet('partner_pin'), safeGet('appointment_item_options'), safeGet('brochures'),
           safeGet('categories'), sharedNotificationsGet(), safeGet('item_templates'), safeGet('attendance'), safeGet('estimate_rates'),
           safeGet('archived_reviews'), safeGet('admin_push_tokens'), safeGet('faqs'), safeGet('dh_partner_pin'), safeGet('pending_gallery_photos'),
-          safeGet('material_specs'), safeGet('company_benefits'), safeGet('featured_reviews'), safeGet('google_review_link'),
+          safeGet('material_specs'), safeGet('company_benefits'), safeGet('featured_reviews'), safeGet('google_review_link'), safeGet('book_closings'),
         ]);
 
         // Each document is applied on its own. These used to be a bare run
@@ -2395,6 +2399,7 @@ export default function App() {
         applyDoc('company benefits', companyBenefitsRaw, setCompanyBenefitsRaw);
         // A plain string, like the PINs above - not a JSON document.
         if (gReviewRaw) setGoogleReviewLinkRaw(gReviewRaw);
+        applyDoc('book closings', closingsRaw, setBookClosingsRaw);
         if (!applyDoc('featured reviews', featuredRaw, setFeaturedReviews)) {
           featuredNeedsBackfillRef.current = true;
         }
@@ -3194,6 +3199,8 @@ export default function App() {
 
   const persistEstimateRates = useCallback((rates) => persistSharedList(
     'estimate_rates', rates, estimateRatesRef.current, setEstimateRatesRaw, 'Rates save'), [persistSharedList]);
+  const persistBookClosings = useCallback((list) => persistSharedList(
+    'book_closings', list, bookClosingsRef.current, setBookClosingsRaw, 'Hisab band'), [persistSharedList]);
   const persistFaqs = useCallback((list) => persistSharedList(
     'faqs', list, faqsRef.current, setFaqsRaw, 'FAQ save'), [persistSharedList]);
   const persistMaterialSpecs = useCallback((list) => persistSharedList(
@@ -3601,6 +3608,7 @@ export default function App() {
           attendance={attendance}
           estimateRates={estimateRates} setEstimateRates={persistEstimateRates}
           googleReviewLink={googleReviewLink} setGoogleReviewLink={persistGoogleReviewLink}
+          bookClosings={bookClosings} setBookClosings={persistBookClosings}
           faqs={faqs} setFaqs={persistFaqs}
           materialSpecs={materialSpecs} setMaterialSpecs={persistMaterialSpecs}
           companyBenefits={companyBenefits} setCompanyBenefits={persistCompanyBenefits}

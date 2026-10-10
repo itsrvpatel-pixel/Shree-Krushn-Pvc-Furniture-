@@ -1179,3 +1179,93 @@ export function expenseReportText(breakdown, opts) {
   }
   return lines.join('\n');
 }
+
+/* ---- Closing the books and starting again ----
+
+   Asked for directly: once everything is settled, how do you start a
+   fresh set of accounts? In Gujarat that question usually means
+   Diwali - Bestu Varas, new books, a clean page.
+
+   The answer is NOT to delete anything. The old expenses carry the
+   warranty history, every karigar's record, what each customer
+   actually paid, and the only thing to compare next year against.
+   Deleting them to get a clean screen trades all of that for a
+   cosmetic zero.
+
+   So a closing is a bookmark with a snapshot attached. Everything
+   before it stays exactly where it is and keeps being readable; the
+   running totals simply start counting again from that date. */
+
+// new Date(null) is 1970, not an invalid date, and new Date(undefined)
+// IS invalid - so an undated record silently filed itself into the
+// oldest closed period instead of being treated as undated. One place
+// to get that right.
+function timeOf(value) {
+  if (value === null || value === undefined || value === '') return NaN;
+  return new Date(value).getTime();
+}
+
+export function sortedClosings(closings) {
+  return (Array.isArray(closings) ? closings : [])
+    .filter((c) => c && c.upTo)
+    .sort((a, b) => new Date(a.upTo) - new Date(b.upTo));
+}
+
+export function latestClosing(closings) {
+  const all = sortedClosings(closings);
+  return all.length ? all[all.length - 1] : null;
+}
+
+// Everything logged after the last closing - the live book.
+export function sinceLastClosing(rows, closings, dateOf) {
+  const last = latestClosing(closings);
+  if (!last) return Array.isArray(rows) ? rows.slice() : [];
+  const cut = timeOf(last.upTo);
+  const when = dateOf || ((r) => r && r.date);
+  return (Array.isArray(rows) ? rows : []).filter((r) => {
+    const t = timeOf(when(r));
+    // Undated records stay in the open book rather than being filed
+    // into a period they cannot be shown to belong to.
+    return Number.isNaN(t) ? true : t > cut;
+  });
+}
+
+// What one closed period contained. Taken at the moment of closing and
+// stored with it, so a later edit to an old expense cannot quietly
+// change what last year is said to have been.
+export function closingSnapshot(expenses, collected, upTo, previousUpTo) {
+  const from = previousUpTo ? timeOf(previousUpTo) : -Infinity;
+  const to = timeOf(upTo);
+  const inPeriod = (Array.isArray(expenses) ? expenses : []).filter((e) => {
+    const t = timeOf(e && e.date);
+    if (Number.isNaN(t)) return false;
+    return t > from && t <= to;
+  });
+  const b = expenseBreakdown(inPeriod, {});
+  return {
+    expense: b.total,
+    entries: b.entries,
+    karigar: b.karigar,
+    material: b.material,
+    collected: Number(collected) || 0,
+    profit: (Number(collected) || 0) - b.total,
+  };
+}
+
+// A closing must not land before one already made: periods would
+// overlap and every total after it would be wrong.
+export function canCloseAt(upTo, closings) {
+  const t = timeOf(upTo);
+  if (Number.isNaN(t)) return { ok: false, reason: 'date-invalid' };
+  if (t > Date.now()) return { ok: false, reason: 'date-future' };
+  const last = latestClosing(closings);
+  if (last && t <= timeOf(last.upTo)) return { ok: false, reason: 'before-last-closing' };
+  return { ok: true, reason: null };
+}
+
+export function closingFailureMessage(reason) {
+  if (reason === 'date-invalid') return 'Tareekh sahi nahi hai';
+  if (reason === 'date-future') return 'Aane wali tareekh par hisab band nahi kar sakte';
+  if (reason === 'before-last-closing') return 'Pichhle band hisab ke baad ki tareekh chunein';
+  return 'Hisab band nahi ho paya';
+}
