@@ -77,6 +77,22 @@ service firebase.storage {
       allow delete: if signedIn();
     }
 
+    // The nightly backups (api/backup.js). Written and read ONLY by
+    // the Admin SDK, which bypasses these rules entirely, so denying
+    // every client here costs nothing and is the whole protection:
+    // one of these files is every customer, estimate and payment in
+    // the business, in plain JSON. An admin gets at one through
+    // api/backup.js, which checks for an admin session and then hands
+    // back a link that expires in ten minutes.
+    //
+    // The catch-all below would already cover this. It is spelled out
+    // anyway so that opening something up later is a deliberate act
+    // against a named rule, rather than a side effect of widening a
+    // wildcard somebody had stopped reading.
+    match /backups/{fileName} {
+      allow read, write: if false;
+    }
+
     // The app writes nowhere else.
     match /{allPaths=**} {
       allow read, write: if false;

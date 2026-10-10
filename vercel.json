@@ -4,6 +4,10 @@
     {
       "path": "/api/send-visit-reminders",
       "schedule": "30 12 * * *"
+    },
+    {
+      "path": "/api/backup",
+      "schedule": "47 19 * * *"
     }
   ],
   "redirects": [

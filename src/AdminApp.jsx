@@ -94,6 +94,9 @@ import {
   EstimateOptionItems,
   estimateItemAmount,
   buildOptionPair,
+  backupAge,
+  readableSize,
+  needsOffsiteCopy,
   finalizeEstimateDraft,
   openChangeRequests,
   answerChangeRequests,
@@ -5374,6 +5377,160 @@ function DataCheckPanel({ gallery, showToast }) {
   );
 }
 
+/* The backup card in Settings.
+ *
+ * Deliberately shows an AGE first, before anything else, because the
+ * failure this is guarding against is not "the backup broke" - it is
+ * "the backup stopped and looked fine". A result line reading SUCCESS
+ * from eleven days ago is reassuring and useless. A number that climbs
+ * and turns red is not.
+ *
+ * The nightly copy lands in Firebase Storage, which is the same Google
+ * account the data lives in, so it covers a deleted record or a bad
+ * migration but not losing the account. The download button is what
+ * covers that, and the card says so in those words rather than calling
+ * itself safe.
+ */
+function BackupPanel({ showToast }) {
+  const [status, setStatus] = React.useState(null);
+  const [rows, setRows] = React.useState(null);
+  const [busy, setBusy] = React.useState('');
+  const [unconfigured, setUnconfigured] = React.useState(false);
+  const [lastOffsite, setLastOffsite] = React.useState(() => {
+    try { return window.localStorage.getItem('last-offsite-backup') || ''; } catch (e) { return ''; }
+  });
+  const [now, setNow] = React.useState(() => Date.now());
+
+  // Re-reads the clock rather than the server: the age on screen should
+  // go stale while the screen is open, which is the whole point of it.
+  React.useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await window.storage.get('backup_status');
+        if (!alive) return;
+        if (res && res.value) setStatus(JSON.parse(res.value));
+      } catch (e) { /* the age simply reads "never", which is honest */ }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const loadList = async () => {
+    setBusy('list');
+    const res = await window.backups.list();
+    setBusy('');
+    if (res.unconfigured) { setUnconfigured(true); return; }
+    if (!res.ok) { showToast(res.error, true); return; }
+    setRows(res.backups || []);
+  };
+
+  const runNow = async () => {
+    setBusy('run');
+    const res = await window.backups.runNow();
+    setBusy('');
+    if (res.unconfigured) { setUnconfigured(true); return; }
+    if (!res.ok) { showToast(res.error || 'The backup did not run', true); return; }
+    setStatus(res);
+    setNow(Date.now());
+    showToast('Backup taken - ' + readableSize(res.sizeBytes));
+    if (rows) loadList();
+  };
+
+  const download = async (name) => {
+    setBusy(name);
+    const res = await window.backups.linkFor(name);
+    setBusy('');
+    if (res.unconfigured) { setUnconfigured(true); return; }
+    if (!res.ok || !res.url) { showToast(res.error || 'That backup could not be opened', true); return; }
+    try {
+      window.open(res.url, '_blank', 'noopener');
+      const stamp = new Date().toISOString();
+      try { window.localStorage.setItem('last-offsite-backup', stamp); } catch (e) { /* private window */ }
+      setLastOffsite(stamp);
+    } catch (e) {
+      showToast('Could not open the download', true);
+    }
+  };
+
+  const age = backupAge(status, now);
+  const tone = age.level === 'ok' ? '#1B873F' : (age.level === 'warn' ? '#B26A00' : '#C62828');
+  const offsite = needsOffsiteCopy(lastOffsite, now);
+
+  return (
+    <div style={{ ...styles.card, marginTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <ShieldCheck size={16} color={BRAND.gold} />
+        <div style={{ fontWeight: 800, fontSize: 14 }}>Automatic backup</div>
+      </div>
+
+      <div style={{ fontWeight: 800, fontSize: 15, color: tone, marginBottom: 4 }}>
+        {age.level === 'ok' ? <Check size={14} /> : <AlertCircle size={14} />} {age.label}
+      </div>
+      <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>
+        A copy of every customer, job, payment and expense is taken every night by itself.
+        {status && status.sizeBytes ? ' Last one was ' + readableSize(status.sizeBytes) + '.' : ''}
+      </div>
+
+      {age.level !== 'ok' && (
+        <div style={{ ...styles.plainText, background: '#FFF4E5', padding: 10, borderRadius: 8, marginBottom: 10 }}>
+          {age.level === 'bad' && !status
+            ? 'Press "Back up now" once to start it off. After that it runs on its own every night.'
+            : 'The nightly backup has not run as expected. Press "Back up now" - if that fails too, tell me what it says.'}
+        </div>
+      )}
+
+      {offsite && status && (
+        <div style={{ ...styles.plainText, background: '#EEF1F7', padding: 10, borderRadius: 8, marginBottom: 10 }}>
+          The nightly copy sits in the same Google account as the data, so it survives a mistake
+          but not losing the account. Download one onto your phone every month or so - that copy
+          is somewhere nothing else can reach.
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button style={{ ...styles.addBtn, flex: 1 }} disabled={busy === 'run'} onClick={runNow}>
+          <ShieldCheck size={14} /> {busy === 'run' ? 'Backing up...' : 'Back up now'}
+        </button>
+        <button style={{ ...styles.cardActionBtn, flex: 1 }} disabled={busy === 'list'} onClick={loadList}>
+          <Download size={12} /> {busy === 'list' ? 'Loading...' : 'Show copies'}
+        </button>
+      </div>
+
+      {unconfigured && (
+        <div style={{ ...styles.plainTextMuted, marginTop: 10 }}>
+          The backup service is not deployed yet. Nothing is lost - it starts working on the next update.
+        </div>
+      )}
+
+      {rows && rows.length === 0 && (
+        <div style={{ ...styles.plainTextMuted, marginTop: 10 }}>No copies stored yet.</div>
+      )}
+
+      {rows && rows.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={styles.fieldLabel}>Stored copies ({rows.length})</div>
+          {rows.map((r) => (
+            <div key={r.name} style={{ ...styles.item, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={styles.itemName}>{formatDate(r.date)}</div>
+                <div style={styles.itemSub}>{readableSize(r.sizeBytes)}</div>
+              </div>
+              <button style={styles.cardActionBtn} disabled={busy === r.name} onClick={() => download(r.name)}>
+                <Download size={12} /> {busy === r.name ? '...' : 'Download'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, pendingGalleryPhotos, setPendingGalleryPhotos, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, googleReviewLink, setGoogleReviewLink, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, adminPushTokens, enableAdminPushNotifications, onDeadPushTokens, onLogout, showToast }) {
   // Same union fix as GalleryBrowser/AdminGallery's matching comment -
   // used here so a category with real gallery photos never becomes
@@ -6665,10 +6822,12 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         </div>
       </div>
 
+      <BackupPanel showToast={showToast} />
+
       <div style={{ ...styles.card, marginTop: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <Download size={16} color={BRAND.gold} />
-          <div style={{ fontWeight: 800, fontSize: 14 }}>Backup Data</div>
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Backup what is on screen</div>
         </div>
         <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>{t('Download every customer, job, gallery and staff record as one JSON file.')}</div>
         <button style={styles.addBtn} onClick={downloadBackup}><Download size={14} /> Download backup</button>

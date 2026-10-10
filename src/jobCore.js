@@ -1322,3 +1322,72 @@ export function clearChunkReloadFlag(storage, key) {
     return false;
   }
 }
+
+/* How old the last backup is, in words the person can act on.
+ *
+ * The point of this is not the number. It is that a backup which
+ * silently stopped running looks exactly like one that is working,
+ * until the day it is needed. So the screen shows an AGE, and the age
+ * goes red on its own - nobody has to remember to check, and a cron
+ * that quietly stopped firing shows up as a figure climbing rather
+ * than as nothing at all.
+ *
+ * Returns a level the screen colours by:
+ *   ok     - ran within the last two days
+ *   warn   - two to seven days, or the last run reported a failure
+ *   bad    - over a week, or never run at all
+ */
+export const BACKUP_WARN_HOURS = 48;
+export const BACKUP_BAD_HOURS = 24 * 7;
+
+export function backupAge(status, now) {
+  const t = Number(now);
+  if (!status || !status.at) {
+    return { level: 'bad', hours: null, label: 'No backup has ever run' };
+  }
+  const at = Date.parse(status.at);
+  if (!Number.isFinite(at)) {
+    return { level: 'bad', hours: null, label: 'No backup has ever run' };
+  }
+  // A clock skewed into the future must not read as fresh forever.
+  const hours = Math.max(0, (t - at) / 3600000);
+
+  let label;
+  if (hours < 1) label = 'Backed up less than an hour ago';
+  else if (hours < 24) label = 'Backed up ' + Math.floor(hours) + ' hour' + (Math.floor(hours) === 1 ? '' : 's') + ' ago';
+  else {
+    const days = Math.floor(hours / 24);
+    label = 'Backed up ' + days + ' day' + (days === 1 ? '' : 's') + ' ago';
+  }
+
+  if (status.ok === false) {
+    return { level: hours >= BACKUP_BAD_HOURS ? 'bad' : 'warn', hours, label: 'The last backup failed' };
+  }
+  if (hours >= BACKUP_BAD_HOURS) return { level: 'bad', hours, label };
+  if (hours >= BACKUP_WARN_HOURS) return { level: 'warn', hours, label };
+  return { level: 'ok', hours, label };
+}
+
+// Bytes as something a person reads. Backups are megabytes, so one
+// decimal place is the useful amount of detail.
+export function readableSize(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n <= 0) return '-';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// The copy in Firebase Storage sits in the same Google account as the
+// data itself, so it does not survive losing that account. One
+// download a month onto a phone does. This decides when to say so,
+// rather than saying it every time, which is how a warning stops being
+// read.
+export const OFFSITE_REMIND_DAYS = 30;
+
+export function needsOffsiteCopy(lastDownloadIso, now) {
+  if (!lastDownloadIso) return true;
+  const at = Date.parse(lastDownloadIso);
+  if (!Number.isFinite(at)) return true;
+  return (Number(now) - at) >= OFFSITE_REMIND_DAYS * 86400000;
+}

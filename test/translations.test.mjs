@@ -19,7 +19,11 @@ let n = 0;
 const check = (name, fn) => { fn(); n++; console.log('  ok -', name); };
 const read = (f) => fs.readFileSync(new URL(f, import.meta.url), 'utf8');
 const SRC = ['../src/App.jsx', '../src/AdminApp.jsx', '../src/jobCore.js',
-  '../src/leadForm.js', '../src/firebaseStorage.js', '../src/jobsStore.js'];
+  '../src/leadForm.js', '../src/firebaseStorage.js', '../src/jobsStore.js',
+  // The endpoints word things a customer reads too - a failed OTP or a
+  // visit reminder is copy, wherever it is written.
+  '../api/change-pin.js', '../api/staff-login.js', '../api/send-visit-reminders.js',
+  '../api/lead.js', '../api/send-push.js', '../api/backup.js'];
 
 // Code with its comments blanked out. A comment is prose for whoever
 // reads the source, not copy: several of them quote the Hinglish they

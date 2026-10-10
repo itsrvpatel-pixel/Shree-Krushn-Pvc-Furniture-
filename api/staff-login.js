@@ -115,7 +115,7 @@ export default async function handler(req, res) {
     const rec = snap.exists ? snap.data() : null;
     if (rec && rec.failures >= MAX_FAILURES && now - rec.last < LOCKOUT_MS) {
       const waitMin = Math.ceil((LOCKOUT_MS - (now - rec.last)) / 60000);
-      res.status(429).json({ error: 'Bahut baar galat PIN. ' + waitMin + ' minute baad try karein.' });
+      res.status(429).json({ error: 'Too many wrong PINs. Try again in ' + waitMin + ' minutes.' });
       return;
     }
     if (rec && now - rec.last >= LOCKOUT_MS) await attemptRef.set({ failures: 0, last: now });
@@ -193,7 +193,7 @@ export default async function handler(req, res) {
       const failures = (snap.exists ? (snap.data().failures || 0) : 0) + 1;
       await attemptRef.set({ failures, last: now });
     } catch (e) { /* counting is best effort */ }
-    res.status(401).json({ error: 'Galat PIN' });
+    res.status(401).json({ error: 'Wrong PIN' });
     return;
   }
 
@@ -210,6 +210,6 @@ export default async function handler(req, res) {
     res.status(200).json({ token, ...matched });
   } catch (e) {
     console.error('staff-login: token mint failed', e);
-    res.status(500).json({ error: 'Login token banane mein dikkat hui' });
+    res.status(500).json({ error: 'There was a problem creating the login token' });
   }
 }

@@ -186,18 +186,18 @@ export default async function handler(req, res) {
   const newPin = typeof req.body?.newPin === 'string' ? req.body.newPin.trim() : '';
 
   const staffId = staffIdFromWhich(which);
-  if (!PINS[which] && !staffId) { res.status(400).json({ error: 'Kaunsa PIN badalna hai, ye saaf nahi hai' }); return; }
+  if (!PINS[which] && !staffId) { res.status(400).json({ error: 'It is not clear which PIN to change' }); return; }
 
   // An empty new PIN means "remove this access", which is what the
   // Settings screen's "Partner access hata dein" does. The admin PIN is
   // the one that cannot be removed - there would be no way back in.
   const removing = newPin === '';
   if (removing && which === 'admin') {
-    res.status(400).json({ error: 'Admin PIN hataya nahi ja sakta' });
+    res.status(400).json({ error: 'The admin PIN cannot be removed' });
     return;
   }
   if (!removing && !/^[0-9]{4,10}$/.test(newPin)) {
-    res.status(400).json({ error: 'Naya PIN 4 se 10 digit ka hona chahiye (sirf number)' });
+    res.status(400).json({ error: 'The new PIN must be 4 to 10 digits, numbers only' });
     return;
   }
 
@@ -213,17 +213,17 @@ export default async function handler(req, res) {
   // 1. The caller must hold an admin session minted by staff-login.
   const header = req.headers.authorization || '';
   const idToken = header.startsWith('Bearer ') ? header.slice(7) : '';
-  if (!idToken) { res.status(401).json({ error: 'Pehle admin ke roop mein login karein' }); return; }
+  if (!idToken) { res.status(401).json({ error: 'Log in as admin first' }); return; }
   let claims;
   try {
     claims = await admin.auth(app).verifyIdToken(idToken);
   } catch (e) {
     console.error('change-pin: token verify failed', e);
-    res.status(401).json({ error: 'Session expire ho gaya - dobara login karein' });
+    res.status(401).json({ error: 'Session expired - please log in again' });
     return;
   }
   if (claims.role !== 'admin') {
-    res.status(403).json({ error: 'Sirf admin PIN badal sakta hai' });
+    res.status(403).json({ error: 'Only the admin can change a PIN' });
     return;
   }
 
@@ -237,7 +237,7 @@ export default async function handler(req, res) {
   if (which === 'admin') {
     const existing = await readCurrentPin(db, which);
     if (existing && !pinMatches(currentPin, existing)) {
-      res.status(401).json({ error: 'Current PIN galat hai' });
+      res.status(401).json({ error: 'The current PIN is wrong' });
       return;
     }
   }
@@ -246,7 +246,7 @@ export default async function handler(req, res) {
   //    would be two ways in under different names - with the app no
   //    longer holding any PIN, this check has nowhere else to live.
   if (!removing && await pinAlreadyUsed(db, newPin, which)) {
-    res.status(409).json({ error: 'Ye PIN pehle se use ho raha hai - alag PIN chunein' });
+    res.status(409).json({ error: 'This PIN is already in use - choose a different one' });
     return;
   }
 
@@ -271,7 +271,7 @@ export default async function handler(req, res) {
     }
   } catch (e) {
     console.error('change-pin: write failed', which, e);
-    res.status(500).json({ error: 'PIN save nahi ho paya' });
+    res.status(500).json({ error: 'The PIN could not be saved' });
     return;
   }
 

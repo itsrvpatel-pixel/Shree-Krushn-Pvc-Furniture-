@@ -517,6 +517,60 @@ async function changeRolePin(which, currentPin, newPin) {
   return { ok: true };
 }
 
+/* Talks to api/backup.js.
+ *
+ * Three things the admin screen needs: what copies exist, a link to
+ * one, and a way to take a copy right now rather than waiting for
+ * tonight. All three need an admin session - the endpoint checks the
+ * 'role' claim that only api/staff-login.js can mint - because a
+ * backup file is every customer, estimate and payment in one piece of
+ * plain JSON.
+ *
+ * Returns the same shapes the rest of this file uses:
+ *   { ok: true, ... }        done
+ *   { unconfigured: true }   the server side is not deployed yet, so
+ *                            the screen can say so instead of looking
+ *                            broken
+ *   { ok: false, error }     refused, with something to show
+ */
+// Longer than the other calls on purpose: taking a backup reads every
+// collection and uploads the result, which is seconds rather than
+// milliseconds, and a "run now" the owner is watching must not report
+// failure on something that is still working. Declared here rather
+// than reaching for PUSH_TIMEOUT_MS further down the file - it would
+// work, since this runs long after the module is evaluated, but a
+// constant used hundreds of lines above where it is declared is how
+// the last temporal-dead-zone bug got in.
+const BACKUP_TIMEOUT_MS = 60000;
+
+async function callBackupApi(body) {
+  let idToken = null;
+  try {
+    const user = auth.currentUser;
+    if (user) idToken = await withTimeout(user.getIdToken(), LOGIN_TIMEOUT_MS, 'id token');
+  } catch (e) {
+    console.error('callBackupApi: could not get id token', e);
+  }
+  if (!idToken) return { unconfigured: true };
+
+  let res;
+  try {
+    res = await withTimeout(fetch('/api/backup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+      body: JSON.stringify(body),
+    }), BACKUP_TIMEOUT_MS, 'backup request');
+  } catch (e) {
+    console.error('callBackupApi: request failed', e);
+    return { ok: false, error: 'Could not reach the server - check your internet' };
+  }
+  if (res.status === 404 || res.status === 503) return { unconfigured: true };
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* handled below */ }
+  if (!res.ok) return { ok: false, error: data.error || 'The backup store could not be reached' };
+  return { ...data, ok: true };
+}
+
 async function signOutStaff() {
   try {
     await auth.signOut();
@@ -783,6 +837,11 @@ export function installWindowStorage() {
     add: (e) => addStaffAlert(e),
     loadAll: () => loadStaffAlerts(),
     clear: (ids) => clearStaffAlerts(ids),
+  };
+  window.backups = {
+    list: () => callBackupApi({ action: 'list' }),
+    linkFor: (name) => callBackupApi({ action: 'download', name }),
+    runNow: () => callBackupApi({ action: 'run' }),
   };
   window.errorLog = {
     report: (r) => reportError(r),

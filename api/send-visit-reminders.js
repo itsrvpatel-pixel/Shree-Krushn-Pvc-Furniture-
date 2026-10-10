@@ -72,7 +72,7 @@ export default async function handler(req, res) {
           token: job.customerPushToken,
           notification: {
             title: 'Visit Reminder',
-            body: 'Namaste ' + job.customerName + ', kal aapki visit hai' + (job.appointment.confirmedTime ? (' - ' + job.appointment.confirmedTime) : '') + '.',
+            body: 'Hello ' + job.customerName + ', your visit is tomorrow' + (job.appointment.confirmedTime ? (' - ' + job.appointment.confirmedTime) : '') + '.',
           },
         });
         customerRemindersSent++;
@@ -92,8 +92,8 @@ export default async function handler(req, res) {
         await admin.messaging().sendEachForMulticast({
           tokens: adminTokens,
           notification: {
-            title: 'Kal Ki Visits',
-            body: 'Kal ' + tomorrowsVisits.length + ' visit' + (tomorrowsVisits.length !== 1 ? 's' : '') + ' scheduled hain.',
+            title: "Tomorrow's visits",
+            body: 'Tomorrow: ' + tomorrowsVisits.length + ' visit' + (tomorrowsVisits.length !== 1 ? 's' : '') + ' scheduled.',
           },
         });
       }
