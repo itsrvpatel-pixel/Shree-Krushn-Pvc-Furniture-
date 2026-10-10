@@ -23,6 +23,7 @@
 // deploying this changes nothing until you are ready.
 
 import admin from 'firebase-admin';
+import { tellAdmin, shouldAnnounceLogin, loginNotice, shouldWarnGuessing } from './_security.js';
 import { readCurrentPin, readStaffPins, stripStaffPin } from './change-pin.js';
 
 function getAdminApp() {
@@ -192,6 +193,17 @@ export default async function handler(req, res) {
       const snap = await attemptRef.get();
       const failures = (snap.exists ? (snap.data().failures || 0) : 0) + 1;
       await attemptRef.set({ failures, last: now });
+      // The lockout counts per address, so somebody switching between
+      // wifi and mobile data can keep going. A global lock would fix
+      // that and hand anyone a way to lock the owner out of his own
+      // business by typing rubbish, so the answer is to tell him
+      // instead - a warning cannot be turned against him. Once per
+      // burst, at the threshold, not once per attempt after it.
+      if (shouldWarnGuessing(failures)) {
+        tellAdmin(getAdminApp(), db, 'Someone is trying PINs',
+          failures + ' wrong PINs in a row just now. If this is not you, change your PIN in Settings.')
+          .catch(() => {});
+      }
     } catch (e) { /* counting is best effort */ }
     res.status(401).json({ error: 'Wrong PIN' });
     return;
@@ -207,6 +219,20 @@ export default async function handler(req, res) {
       staffId: matched.staffId || null,
     });
     try { await attemptRef.set({ failures: 0, last: now }); } catch (e) { /* best effort */ }
+
+    // Say so. Before this, a stolen PIN bought somebody weeks of quiet
+    // work: nothing anywhere recorded that a login had happened, so
+    // the only way to find out was to notice the damage. The owner's
+    // own logins are rare - the session never expires - so this is a
+    // handful of notifications a year, and the one that matters
+    // arrives within seconds of the login it describes.
+    //
+    // Deliberately after the token is minted and never awaited into
+    // the response: a push that fails must not cost him a login.
+    if (shouldAnnounceLogin(matched.role)) {
+      const notice = loginNotice(matched.role, matched.staffName);
+      tellAdmin(getAdminApp(), db, notice.title, notice.body).catch(() => {});
+    }
     res.status(200).json({ token, ...matched });
   } catch (e) {
     console.error('staff-login: token mint failed', e);

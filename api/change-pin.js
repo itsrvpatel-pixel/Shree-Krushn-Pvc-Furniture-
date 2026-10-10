@@ -36,6 +36,7 @@
 // Firestore console and ADMIN_PIN from Vercel takes over again.
 
 import admin from 'firebase-admin';
+import { revokeSessions, tellAdmin } from './_security.js';
 
 function getAdminApp() {
   if (admin.apps.length > 0) return admin.apps[0];
@@ -227,6 +228,44 @@ export default async function handler(req, res) {
     return;
   }
 
+  /* "Log out all devices", without changing anything.
+   *
+   * Separate from a PIN change on purpose. A phone left in a rickshaw
+   * does not need a new PIN - it needs the session on that phone to
+   * stop. Making him change the PIN as well would mean telling every
+   * karigar the new one, which is how PINs end up written on a wall.
+   *
+   * Signs out every role at once, including his own session on the
+   * phone he is holding, because half a sign-out is worse than none -
+   * he would have no way to tell which device was still in.
+   */
+  if (req.body && req.body.action === 'signOutEverywhere') {
+    const roles = ['admin', 'partner', 'dh_partner'];
+    const failed = [];
+    for (const role of roles) {
+      const gone = await revokeSessions(app, role, null);
+      if (!gone.ok) failed.push(role);
+    }
+    // Karigars too - their sessions see assigned jobs and customers.
+    try {
+      const pins = await readStaffPins(db);
+      for (const id of Object.keys(pins || {})) {
+        const gone = await revokeSessions(app, null, id);
+        if (!gone.ok) failed.push('staff:' + id);
+      }
+    } catch (e) {
+      console.error('signOutEverywhere: staff list unreadable', e);
+    }
+    if (failed.length > 0) {
+      res.status(500).json({ error: 'Some devices could not be signed out. Try again.' });
+      return;
+    }
+    tellAdmin(app, db, 'Signed out everywhere',
+      'Every device has been signed out. Log in again with your PIN.').catch(() => {});
+    res.status(200).json({ ok: true, signedOut: true });
+    return;
+  }
+
   // 2. For the admin's own PIN, they must also still know the old one,
   //    so a session left open on an unlocked phone cannot be used to
   //    lock the owner out. The partner PINs are the admin granting and
@@ -273,6 +312,32 @@ export default async function handler(req, res) {
     console.error('change-pin: write failed', which, e);
     res.status(500).json({ error: 'The PIN could not be saved' });
     return;
+  }
+
+  /* Throw out whoever is already inside.
+   *
+   * This is the part that was missing, and it mattered more than
+   * anything else here. Changing a PIN stopped new logins and did
+   * nothing whatsoever to a session already open: a Firebase session
+   * refreshes itself indefinitely, so somebody who had used the old
+   * PIN once stayed signed in for ever. The owner would change the
+   * PIN, reasonably believe the problem solved, and the thief would
+   * still be reading his customers.
+   *
+   * Revoking the refresh stops that. An ID token already issued lasts
+   * up to an hour more, so it is not instantaneous - but it is the
+   * difference between out within the hour and never out at all.
+   *
+   * After the write, so a revoke that fails cannot leave the PIN
+   * unchanged, and never fatal: being unable to sign people out is
+   * not a reason to refuse the new PIN.
+   */
+  const who = staffId ? null : which;
+  try {
+    const gone = await revokeSessions(app, who, staffId);
+    if (!gone.ok) console.error('change-pin: sessions not revoked for', gone.uid);
+  } catch (e) {
+    console.error('change-pin: revoke threw (ignored)', e);
   }
 
   // The old copy in app_data was readable by any signed-in user. Now

@@ -5533,6 +5533,7 @@ function BackupPanel({ showToast }) {
 }
 
 function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, pendingGalleryPhotos, setPendingGalleryPhotos, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, googleReviewLink, setGoogleReviewLink, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, adminPushTokens, enableAdminPushNotifications, onDeadPushTokens, onLogout, showToast }) {
+  const [signingOutAll, setSigningOutAll] = useState(false);
   // Same union fix as GalleryBrowser/AdminGallery's matching comment -
   // used here so a category with real gallery photos never becomes
   // unmanageable from Settings just because it isn't (or is no longer)
@@ -6821,6 +6822,36 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         <div style={{ marginTop: 12 }}>
           <BrochureList brochures={brochures} showToast={showToast} canManage={true} onDelete={removeBrochure} />
         </div>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <ShieldCheck size={16} color={BRAND.gold} />
+          <div style={{ fontWeight: 800, fontSize: 14 }}>If a PIN gets out</div>
+        </div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>
+          Signs out every device, everywhere - yours, the partners, every karigar.
+          Nobody gets back in without typing a PIN again. It does not change any PIN,
+          so you do not have to tell everyone a new one just because a phone went missing.
+        </div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>
+          If the PIN itself has been seen by someone, change it above as well - that
+          now signs out the old sessions too.
+        </div>
+        <button
+          style={{ ...styles.addBtn, background: '#FFEBEE', color: '#C62828' }}
+          disabled={signingOutAll}
+          onClick={async () => {
+            if (!window.confirm('Sign out every device, including this one?')) return;
+            setSigningOutAll(true);
+            const res = await window.staffAuth.signOutEverywhere();
+            setSigningOutAll(false);
+            if (res.unconfigured) { showToast('Not available until the next update', true); return; }
+            if (!res.ok) { showToast(res.error, true); return; }
+            showToast('Every device signed out');
+            onLogout();
+          }}
+        ><LogOut size={14} /> {signingOutAll ? 'Signing out...' : 'Log out all devices'}</button>
       </div>
 
       <BackupPanel showToast={showToast} />

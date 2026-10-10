@@ -625,6 +625,42 @@ async function raiseOutageAlert(code) {
   return { ok: true };
 }
 
+/* Ends every staff session everywhere, on every device.
+ *
+ * The thing to reach for when a phone is lost, or when a PIN has
+ * been seen by somebody it should not have been. It does not change
+ * any PIN - that is a separate decision, and making the two one
+ * action would mean telling every karigar a new PIN every time a
+ * phone goes missing.
+ */
+async function signOutEverywhere() {
+  let idToken = null;
+  try {
+    const user = auth.currentUser;
+    if (user) idToken = await withTimeout(user.getIdToken(), LOGIN_TIMEOUT_MS, 'id token');
+  } catch (e) {
+    console.error('signOutEverywhere: could not get id token', e);
+  }
+  if (!idToken) return { unconfigured: true };
+
+  let res;
+  try {
+    res = await withTimeout(fetch('/api/change-pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+      body: JSON.stringify({ action: 'signOutEverywhere' }),
+    }), LOGIN_TIMEOUT_MS, 'sign out everywhere');
+  } catch (e) {
+    console.error('signOutEverywhere: request failed', e);
+    return { ok: false, error: 'Could not reach the server - check your internet' };
+  }
+  if (res.status === 404 || res.status === 503) return { unconfigured: true };
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* handled below */ }
+  if (!res.ok) return { ok: false, error: data.error || 'Could not sign the devices out' };
+  return { ok: true };
+}
+
 async function signOutStaff() {
   try {
     await auth.signOut();
@@ -914,6 +950,7 @@ export function installWindowStorage() {
     login: (pin) => staffLogin(pin),
     signOut: () => signOutStaff(),
     changePin: (which, currentPin, newPin) => changeRolePin(which, currentPin, newPin),
+    signOutEverywhere: () => signOutEverywhere(),
   };
   window.pushMessaging = {
     requestPermissionAndGetToken: () => requestPermissionAndGetToken(),
