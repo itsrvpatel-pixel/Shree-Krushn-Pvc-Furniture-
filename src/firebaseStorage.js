@@ -169,12 +169,29 @@ async function getStatus(key) {
   }
 }
 
+/* Whoever wants to hear about a write that failed.
+ *
+ * set() used to catch everything and return null, and not one of its
+ * twenty-four callers looked at that null - so a refused write was
+ * indistinguishable from a successful one. The screen had already
+ * updated from local state, so it looked saved, and nothing reached
+ * Firestore. Reloading the page was the only way to find out.
+ *
+ * Making set() throw would have fixed the callers that sit inside a
+ * try, and turned the nine that do not into unhandled rejections. So
+ * the report goes out of band instead: one place to register, and it
+ * covers every caller including the ones that ignore the result.
+ */
+let writeFailureListener = null;
+
 async function set(key, value) {
   try {
     await setDoc(doc(db, COLLECTION, docKey(key)), { value });
     return { key, value };
   } catch (e) {
-    console.error("storage.set failed:", key, e);
+    const code = String((e && e.code) || e);
+    console.error("storage.set failed:", key, code);
+    try { if (writeFailureListener) writeFailureListener(key, code); } catch (inner) { /* never worsen a failure */ }
     return null;
   }
 }
@@ -988,6 +1005,7 @@ export function installWindowStorage() {
     set: (key, value) => set(key, value),
     delete: (key) => del(key),
     listAllKeys: () => listAllKeys(),
+    onWriteFailure: (fn) => { writeFailureListener = typeof fn === 'function' ? fn : null; },
   };
   window.fileStorage = {
     upload: (key, dataUri) => uploadDataUri(key, dataUri),

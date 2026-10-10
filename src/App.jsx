@@ -39,13 +39,13 @@ import { useBackToClose } from './useBackToClose.js';
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
 import { leadLoadMessage } from './leadForm.js';
-import { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, chunkReloadDecision, clearChunkReloadFlag, backupAge, readableSize, needsOffsiteCopy, otpFailureClass, otpOutageMessage, shouldRaiseOutage } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, chunkReloadDecision, clearChunkReloadFlag, writeFailureMessage, shouldReportWriteFailure, backupAge, readableSize, needsOffsiteCopy, otpFailureClass, otpOutageMessage, shouldRaiseOutage } from './jobCore.js';
 import { normalizeError, installErrorReporting, groupErrors } from './errorLog.js';
 export { groupErrors };
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, backupAge, readableSize, needsOffsiteCopy, otpFailureClass, otpOutageMessage, shouldRaiseOutage };
+export { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, backupAge, readableSize, needsOffsiteCopy, otpFailureClass, otpOutageMessage, shouldRaiseOutage, writeFailureMessage, shouldReportWriteFailure };
 export { leadLoadMessage };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
@@ -2915,6 +2915,31 @@ export default function App() {
     setToast({ msg, isError, id: uid() });
     setTimeout(() => setToast((t) => (t && t.msg === msg ? null : t)), 2400);
   }, []);
+
+  /* Say so when a save did not save.
+   *
+   * Registered once, centrally, because the alternative is checking a
+   * return value in twenty-four places and getting it wrong in one of
+   * them. A refused write is the worst failure in this app: a refused
+   * read shows up immediately as an empty screen, while a refused
+   * write leaves everything looking correct until the page reloads
+   * and the change is simply gone. That is how a regional partner
+   * could be added, appear in the list, and then not be able to log
+   * in - the staff list never left the phone.
+   */
+  const lastWriteComplaint = useRef(0);
+  useEffect(() => {
+    if (!window.storage || !window.storage.onWriteFailure) return undefined;
+    window.storage.onWriteFailure((key, code) => {
+      const now = Date.now();
+      // One action can write several documents; six identical red
+      // toasts say no more than one and make the screen unusable.
+      if (!shouldReportWriteFailure(lastWriteComplaint.current, now)) return;
+      lastWriteComplaint.current = now;
+      showToast(writeFailureMessage(key, code), true);
+    });
+    return () => { window.storage.onWriteFailure(null); };
+  }, [showToast]);
 
   // Foreground push notifications (the app IS open right now) don't go
   // through the service worker's background handler at all - FCM

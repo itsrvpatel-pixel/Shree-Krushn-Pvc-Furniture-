@@ -115,7 +115,12 @@ await ctx.addInitScript(() => {
       { id: 'e1', type: 'Karigar Payment', payee: 'Rishi', amount: '4000', date: now, jobId: 'j1' },
       { id: 'e2', type: 'Material', payee: 'Kaka', amount: '12000', date: now },
     ]),
-    staff: JSON.stringify([{ id: 's1', name: 'Rishi', pin: '5555', role: 'karigar' }]),
+    staff: JSON.stringify([
+      { id: 's1', name: 'Rishi', pin: '5555', role: 'karigar' },
+      // A regional partner - a whole screen of its own, and one
+      // nobody had ever rendered.
+      { id: 's2', name: 'Jayesh', pin: '6666', role: 'regional_partner', commissionPercent: 15 },
+    ]),
     notifications: '[]',
     // One PIN per role, so every panel can be opened in turn. The
     // partner panels are the ones he actually asked about - they are
@@ -284,11 +289,19 @@ const PANELS = [
     // Their own customer, and the one they must never be shown.
     opens: 'Meena Trivedi', neverSees: 'Ramesh Patel' },
   { role: 'Karigar', pin: '5555', tabs: [], tiles: [] },
+  { role: 'Regional Partner', pin: '6666', tabs: [], tiles: [] },
 ];
 
 for (const panel of PANELS) {
   await step(panel.role + ' can log in', async () => {
     await loginAs(panel.pin);
+    // Logging in is not the same as arriving somewhere. A role that
+    // falls through every branch lands on a screen with nothing on
+    // it, which reads from the outside as "login nahi ho raha".
+    const text = await page.locator('#root').innerText();
+    if (/Enter admin|PIN/i.test(text) && text.length < 400) {
+      throw new Error('still on the login screen - the PIN was refused');
+    }
   });
 
   for (const tabName of panel.tabs) {

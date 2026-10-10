@@ -1453,3 +1453,44 @@ export function shouldRaiseOutage(lastAt, now) {
   if (prev > Number(now)) return true;
   return (Number(now) - prev) >= OUTAGE_ALERT_GAP_MS;
 }
+
+/* A save that did not save.
+ *
+ * storage.set() caught every error and returned null. Nothing checked
+ * that null - not one of its twenty-four callers - so a refused write
+ * looked exactly like a successful one. The screen updated from local
+ * state, the toast said it was saved, and nothing reached Firestore.
+ *
+ * That is how a regional partner can be added, appear in the list,
+ * and then be unable to log in: the staff list never left the phone.
+ * It is also the worst failure mode in the app, because unlike a
+ * refused READ - which shows up as an empty screen - a refused WRITE
+ * leaves everything looking right until the page is reloaded.
+ *
+ * So every failed write now says so, whoever ignored the result. The
+ * wording has to carry the fix, because "save failed" tells somebody
+ * holding a phone nothing they can act on.
+ */
+export function writeFailureMessage(key, code) {
+  const what = String(key || 'data').replace(/_/g, ' ');
+  const c = String(code || '');
+  if (c.includes('permission-denied') || c.includes('insufficient')) {
+    return 'NOT saved (' + what + ') - this login is not allowed to write. Log out and log in again with your PIN.';
+  }
+  if (c.includes('unavailable') || c.includes('network') || c.includes('offline')) {
+    return 'NOT saved (' + what + ') - no internet. It will have to be done again once you are back online.';
+  }
+  return 'NOT saved (' + what + ') - ' + (c || 'unknown') + '. Nothing else has been changed.';
+}
+
+// One complaint at a time. A single action can write several
+// documents, and six identical red toasts in a row say no more than
+// one does while making the screen unusable.
+export const WRITE_FAILURE_GAP_MS = 4000;
+
+export function shouldReportWriteFailure(lastAt, now) {
+  const prev = Number(lastAt);
+  if (!lastAt || !Number.isFinite(prev) || prev <= 0) return true;
+  if (prev > Number(now)) return true;
+  return (Number(now) - prev) >= WRITE_FAILURE_GAP_MS;
+}
