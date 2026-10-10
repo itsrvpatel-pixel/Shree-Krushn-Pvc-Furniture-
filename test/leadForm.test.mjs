@@ -73,7 +73,7 @@ t('the honeypot is answered, not argued with', () => {
   const r = normalizeLead({ name: 'Bot', phone: '9876543210', website: 'http://spam' });
   assert.equal(r.ok, false);
   assert.equal(r.reason, 'bot');
-  assert.equal(leadFailureMessage('bot'), 'Bhej diya gaya');
+  assert.equal(leadFailureMessage('bot'), 'Sent');
   assert.equal(r.lead, null, 'a bot submission still produced a record');
 });
 
@@ -155,6 +155,30 @@ t('the owner has somewhere to work through them', () => {
   assert.ok(/window\.leads\.loadAll\(\)/.test(admin), 'the screen never loads them');
   assert.ok(/Website enquiry/.test(admin), 'there is no way to reach the screen');
   assert.ok(/whatsAppShareUrl\(r\.phone/.test(admin), 'an enquiry cannot be replied to in one tap');
+});
+
+t('the form offers exactly what the validator accepts', () => {
+  // These two lists are written in different files, in different
+  // languages - HTML options on the page, a JS array on the server -
+  // and nothing connects them but the strings themselves. When the
+  // copy was translated the page said "Full home" and the validator
+  // said "Whole home", so every enquiry that picked the first option
+  // had its need silently dropped: normalizeLead only keeps a need it
+  // recognises, and an unrecognised one is not an error.
+  const page = readFileSync(new URL('../site/index.html', import.meta.url), 'utf8');
+  const form = page.slice(page.indexOf('<select'), page.indexOf('</select>'));
+  const offered = [...form.matchAll(/<option(?: value="")?>([^<]+)<\/option>/g)]
+    .map((m) => m[1].trim())
+    .filter((v) => !/\(optional\)/.test(v));
+  assert.ok(offered.length >= 5, 'only ' + offered.length + ' options found - the form has moved');
+  assert.deepEqual(offered, LEAD_NEEDS,
+    'the page offers a need the validator will throw away');
+  // And the template the page is built from, so a rebuild cannot
+  // reintroduce the drift.
+  const tpl = readFileSync(new URL('../tools/a.tpl', import.meta.url), 'utf8');
+  for (const need of LEAD_NEEDS) {
+    assert.ok(tpl.includes('>' + need + '<'), 'the template is missing: ' + need);
+  }
 });
 
 console.log(n + ' assertions passed');

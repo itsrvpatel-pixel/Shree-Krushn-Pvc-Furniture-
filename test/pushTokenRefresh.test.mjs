@@ -123,7 +123,7 @@ t('it cannot hang for ever on a stalled connection', () => {
 });
 
 t('the owner is told in words he can act on', () => {
-  assert.ok(/Internet nahi mila - dobara try karein/.test(storeCode),
+  assert.ok(/No internet - please try again/.test(storeCode),
     'a network failure still surfaces as the browser’s own wording');
 });
 

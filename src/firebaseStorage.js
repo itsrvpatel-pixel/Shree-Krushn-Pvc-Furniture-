@@ -464,12 +464,12 @@ async function staffLogin(pin) {
   if (res.status === 503 || res.status === 404) return { unconfigured: true };
   let data = {};
   try { data = await res.json(); } catch (e) { /* handled below */ }
-  if (!res.ok) return { ok: false, error: data.error || 'Login fail ho gaya' };
+  if (!res.ok) return { ok: false, error: data.error || 'Login failed' };
   try {
     await withTimeout(signInWithCustomToken(auth, data.token), LOGIN_TIMEOUT_MS, 'custom-token sign-in');
   } catch (e) {
     console.error('staffLogin: signInWithCustomToken failed', e);
-    return { ok: false, error: 'Login pura nahi ho paya - internet check karein' };
+    return { ok: false, error: 'The login did not complete - check your internet' };
   }
   return { ok: true, role: data.role, staffName: data.staffName, staffId: data.staffId };
 }
@@ -508,12 +508,12 @@ async function changeRolePin(which, currentPin, newPin) {
     }), LOGIN_TIMEOUT_MS, 'change pin request');
   } catch (e) {
     console.error('changeRolePin: request failed', e);
-    return { ok: false, error: 'Server tak nahi pahunch paye - internet check karein' };
+    return { ok: false, error: 'Could not reach the server - check your internet' };
   }
   if (res.status === 503 || res.status === 404) return { unconfigured: true };
   let data = {};
   try { data = await res.json(); } catch (e) { /* handled below */ }
-  if (!res.ok) return { ok: false, error: data.error || 'PIN change nahi ho paya' };
+  if (!res.ok) return { ok: false, error: data.error || 'The PIN could not be changed' };
   return { ok: true };
 }
 
@@ -984,5 +984,5 @@ async function sendPushViaApi(targetTokens, title, body) {
   }
   console.error('sendPushViaApi failed:', last);
   const net = last && (last.name === 'AbortError' || last.name === 'TypeError');
-  return { error: net ? 'Internet nahi mila - dobara try karein' : String((last && last.message) || last) };
+  return { error: net ? 'No internet - please try again' : String((last && last.message) || last) };
 }

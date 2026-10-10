@@ -55,7 +55,7 @@ await page.getByText('Settings',{exact:true}).last().click({timeout:8000});
 await page.waitForTimeout(1800);
 const after=(await page.locator('#root').innerText()).trim();
 ok('screen did NOT go blank', after.length > 40, 'len='+after.length);
-ok('a human-readable message is shown', /Kuch gadbad ho gayi/.test(after), after.slice(0,80));
+ok('a human-readable message is shown', /Something went wrong/.test(after), after.slice(0,80));
 ok('it says the data is safe', /data surakshit/.test(after), 'no reassurance');
 // Whatever the crash was, its own message must be on screen - that is
 // what turns "app kaam nahi kar raha" into something diagnosable. Checked
@@ -63,7 +63,7 @@ ok('it says the data is safe', /data surakshit/.test(after), 'no reassurance');
 // guessing which error it will be.
 const reported = (after.split('bhej dijiye:')[1] || '').trim();
 ok('the error text is shown for reporting', reported.length > 5, 'nothing after the prompt: '+JSON.stringify(reported));
-ok('a way back is offered', /Wapas jaayein/.test(after) && /dobara kholein/.test(after), 'no recovery buttons');
+ok('a way back is offered', /Go back/.test(after) && /Open the app again/.test(after), 'no recovery buttons');
 
 const crash = await page.evaluate(()=>{ try { return JSON.parse(localStorage.getItem('skpf_last_crash')||'null'); } catch(e){ return null; } });
 ok('the crash was recorded for Data Check', crash && crash.message && crash.scope, JSON.stringify(crash));
@@ -71,7 +71,7 @@ ok('the crash was recorded for Data Check', crash && crash.message && crash.scop
 await page.getByText('Wapas jaayein',{exact:false}).first().click({timeout:5000});
 await page.waitForTimeout(1800);
 const recovered=(await page.locator('#root').innerText()).trim();
-ok('"Wapas jaayein" gets the app working again', recovered.includes('Admin Panel') && !/Kuch gadbad/.test(recovered), recovered.slice(0,70));
+ok('"Go back" gets the app working again', recovered.includes('Admin Panel') && !/Something went wrong/.test(recovered), recovered.slice(0,70));
 ok('it lands somewhere safe, not back on the broken screen', !/Change Admin PIN/.test(recovered), 'returned to the crashing screen');
 
 console.log('\n===== ERROR BOUNDARY =====');

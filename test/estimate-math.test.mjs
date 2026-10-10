@@ -43,7 +43,7 @@ ok('the live calc box uses the inch mark, not the foot mark',
 ok('a measured item is stored with qty 1',
   /qty: estimateItemSqft\(newItem\) !== null \? '1'/.test(src), 'addItem still stores the typed qty');
 ok('entering both warns instead of silently dropping the qty',
-  /ginti mein nahi aayegi/.test(src), 'no warning shown');
+  /is not counted/.test(src), 'no warning shown');
 
 console.log('\n===== ESTIMATE MATH =====');
 T.forEach(([n,p,d])=>console.log((p?'PASS  ':'FAIL  ')+n+(p?'':'   ['+d+']')));

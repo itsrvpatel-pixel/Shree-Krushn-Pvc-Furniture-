@@ -17,12 +17,12 @@
  */
 
 export const LEAD_NEEDS = [
-  'Poora ghar',
+  'Full home',
   'Kitchen',
   'Wardrobe',
   'TV unit',
   'Mandir',
-  'Kuch aur',
+  'Something else',
 ];
 
 export const LEAD_MAX = { name: 60, area: 80, message: 500 };
@@ -79,7 +79,7 @@ export function normalizeLead(raw) {
 
 export function leadFailureMessage(reason) {
   if (reason === 'name') return 'Enter your name';
-  if (reason === 'phone') return 'Sahi 10 digit mobile number likhein';
+  if (reason === 'phone') return 'Enter a valid 10-digit mobile number';
   // A bot is never told it was spotted.
   if (reason === 'bot') return 'Sent';
   return 'Could not send - please try again shortly';

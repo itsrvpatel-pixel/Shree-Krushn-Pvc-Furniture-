@@ -118,7 +118,7 @@ t('there is one list of expense types, not two', () => {
 });
 
 t('the expenses screen shows the split, and can scope it to a month', () => {
-  assert.ok(/Kis cheez par kitna/.test(code), 'there is still no type-wise breakdown');
+  assert.ok(/What went where/.test(code), 'there is still no type-wise breakdown');
   assert.ok(/costScope/.test(code), 'the month/all-time toggle is missing');
   assert.ok(/monthKeyOf\(new Date\(\)\)/.test(code), 'the month scope is not the current month');
 });
@@ -249,7 +249,7 @@ t('the WhatsApp message says the month, the kinds and the total', () => {
   assert.ok(text.includes('October 2026'), 'the month is not named');
   assert.ok(text.includes('Karigar Payment: Rs. 10,000'), 'a kind is missing');
   assert.ok(text.includes('Kul: Rs. 25,000'), 'no total');
-  assert.ok(text.includes('Rs. 4,000 zyada'), 'the comparison is missing');
+  assert.ok(text.includes('Rs. 4,000 more'), 'the comparison is missing');
   // A kind with nothing in it is noise in a chat bubble.
   assert.ok(!text.includes('Transport'), 'empty kinds are listed');
   // Plain Rs., not the glyph: it comes out as a box in plenty of chat
@@ -260,17 +260,17 @@ t('the WhatsApp message says the month, the kinds and the total', () => {
 t('the message holds up with nothing to report', () => {
   const empty = expenseBreakdown([], { monthKey: '2026-10' });
   const text = expenseReportText(empty, { monthKey: '2026-10', comparison: compareBreakdowns(empty, null) });
-  assert.ok(text.includes('Koi kharch nahi likha gaya'), 'an empty month says nothing at all');
+  assert.ok(text.includes('No spend recorded'), 'an empty month says nothing at all');
   assert.ok(text.includes('Kul: Rs. 0'));
-  assert.ok(!text.includes('pichhle mahine'), 'it compares an empty month against nothing');
+  assert.ok(!text.includes('vs last month'), 'it compares an empty month against nothing');
 });
 
 t('collected and left over are included when known', () => {
   const text = expenseReportText(oct, { monthKey: '2026-10', collected: 40000 });
-  assert.ok(text.includes('Jama hua: Rs. 40,000'));
+  assert.ok(text.includes('Collected: Rs. 40,000'));
   assert.ok(text.includes('Left over: Rs. 15,000'));
   // And left out entirely when not passed, rather than shown as zero.
-  assert.ok(!expenseReportText(oct, { monthKey: '2026-10' }).includes('Jama hua'));
+  assert.ok(!expenseReportText(oct, { monthKey: '2026-10' }).includes('Collected'));
 });
 
 t('the screen shows the comparison and can send it', () => {

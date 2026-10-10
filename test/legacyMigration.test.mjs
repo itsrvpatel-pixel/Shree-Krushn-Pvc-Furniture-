@@ -60,7 +60,7 @@ t('the message still fires for a real failure', () => {
   // The guard must not have been "fixed" by deleting the warning. A
   // migration that genuinely fails for staff leaves the app looking
   // empty, which is indistinguishable from the data being gone.
-  assert.ok(/purane data se load nahi ho paye - admin ko batayein/.test(code),
+  assert.ok(/could not be loaded from the old data - tell the admin/.test(code),
     'the warning was removed instead of being made accurate');
   assert.ok(/m\.reason === 'error' \|\| m\.reason === 'legacy-unreadable'/.test(code),
     'the failure reasons are no longer checked');

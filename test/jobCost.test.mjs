@@ -64,7 +64,7 @@ t('junk entries never throw and never invent money', () => {
   ];
   const b = jobCostBreakdown(messy, 'job_a');
   assert.equal(b.total, 500);
-  assert.ok(b.byPayee.some((p) => p.name === '(naam nahi)'));
+  assert.ok(b.byPayee.some((p) => p.name === '(no name)'));
 });
 
 console.log(n + ' assertions passed\n');

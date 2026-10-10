@@ -25,20 +25,20 @@ const GOLD = '#A8975F';
 const CREAM = '#F8FAFB';
 
 const CARDS = [
-  { name: 'go-book', kicker: 'Free Site Visit', title: 'Free site visit book karein',
-    sub: 'Naap lekar exact rate batayenge - koi charge nahi' },
-  { name: 'go-visit', kicker: 'Site Visit', title: 'Aapki visit confirm hai',
-    sub: 'Time, address aur poori jaankari app mein dekhein' },
-  { name: 'go-estimate', kicker: 'Estimate', title: 'Aapka estimate taiyaar hai',
-    sub: 'Item-wise rate aur payment schedule app mein' },
-  { name: 'go-work', kicker: 'Kaam Ki Progress', title: 'Aapke kaam ki nayi photos',
-    sub: 'Roz ki progress aur stage app mein dekhein' },
+  { name: 'go-book', kicker: 'Free Site Visit', title: 'Book a free site visit',
+    sub: 'We measure up and give you the exact rate, free' },
+  { name: 'go-visit', kicker: 'Site Visit', title: 'Your visit is confirmed',
+    sub: 'Time, address and every detail, in the app' },
+  { name: 'go-estimate', kicker: 'Estimate', title: 'Your estimate is ready',
+    sub: 'Rates item by item and the payment schedule, in the app' },
+  { name: 'go-work', kicker: 'Work in progress', title: 'New photos of your work',
+    sub: 'Daily progress and the stage reached, in the app' },
   { name: 'go-payment', kicker: 'Payment', title: 'Payment ki jaankari',
-    sub: 'Kitna diya, kitna baaki - poora hisaab app mein' },
-  { name: 'go-designs', kicker: 'Design Gallery', title: '500+ design dekhein',
-    sub: 'Wardrobe, kitchen, TV unit - jo pasand aaye save karein' },
-  { name: 'go-app', kicker: 'Shree Krushn PVC Furniture', title: 'Aapka kaam, ek app mein',
-    sub: 'Estimate, photos, payment aur design - sab ek jagah' },
+    sub: 'Paid, outstanding, due - the whole account in the app' },
+  { name: 'go-designs', kicker: 'Design Gallery', title: 'See 500+ designs',
+    sub: 'Wardrobes, kitchens, TV units - save the ones you like' },
+  { name: 'go-app', kicker: 'Shree Krushn PVC Furniture', title: 'Your whole job, in one app',
+    sub: 'Estimate, photos, payments and designs - all in one place' },
 ];
 
 const logo = 'data:image/png;base64,' + fs.readFileSync(LOGO).toString('base64');
@@ -72,7 +72,7 @@ const html = (c) => `<!doctype html><html><head><meta charset="utf-8">
     <h1>${c.title}</h1>
     <div class="sub">${c.sub}</div>
   </div>
-  <div class="foot"><div class="pill">App kholein</div><div class="site">shreekrushnpvcfurniture.com</div></div>
+  <div class="foot"><div class="pill">Open the app</div><div class="site">shreekrushnpvcfurniture.com</div></div>
 </body></html>`;
 
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });

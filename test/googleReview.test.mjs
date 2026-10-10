@@ -81,7 +81,7 @@ t('the customer gets the row, gated the same way', () => {
   const c = code(app);
   assert.ok(/canAskForGoogleReview\(job, googleReviewLink\)/.test(c),
     'the row is not gated on both the link and the job being finished');
-  assert.ok(/Google par bhi review dein/.test(c), 'there is no row');
+  assert.ok(/Leave a Google review/.test(c), 'there is no row');
   // Opened from the normalized value, never the raw setting.
   assert.ok(/normalizeReviewLink\(googleReviewLink\)/.test(c),
     'the row opens whatever string is stored, unchecked');

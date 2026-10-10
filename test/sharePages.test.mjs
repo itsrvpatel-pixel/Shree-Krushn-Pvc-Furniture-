@@ -135,25 +135,25 @@ t('each message builder signs off as the thing it is about', () => {
 
 t('the payment line inside a job screen is right too', () => {
   const admin = readFileSync(new URL('../src/AdminApp.jsx', import.meta.url), 'utf8');
-  const i = admin.indexOf('Payment due hai');
+  const i = admin.indexOf('Payment due: {due}');
   assert.ok(i > 0, 'the in-job payment message is gone');
   assert.ok(/waSignOff\('payment'\)/.test(admin.slice(i, i + 400)),
     'the in-job payment message is signed off with another intent again');
 });
 
 t('asking for a booking and confirming one are different cards', () => {
-  // The follow-up that says "free site visit ka time tay kar lein?"
-  // used the visit card, which reads "Aapki visit confirm hai" - it
-  // told a customer their visit was booked in the same breath as
+  // The follow-up that asks "shall we fix a time for a free site
+  // visit?" used the visit card, which reads "your visit is confirmed"
+  // - it told a customer their visit was booked in the same breath as
   // asking them to book it.
   const core = readFileSync(new URL('../src/jobCore.js', import.meta.url), 'utf8');
-  const i = core.indexOf('Free site visit ka time tay');
+  const i = core.indexOf('fix a time for a free site visit');
   assert.ok(i > 0, 'the booking invitation is gone');
   assert.ok(/intent: 'book'/.test(core.slice(Math.max(0, i - 300), i)),
     'the booking invitation uses another card again');
   const byTitle = Object.fromEntries([...build.matchAll(/slug: '([a-z]+)'[\s\S]{0,200}?title: '([^']+)'/g)]
     .map((m) => [m[1], m[2]]));
-  assert.ok(/book karein/i.test(byTitle.book || ''), 'the book card no longer asks them to book');
+  assert.ok(/book/i.test(byTitle.book || ''), 'the book card no longer asks them to book');
   assert.ok(/confirm/i.test(byTitle.visit || ''), 'the visit card no longer confirms anything');
   assert.notEqual(byTitle.book, byTitle.visit);
 });

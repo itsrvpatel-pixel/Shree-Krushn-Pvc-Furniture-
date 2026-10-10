@@ -59,9 +59,9 @@ check('the customer lookup at sign-in handles a thrown error', () => {
 check('a failed load never reports the number as unregistered', () => {
   // The "not registered" message must sit behind a successful lookup,
   // never inside a catch block.
-  const idx = app.indexOf('Ye number register nahi hai');
+  const idx = app.indexOf('This number is not registered');
   while (true) {
-    const i = app.indexOf('Ye number register nahi hai', idx === -1 ? 0 : 0);
+    const i = app.indexOf('This number is not registered', idx === -1 ? 0 : 0);
     if (i === -1) break;
     const before = app.slice(Math.max(0, i - 300), i);
     assert.ok(!/catch\s*\([^)]*\)\s*\{[^}]*$/.test(before),
@@ -96,7 +96,7 @@ check('a refused read is not blamed on the internet', () => {
     'nothing classifies the Firestore permission-denied code any more');
   const denied = app.slice(app.indexOf('if (!customer && loaded && !customersLoading && customersLoadDenied)'));
   const branch = denied.slice(0, denied.indexOf('\n  }'));
-  assert.ok(/number dobara verify/.test(branch), 'the refused-read screen no longer says what to do');
+  assert.ok(/verify your number once more/.test(branch), 'the refused-read screen no longer says what to do');
   assert.ok(!/Check your internet/.test(branch), 'the refused-read screen blames the internet again');
   assert.ok(app.indexOf('customersLoadDenied)') < app.indexOf('customersLoadFailed) {'),
     'the denied case is checked after the generic failure, so it can never be reached');

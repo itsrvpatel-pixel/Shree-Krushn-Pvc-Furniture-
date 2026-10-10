@@ -1,34 +1,41 @@
-/* --- English copy ---------------------------------------------------
-   The app ships in English only. The Hinglish sentences in the JSX are
-   the SOURCE text: t('...') looks each one up here and returns its
-   English wording. Keying on the sentence rather than on an invented
-   id means a string with no entry yet still renders as readable
-   Hinglish instead of a bare key like 'favorites.empty', and a typo in
-   a call site degrades to the original text rather than to nothing -
-   which is what makes it safe to convert a file this size in passes.
+/* --- The app's copy -------------------------------------------------
+   The app is in English, and the English is the source: the string in
+   the JSX is the string on the screen.
 
-   t() is a plain function, not a hook, because a lot of this app's
+   It was not always. The app was written in Hinglish and translated at
+   render time through a dictionary in translations.js, keyed by the
+   Hinglish sentence. That was a reasonable way to convert a file this
+   size in passes - a sentence with no entry yet still rendered as
+   readable Hinglish rather than a bare key like 'favorites.empty' -
+   but it left two standing problems. The source and the screen
+   disagreed, so searching the code for text a customer had read found
+   nothing. And a string added without an entry shipped in Hinglish
+   without a word of complaint, which is how several of them did.
+
+   So the dictionary is gone and t() is the identity it now describes.
+   It is kept rather than deleted from eight hundred call sites because
+   tf() is still wanted - a sentence built around a value has to put
+   the value somewhere, and a placeholder is how - and because t()
+   marks a string as copy a person reads, which is worth keeping
+   visible. What it must never become again is a second place where
+   the words live.
+
+   Both are plain functions, not hooks, because a lot of this app's
    text is produced outside any component: toasts, activity-log lines,
    WhatsApp share text, PDF labels.
 ------------------------------------------------------------------- */
 
-import { EN } from './translations.js';
-
-// The app is English only. There is no switch and no stored
-// preference: the Hinglish strings in the JSX are the SOURCE text that
-// t() translates, not a language anyone can choose.
+// Identity. See above: the source string is the shipped string.
 export function t(text) {
-  if (typeof text !== 'string') return text;
-  const hit = EN[text];
-  return hit === undefined ? text : hit;
+  return text;
 }
 
-// For the handful of places that build a sentence around a value -
-// tf('{n} photo add hui', { n: 3 }). The Hinglish key keeps its
-// placeholders, so the English entry can move them around freely,
-// which matters because the word order often has to change.
+// The one piece of real work: tf('{n} photos added', { n: 3 }).
+// Placeholders are named, not positional, so a sentence can be
+// reworded without the values following it around.
 export function tf(text, vars) {
-  let out = t(text);
+  if (typeof text !== 'string') return text;
+  let out = text;
   for (const k of Object.keys(vars || {})) {
     out = out.split('{' + k + '}').join(String(vars[k]));
   }

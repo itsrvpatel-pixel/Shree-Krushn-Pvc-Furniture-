@@ -48,22 +48,22 @@ const PHONE = '79902 83116';
 const SHEETS = [
   {
     name: '1-kitchen', title: 'PVC Modular Kitchen',
-    line: 'Bhaap, paani, platform ke neeche ki nami - kisi se kuch nahi hota. Lakdi hai hi nahi.',
+    line: 'Steam, water, damp under the platform - none of it touches this. There is no wood in it.',
     imgs: ['g/1f10ff8004.jpg', 'g/0e254e1356.jpg'],
   },
   {
     name: '2-wardrobe', title: 'PVC Wardrobe',
-    line: 'Do, teen, chaar door, sliding ya walk-in. Loft, drawer, mirror - aapke hisaab se.',
+    line: 'Two, three or four doors, sliding or walk-in. Loft, drawers, mirror - however you want it.',
     imgs: ['g/91d4007177.jpg', 'g/5634e5e99c.jpg'],
   },
   {
     name: '3-tv-unit', title: 'PVC TV Unit',
-    line: 'Panelling, chhupi hui wiring, neeche storage, LED profile light.',
+    line: 'Panelling, hidden wiring, storage below, LED profile lighting.',
     imgs: ['card/1ec240f6f3.jpg', 'g/226553a453.jpg'],
   },
   {
     name: '4-mandir', title: 'PVC Pooja Mandir',
-    line: 'Tel, paani aur diye ki garmi roz lagti hai. PVC pooch dene se saaf ho jata hai.',
+    line: 'Oil, water and the heat of the lamp, every day. PVC wipes clean.',
     imgs: ['g/567056f722.jpg', 'g/209475ecf3.jpg'],
   },
 ];
@@ -71,15 +71,15 @@ const SHEETS = [
 // The one sheet with no photographs: the things people ask on the
 // phone, answered before they ask.
 const RATE = {
-  name: '0-rate', title: 'Rate aur kaam',
+  name: '0-rate', title: 'Rates and the work',
   rows: [
-    ['Framing', 'Rs 600 / sq ft se'],
-    ['Box work', 'Rs 1,000 / sq ft se'],
-    ['GST', 'Alag nahi - jo likha, wahi dena hai'],
-    ['Design', 'Free - koi charge nahi'],
-    ['Site visit', 'Free - naap lekar exact rate'],
-    ['Warranty', '2 saal, certificate ke saath'],
-    ['Poora ghar', 'Lagbhag 10 din'],
+    ['Framing', 'From Rs 600 / sq ft'],
+    ['Box work', 'From Rs 1,000 / sq ft'],
+    ['GST', 'Not extra - you pay what is written'],
+    ['Design', 'Free - no charge at all'],
+    ['Site visit', 'Free - we measure and give the exact rate'],
+    ['Warranty', '2 years, with a certificate'],
+    ['A full home', 'About 10 days'],
   ],
 };
 
@@ -108,7 +108,7 @@ const head = `<meta charset="utf-8">
   /* Centred: seven short rows left a hole down the middle of the
      sheet, which reads as a mistake rather than as space. */
   .rates{flex:1;min-height:0;padding:10px 44px;display:flex;flex-direction:column;justify-content:center}
-  .r{display:flex;align-items:baseline;padding:19px 0;border-bottom:1px solid rgba(255,255,255,.1)}
+  .r{display:flex;align-items:baseline;padding:30px 0;border-bottom:1px solid rgba(255,255,255,.1)}
   .r b{color:#fff;font-size:30px;font-weight:700;flex:1}
   .r span{color:${GOLD};font-size:30px;font-weight:800;text-align:right}
 </style>`;
@@ -117,7 +117,7 @@ const top = `<div class="top"><img src="${logo}" alt="">
   <div><b>Shree Krushn PVC Furniture</b><i>Nikol, Ahmedabad</i></div></div>`;
 // No link, anywhere. The number is the call to action.
 const foot = `<div class="foot"><div class="ph">${PHONE}</div>
-  <div class="fl">Call ya WhatsApp<br>karein</div></div>`;
+  <div class="fl">Call or<br>WhatsApp us</div></div>`;
 
 const sheet = (s) => `<!doctype html><html><head>${head}</head><body>
   ${top}
@@ -130,7 +130,7 @@ const sheet = (s) => `<!doctype html><html><head>${head}</head><body>
 const rateSheet = (s) => `<!doctype html><html><head>${head}</head><body>
   ${top}
   <h1>${s.title}</h1>
-  <div class="line">Jo poochha jata hai, pehle hi bata dete hain.</div>
+  <div class="line">The questions people ask, answered before they ask.</div>
   <div class="rates">${s.rows.map(([k, v]) => `<div class="r"><b>${k}</b><span>${v}</span></div>`).join('')}</div>
   ${foot}
 </body></html>`;

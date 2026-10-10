@@ -56,21 +56,21 @@ t('the locked wording states the rule, which is the whole point of it', () => {
   // tells a customer the reviews cannot have come from just anybody.
   for (const status of ['appointment', 'estimate', 'in_progress']) {
     const p = reviewPrompt({ status });
-    assert.equal(p.title, 'Review Dein');
-    assert.equal(p.sub, 'Kaam poora hone ke baad hi de sakte hain');
+    assert.equal(p.title, 'Leave a review');
+    assert.equal(p.sub, 'You can leave one once your work is finished');
   }
 });
 
 t('once it is open, it asks for the review instead', () => {
   for (const status of ['delivered', 'paid']) {
     const p = reviewPrompt({ status });
-    assert.equal(p.title, 'Review Dein');
+    assert.equal(p.title, 'Leave a review');
     assert.equal(p.sub, 'How was your experience?');
   }
 
   const again = reviewPrompt({ status: 'delivered', review: { rating: 5 } });
   assert.equal(again.title, 'Your review');
-  assert.equal(again.sub, 'Change it from here');
+  assert.equal(again.sub, 'Change it here');
 
   for (const job of [null, undefined, {}]) {
     const p = reviewPrompt(job);
@@ -114,7 +114,7 @@ t('the reviews screen says where the reviews came from', () => {
   // on a job that is not delivered, and the published list is derived
   // from job.review only - so it is safe to state, and worth stating.
   const scr = app.slice(app.indexOf('export function ReviewsScreen('), app.indexOf('function MoreRow('));
-  assert.ok(/Har review hamare apne customer ka hai/.test(scr),
+  assert.ok(/Every review is from one of our own customers/.test(scr),
     'the note about where the reviews come from is gone');
   assert.ok(/ReviewPanel/.test(app) && /canReview = job\.status === 'delivered' \|\| job\.status === 'paid'/.test(app),
     'ReviewPanel no longer enforces the rule the note claims');
@@ -125,7 +125,7 @@ t('reading other reviews is NOT gated on the job being finished', () => {
   // delivery, the people it is for - the ones still deciding - are
   // exactly the ones who stop seeing it.
   const home = app.slice(app.indexOf('export function CustomerHome('), app.indexOf('export function ProgressRing('));
-  const i = home.indexOf("title={t('Customer Reviews')}");
+  const i = home.indexOf("title={t('Customer reviews')}");
   assert.ok(i > 0, 'the Customer Reviews row is gone from Home');
   const guard = home.slice(home.lastIndexOf('{', i - 200), i);
   assert.ok(/rv\.count > 0/.test(guard), 'the reviews row is no longer shown by review count');

@@ -135,13 +135,13 @@ t('closing deletes nothing', () => {
   assert.ok(/setBookClosings\(\[/.test(fn), 'closing does not record a closing');
   assert.ok(!/setExpenses\(/.test(fn), 'closing touches the expense records themselves');
   assert.ok(/window\.confirm/.test(fn), 'the books close with no confirmation at all');
-  assert.ok(/Kuch delete nahi hoga/.test(fn), 'the confirmation does not say the records are kept');
+  assert.ok(/Nothing is deleted/.test(fn), 'the confirmation does not say the records are kept');
 });
 
 t('the screen can show the open book, and the old ones', () => {
   assert.ok(/costScope === 'book'/.test(code), 'there is no "since the last closing" view');
   assert.ok(/sinceLastClosing\(visibleExpenses, bookClosings\)/.test(code), 'the open book is never computed');
-  assert.ok(/Purane hisab/.test(code), 'closed periods cannot be looked at');
+  assert.ok(/Closed periods/.test(code), 'closed periods cannot be looked at');
   // The per-kind drill-down has to follow the same scope or its names
   // will not add up to the figure above them.
   const people = code.slice(code.indexOf('const people = open'), code.indexOf('const people = open') + 400);

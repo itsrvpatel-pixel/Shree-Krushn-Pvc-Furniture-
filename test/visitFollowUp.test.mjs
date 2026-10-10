@@ -17,7 +17,7 @@ t('each stage gets its own sentence', () => {
   const seen = new Map();
   for (const status of ['appointment', 'estimate', 'in_progress', 'delivered', 'paid']) {
     const r = visitFollowUp({ status }, 'Simi');
-    assert.ok(r.text.startsWith('Namaste Simi,'), status + ' does not greet them');
+    assert.ok(r.text.startsWith('Hello Simi,'), status + ' does not greet them');
     assert.ok(r.text.length > 40, status + ' says almost nothing');
     seen.set(status, r.text);
   }
@@ -43,7 +43,7 @@ t('an estimate already sent changes the ask', () => {
   // looking at the file.
   const withItems = visitFollowUp({ status: 'appointment', items: [{ name: 'Wardrobe' }] }, 'A');
   assert.equal(withItems.intent, 'estimate');
-  assert.ok(/rate mein kuch samajhna/.test(withItems.text));
+  assert.ok(/about the rate explained/.test(withItems.text));
   // The same, whichever shape the estimate is stored in.
   const nested = visitFollowUp({ status: 'appointment', estimate: { items: [{ name: 'X' }] } }, 'A');
   assert.equal(nested.intent, 'estimate');

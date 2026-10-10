@@ -68,17 +68,17 @@ t('nothing is saved from a call that failed', () => {
 
 t('one wording for every reason, shared by all three screens', () => {
   assert.equal(pushFailureMessage('not_configured'),
-    'Notifications abhi setup nahi hui - Firebase Console se Web Push key chahiye');
-  assert.equal(pushFailureMessage('unsupported'), 'Ye browser notifications support nahi karta');
+    'Notifications are not set up yet - a Web Push key is needed from the Firebase Console');
+  assert.equal(pushFailureMessage('unsupported'), 'This browser does not support notifications');
   assert.equal(pushFailureMessage('denied'),
-    'Notification permission nahi mili - phone ki settings se allow karein');
-  assert.equal(pushFailureMessage('no_token'), 'Notification token nahi mila - dobara koshish karein');
+    'Notification permission was not granted - allow it in your phone settings');
+  assert.equal(pushFailureMessage('no_token'), 'Could not get a notification token - please try again');
   // Anything unexpected still says something, rather than "undefined".
   for (const junk of [undefined, null, '', 'something new', 0]) {
-    assert.equal(pushFailureMessage(junk), 'Notifications on nahi ho payi');
+    assert.equal(pushFailureMessage(junk), 'Could not turn on notifications');
   }
   // And nobody has gone back to writing their own.
-  assert.ok(!/showToast\('Notification permission nahi mili', true\)/.test(app),
+  assert.ok(!/showToast\('Notification permission was not granted', true\)/.test(app),
     'a screen words this itself again - including for the case where nobody was ever asked');
 });
 
@@ -134,10 +134,10 @@ t('an iPhone in a Safari tab gets the instruction, not a dead end', () => {
   assert.ok(/Share/.test(msg), 'the message does not say how');
   // Every other case is untouched.
   assert.equal(pushFailureMessage('unsupported', { iosInBrowser: false }),
-    'Ye browser notifications support nahi karta');
-  assert.equal(pushFailureMessage('unsupported'), 'Ye browser notifications support nahi karta');
+    'This browser does not support notifications');
+  assert.equal(pushFailureMessage('unsupported'), 'This browser does not support notifications');
   assert.equal(pushFailureMessage('denied', { iosInBrowser: true }),
-    'Notification permission nahi mili - phone ki settings se allow karein');
+    'Notification permission was not granted - allow it in your phone settings');
 });
 
 t('the iPhone check knows a Home Screen app from a Safari tab', () => {

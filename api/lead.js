@@ -54,7 +54,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Only POST is supported' }); return; }
 
   const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown';
-  if (tooMany(ip)) { res.status(429).json({ ok: false, error: 'Thodi der baad try karein' }); return; }
+  if (tooMany(ip)) { res.status(429).json({ ok: false, error: 'Please try again shortly' }); return; }
 
   let body = req.body;
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = {}; } }
@@ -86,7 +86,7 @@ export default async function handler(req, res) {
         await admin.messaging(app).sendEachForMulticast({
           tokens,
           notification: {
-            title: 'Website se nayi enquiry',
+            title: 'New enquiry from the website',
             body: leadSummary(lead) + ' - ' + lead.phone,
           },
         });
@@ -100,6 +100,6 @@ export default async function handler(req, res) {
     res.status(200).json({ ok: true });
   } catch (e) {
     console.error('lead save failed:', e);
-    res.status(500).json({ ok: false, error: 'Bhej nahi paye - thodi der baad try karein' });
+    res.status(500).json({ ok: false, error: 'Could not send - please try again shortly' });
   }
 }

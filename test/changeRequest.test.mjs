@@ -125,14 +125,14 @@ const code = (s) => s.split('\n').filter((l) => !l.trim().startsWith('//') && !l
 t('the owner can read what the customer asked for', () => {
   const a = code(admin);
   assert.ok(/openChangeRequests\(job\)/.test(a), 'the admin app never looks at the open requests');
-  assert.ok(/Customer ne change maanga hai/.test(a), 'the admin estimate tab does not show them');
+  assert.ok(/The customer asked for a change/.test(a), 'the admin estimate tab does not show them');
   assert.ok(/answerChangeRequests\(/.test(a), 'the owner has no way to mark one answered');
 });
 
 t('the customer sees each request, and sees when it is answered', () => {
   const c = code(app);
   assert.ok(/changeRequests\(job\)\.map/.test(c), 'the customer screen still shows one overwritten note');
-  assert.ok(/naya estimate upar hai/.test(c), 'nothing tells the customer their change was done');
+  assert.ok(/the new estimate is above/.test(c), 'nothing tells the customer their change was done');
   assert.ok(!/job\.estimateResponseNote &&/.test(c), 'the old single-note banner is still there');
 });
 
@@ -171,7 +171,7 @@ t('a waiting request is on the tab a job opens on', () => {
 });
 
 t('both screens say something when the request has no words', () => {
-  assert.ok(/Likha kuch nahi/.test(code(admin)), 'the admin shows an empty quote mark and nothing else');
+  assert.ok(/Nothing written/.test(code(admin)), 'the admin shows an empty quote mark and nothing else');
   assert.ok(/\{r\.text && /.test(code(app)), 'the customer screen shows empty quote marks');
 });
 

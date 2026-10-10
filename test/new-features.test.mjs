@@ -67,19 +67,19 @@ await page.waitForTimeout(3500);
 const home=await page.locator('#root').innerText();
 
 // ---- #4 service due ----
-ok('Home warns about the due service visit', /free service visit due hai/.test(home), home.slice(0,200));
+ok('Home warns about the due service visit', /free service visit due/.test(home), home.slice(0,200));
 await page.getByText('Service Due',{exact:false}).first().click({timeout:6000});
 await page.waitForTimeout(1500);
 const sd=await page.locator('#root').innerText();
 ok('the service screen names the customer', /Suresh Shah/.test(sd), sd.slice(0,200));
-ok('it says which visit', /6 mahine ka visit/.test(sd), sd.slice(0,220));
+ok('it says which visit', /6 months visit/.test(sd), sd.slice(0,220));
 ok('it says how overdue', /din ho gaye/.test(sd), sd.slice(0,260));
 const offer=await page.locator('a[href*="wa.me"]').first().getAttribute('href');
-ok('the WhatsApp offer mentions the free visit', /free service visit due hai/.test(decode(offer)), decode(offer).slice(0,120));
-await page.getByText('Ho gaya',{exact:false}).first().click({timeout:5000});
+ok('the WhatsApp offer mentions the free visit', /free service visit due/.test(decode(offer)), decode(offer).slice(0,120));
+await page.getByText('Done',{exact:false}).first().click({timeout:5000});
 await page.waitForTimeout(1500);
 const after=await page.locator('#root').innerText();
-ok('marking it done clears it from the list', !/6 mahine ka visit/.test(after), after.slice(0,200));
+ok('marking it done clears it from the list', !/6 months visit/.test(after), after.slice(0,200));
 
 // ---- #1 payment reminder ----
 await page.getByText('Home',{exact:true}).first().click({timeout:6000}); await page.waitForTimeout(1400);
@@ -90,8 +90,8 @@ ok('the due list offers a reminder', /Payment Yaad Dilayein/.test(dp), dp.slice(
 const rem=await page.locator('a[href*="wa.me"]').first().getAttribute('href');
 const remText=decode(rem);
 ok('the reminder states the total, paid and due',
-  /Total: /.test(remText) && /Ab tak mila: /.test(remText) && /Baaki: /.test(remText), remText.slice(0,200));
-ok('and which milestone it is for', /abhi due hai/.test(remText), remText.slice(0,200));
+  /Total: /.test(remText) && /Received so far: /.test(remText) && /Outstanding: /.test(remText), remText.slice(0,200));
+ok('and which milestone it is for', /is due/.test(remText), remText.slice(0,200));
 
 // ---- #3 quotation number ----
 await page.getByText('Home',{exact:true}).first().click({timeout:6000}); await page.waitForTimeout(1400);

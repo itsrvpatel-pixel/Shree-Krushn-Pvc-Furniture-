@@ -100,7 +100,7 @@ t('the message is shown before it is sent, and can be copied', () => {
 });
 
 t('it is reachable from Home', () => {
-  assert.ok(/Naye number ko bhejein/.test(admin), 'there is no way in');
+  assert.ok(/Send to a new number/.test(admin), 'there is no way in');
   assert.ok(/setShowQuickSend\(true\)/.test(admin), 'the tile does not open it');
   assert.ok(/useBackToClose\(showQuickSend/.test(admin), 'Android Back will close the whole app');
 });

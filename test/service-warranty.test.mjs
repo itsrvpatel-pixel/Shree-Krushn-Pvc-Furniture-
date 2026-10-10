@@ -42,7 +42,7 @@ function serviceSchedule(job) {
   const done = job.serviceVisits || [];
   return SERVICE_VISIT_MONTHS.map((months) => {
     const hit = done.find((v) => Number(v.n) === months);
-    return { n: months, label: months === 12 ? '1 saal' : (months === 24 ? '2 saal' : months + ' mahine'),
+    return { n: months, label: months === 12 ? '1 year' : (months === 24 ? '2 years' : months + ' months'),
       dueAt: addMonths(from, months), doneAt: hit ? hit.at : null };
   });
 }

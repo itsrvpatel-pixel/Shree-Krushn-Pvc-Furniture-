@@ -33,11 +33,27 @@ export const HINGLISH = new RegExp('\\b(' + [
   'bahut', 'thoda', 'zyada', 'kam', 'accha', 'achha', 'theek',
   'wala', 'wali', 'vala', 'vali', 'liye', 'saath', 'bina', 'sirf',
   'lekin', 'par', 'aur', 'ya', 'toh', 'bhi', 'hi', 'na',
+  // a second pass, from the strings the first pass let through
+  'baaki', 'bacha', 'gadbad', 'gayab', 'jaayein', 'jaakar', 'jaari',
+  'aayegi', 'aayega', 'aayi', 'maanga', 'maange', 'upar', 'neeche',
+  'sasta', 'mehnga', 'dheere', 'juda', 'jude', 'jodna', 'shamil',
+  'shaamil', 'chalayein', 'chala', 'chalu', 'roop', 'dusre', 'doosra',
+  'bhara', 'chaha', 'thanda', 'ginti', 'daam', 'isliye', 'kahan',
+  'kaun', 'kyun', 'kya', 'jo', 'wahi', 'yahi', 'inhe', 'unhe', 'uspar',
+  'sach', 'asar', 'bharosa', 'dhanyavaad', 'namaste', 'khali',
+  'poora', 'poore', 'poori', 'adhoora', 'galat', 'zaroori', 'taiyaar',
+  'turant', 'jaldi', 'waqt', 'tareekh', 'sheher', 'ghar', 'dost',
+  'doston', 'bhai', 'bhejne', 'bhejna', 'lena', 'dete', 'karni',
+  'hone', 'hona', 'raha', 'rahega', 'rakha', 'rakhe', 'waise', 'aise',
+  'aisa', 'itna', 'jitne', 'jitna', 'teenon', 'dono', 'ek', 'do',
 ].join('|') + ')\\b', 'i');
 
-// 'rate' and 'par' are English words too, so they are checked only
-// where the whole phrase is suspect rather than on their own.
-const AMBIGUOUS = /^(rate|par|kam|the|na|hi|din|cell)$/i;
+// Words that are Hinglish and English both. "What do you need?" is
+// English; so is "the", "par" in a golf sense, "rate" everywhere in
+// this app. On their own they prove nothing, so they are dropped -
+// a detector that cries wolf gets switched off, which is worse than
+// one that misses "do option".
+const AMBIGUOUS = /^(rate|par|kam|the|na|hi|din|cell|do|ek|jo|kya)$/i;
 
 export function hinglishIn(text) {
   const found = new Set();

@@ -401,8 +401,8 @@ export const DEFAULT_PAYMENT_STAGES = [
   // milestone list this replaced, and it already said 'in_progress'
   // for the first payment - the business was taking its first money
   // when work started long before the customer-facing wording said so.
-  { key: 'advance', label: 'Advance', percent: 50, when: 'Kaam shuru hone par', atStatus: 'in_progress' },
-  { key: 'progress', label: 'Progress payment', percent: 40, when: 'Kaam aadha hone par', atStatus: 'delivered' },
+  { key: 'advance', label: 'Advance', percent: 50, when: 'When the work starts', atStatus: 'in_progress' },
+  { key: 'progress', label: 'Progress payment', percent: 40, when: 'When the work is half done', atStatus: 'delivered' },
   // 'delivered', NOT 'paid'. A job's status flips to 'paid' the moment
   // nothing is outstanding, so a milestone waiting for 'paid' could
   // never show a nonzero due amount: by the time it is reached the job
@@ -574,9 +574,9 @@ export function canLeaveReview(job) {
 // anyone who merely logged in. Home hides the row instead, because
 // Home is the screen he wants quiet.
 export function reviewPrompt(job) {
-  if (job && job.review) return { title: 'Your review', sub: 'Change it from here' };
-  if (canLeaveReview(job)) return { title: 'Review Dein', sub: 'How was your experience?' };
-  return { title: 'Review Dein', sub: 'Kaam poora hone ke baad hi de sakte hain' };
+  if (job && job.review) return { title: 'Your review', sub: 'Change it here' };
+  if (canLeaveReview(job)) return { title: 'Leave a review', sub: 'How was your experience?' };
+  return { title: 'Leave a review', sub: 'You can leave one once your work is finished' };
 }
 
 // "5.0 stars - from 17 customers", worked out once. The same line is
@@ -663,14 +663,14 @@ export function pushFailureMessage(reason, env) {
   // the owner his browser cannot do it, when his phone can, costs him
   // the feature entirely.
   if (reason === 'unsupported' && env && env.iosInBrowser) {
-    return 'iPhone par pehle app ko Home Screen par add karein - Share button dabayein, phir "Add to Home Screen". Us icon se app kholkar yahi button dobara dabayein.';
+    return 'On an iPhone, add the app to the Home Screen first - press Share, then "Add to Home Screen". Open the app from that icon and press this button again.';
   }
   return {
-    not_configured: 'Notifications abhi setup nahi hui - Firebase Console se Web Push key chahiye',
-    unsupported: 'Ye browser notifications support nahi karta',
-    denied: 'Notification permission nahi mili - phone ki settings se allow karein',
-    no_token: 'Notification token nahi mila - dobara koshish karein',
-  }[reason] || 'Notifications on nahi ho payi';
+    not_configured: 'Notifications are not set up yet - a Web Push key is needed from the Firebase Console',
+    unsupported: 'This browser does not support notifications',
+    denied: 'Notification permission was not granted - allow it in your phone settings',
+    no_token: 'Could not get a notification token - please try again',
+  }[reason] || 'Could not turn on notifications';
 }
 
 // An iPhone or iPad being used in a browser tab rather than from the
@@ -807,28 +807,28 @@ export function visitStamp(ts) {
 // Returns the body and the WhatsApp sign-off intent together, so the
 // link in the message matches what the message is about.
 export function visitFollowUp(job, name) {
-  const who = 'Namaste ' + (name || '') + ',';
+  const who = 'Hello ' + (name || '') + ',';
   const s = (job && job.status) || 'appointment';
   const hasEstimate = !!(job && ((job.items || []).length > 0
     || (job.estimate && (job.estimate.items || []).length > 0)));
 
   if (s === 'delivered' || s === 'paid') {
-    return { intent: 'work', text: who + '\n\nAapka kaam poora ho gaya hai. Koi bhi cheez dekhni ho ya kuch service chahiye to bataiye - hum hain.' };
+    return { intent: 'work', text: who + '\n\nYour work is finished. If you want to look at anything, or need any service, just tell us - we are here.' };
   }
   if (s === 'in_progress') {
-    return { intent: 'work', text: who + '\n\nAapke kaam ki taaza photos app mein daal di hain. Dekh lijiye, koi badlav chahiye to abhi bata dijiye.' };
+    return { intent: 'work', text: who + '\n\nWe have put the latest photos of your work in the app. Have a look, and tell us now if you want anything changed.' };
   }
   if (hasEstimate) {
-    return { intent: 'estimate', text: who + '\n\nAapne estimate dekha - koi sawaal ho, ya rate mein kuch samajhna ho to bataiye. Hum aapke budget mein adjust kar sakte hain.' };
+    return { intent: 'estimate', text: who + '\n\nYou have seen the estimate - if you have any questions, or want anything about the rate explained, tell us. We can work it around your budget.' };
   }
   if (s === 'estimate') {
-    return { intent: 'estimate', text: who + '\n\nAapka estimate taiyaar kar rahe hain. Kuch khaas chahiye ho to abhi bata dijiye, usi hisaab se bana denge.' };
+    return { intent: 'estimate', text: who + '\n\nWe are putting your estimate together. If there is anything particular you want, tell us now and we will build it in.' };
   }
   // 'book', not 'visit'. This message ASKS them to book one; the
   // visit card says "Aapki visit confirm hai", which would tell a
   // customer their visit is booked at the exact moment we are
   // asking them to book it.
-  return { intent: 'book', text: who + '\n\nAapne app dekha - achha laga. Free site visit ka time tay kar lein? Naap lekar exact rate bata denge, koi charge nahi.' };
+  return { intent: 'book', text: who + '\n\nGood to see you had a look at the app. Shall we fix a time for a free site visit? We will measure up and give you an exact rate, at no charge.' };
 }
 
 /* ---- What the customer asked to be changed in the estimate ----
@@ -1160,21 +1160,21 @@ export function expenseReportText(breakdown, opts) {
   const rs = (n) => 'Rs. ' + (Number(n) || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
   const lines = [];
   lines.push(o.business || 'Shree Krushn PVC Furniture');
-  lines.push('Kharch - ' + (monthLabel(o.monthKey) || 'ab tak'));
+  lines.push('Spend - ' + (monthLabel(o.monthKey) || 'to date'));
   lines.push('');
   for (const row of breakdown.byType) {
     if (!row.amount) continue;
     lines.push(row.type + ': ' + rs(row.amount) + ' (' + row.count + ')');
   }
-  if (!breakdown.entries) lines.push('Koi kharch nahi likha gaya.');
+  if (!breakdown.entries) lines.push('No spend recorded.');
   lines.push('');
   lines.push('Kul: ' + rs(breakdown.total));
   if (o.comparison && o.comparison.hasPrevious && o.comparison.direction !== 'same') {
-    lines.push('Pichhle mahine se ' + rs(Math.abs(o.comparison.diff))
-      + (o.comparison.direction === 'up' ? ' zyada' : ' kam'));
+    lines.push('vs last month ' + rs(Math.abs(o.comparison.diff))
+      + (o.comparison.direction === 'up' ? ' more' : ' less'));
   }
   if (o.collected !== undefined) {
-    lines.push('Jama hua: ' + rs(o.collected));
+    lines.push('Collected: ' + rs(o.collected));
     lines.push('Left over: ' + rs((Number(o.collected) || 0) - breakdown.total));
   }
   return lines.join('\n');
@@ -1264,8 +1264,8 @@ export function canCloseAt(upTo, closings) {
 }
 
 export function closingFailureMessage(reason) {
-  if (reason === 'date-invalid') return 'Tareekh sahi nahi hai';
+  if (reason === 'date-invalid') return 'The date is not valid';
   if (reason === 'date-future') return 'The books cannot be closed on a future date';
-  if (reason === 'before-last-closing') return 'Pichhle band hisab ke baad ki tareekh chunein';
-  return 'Hisab band nahi ho paya';
+  if (reason === 'before-last-closing') return 'Choose a date after the last closed period';
+  return 'The books could not be closed';
 }

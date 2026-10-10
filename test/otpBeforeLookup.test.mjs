@@ -67,7 +67,7 @@ t('a failed lookup is still not treated as "no such customer"', () => {
   assert.ok(/Could not reach the server/.test(verifyOtp),
     'a thrown lookup no longer reports a reachability problem');
   assert.ok(verifyOtp.indexOf('Could not reach the server')
-    < verifyOtp.indexOf('Ye number register nahi hai'),
+    < verifyOtp.indexOf('This number is not registered'),
     'the unreachable case no longer comes before the genuinely-absent case');
   assert.ok(/if \(lookupError\) \{/.test(verifyOtp),
     'the error is no longer checked after the retries - a blip may now read as "not registered"');
