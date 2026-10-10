@@ -1039,6 +1039,12 @@ export function expenseBreakdown(expenses, opts) {
     if (!e) return false;
     if (o.jobId !== undefined && e.jobId !== o.jobId) return false;
     if (o.monthKey && monthKeyOf(e.date) !== o.monthKey) return false;
+    // One kind on its own: which karigar took how much this month,
+    // which supplier the material came from. Unknown types fold into
+    // Other here too, the same way they do in the totals below -
+    // otherwise an old record would be in the total and missing from
+    // the list that is supposed to explain it.
+    if (o.type && (EXPENSE_TYPES.includes(e.type) ? e.type : 'Other') !== o.type) return false;
     return true;
   });
 

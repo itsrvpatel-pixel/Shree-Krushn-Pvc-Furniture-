@@ -134,4 +134,60 @@ t('a job shows its own cost where the work is', () => {
   assert.ok(/jobPaid\(job\)/.test(detail), 'the job compares cost against the estimate rather than what was collected');
 });
 
+
+// "Karigar-wise mahine ka hisaab, aur material supplier-wise."
+//
+// Both are the same question - who did this kind of money go to -
+// so they are the same filter rather than two screens.
+t('one kind on its own, by person', () => {
+  const karigar = expenseBreakdown(rows, { type: 'Karigar Payment' });
+  assert.equal(karigar.total, 7000);
+  assert.deepEqual(karigar.byPayee.map((p) => p.name), ['Suresh']);
+  assert.equal(karigar.byPayee[0].count, 2, '"Suresh" and " suresh " were split again');
+
+  const material = expenseBreakdown(rows, { type: 'Material' });
+  assert.equal(material.total, 15000);
+  assert.deepEqual(material.byPayee.map((p) => [p.name, p.total]), [['Hexa', 12000], ['Crystal', 3000]]);
+});
+
+t('a kind and a month together', () => {
+  // The karigar bill for one month, which is the thing actually asked
+  // for - September's material must not appear in October's.
+  const oct = expenseBreakdown(rows, { type: 'Material', monthKey: '2026-10' });
+  assert.equal(oct.total, 12000);
+  assert.deepEqual(oct.byPayee.map((p) => p.name), ['Hexa']);
+  assert.equal(expenseBreakdown(rows, { type: 'Material', monthKey: '2026-09' }).byPayee[0].name, 'Crystal');
+  assert.equal(expenseBreakdown(rows, { type: 'Karigar Payment', monthKey: '2026-09' }).total, 0);
+});
+
+t('an old type is in the Other list, not just the Other total', () => {
+  // It counts toward Other above, so it has to be findable under
+  // Other too - a total you cannot break down explains nothing.
+  const odd = [...rows, { type: 'Purana type', payee: 'Ramu', amount: 100, date: '2026-10-01' }];
+  const other = expenseBreakdown(odd, { type: 'Other' });
+  assert.equal(other.total, 100);
+  assert.deepEqual(other.byPayee.map((p) => p.name), ['Ramu']);
+});
+
+t('the type filter and the totals agree', () => {
+  // Adding up each kind separately must give the same number as the
+  // whole; otherwise the breakdown is lying about something.
+  const whole = expenseBreakdown(rows, {});
+  const summed = EXPENSE_TYPES
+    .map((type) => expenseBreakdown(rows, { type }).total)
+    .reduce((a, b) => a + b, 0);
+  assert.equal(summed, whole.total);
+});
+
+t('the screen opens a kind into its people', () => {
+  assert.ok(/openType/.test(code), 'the type rows do not expand');
+  assert.ok(/expenseBreakdown\(visibleExpenses, \{\s*type: row\.type/.test(code),
+    'the expanded list is not filtered to that kind');
+  // And must follow whichever scope the card is showing, or the names
+  // would not add up to the figure right above them.
+  const block = code.slice(code.indexOf('const people = open'), code.indexOf('const people = open') + 420);
+  assert.ok(/costScope === 'month'/.test(block),
+    'the people list ignores the month toggle and will not match the row total');
+});
+
 console.log(n + ' assertions passed');

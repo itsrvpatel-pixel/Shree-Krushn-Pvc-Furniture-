@@ -4223,6 +4223,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
   // group), so admin can see at a glance who's been paid how much in
   // total, without having to scroll the full mixed history.
   const [costScope, setCostScope] = useState('month');
+  const [openType, setOpenType] = useState(null);
   // Before the early returns below, like everything else here - the
   // Rules of Hooks bug that blanked the app twice on this screen.
   const costBreakdown = useMemo(() => expenseBreakdown(
@@ -4357,22 +4358,59 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
           </button>
         </div>
         <div style={styles.formCard}>
-          {costBreakdown.byType.map((row) => (
-            <div key={row.type} style={{ marginTop: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <div style={{ ...styles.itemDesc, flex: 1, color: row.amount ? BRAND.navy : BRAND.textMuted }}>{row.type}</div>
-                <div style={{ ...styles.itemAmount, color: row.amount ? BRAND.navy : BRAND.textMuted }}>{currency(row.amount)}</div>
+          {costBreakdown.byType.map((row) => {
+            const open = openType === row.type;
+            // Who the money in this row went to. Karigar-wise for the
+            // labour row, supplier-wise for material - same question,
+            // so the same code rather than two screens.
+            const people = open
+              ? expenseBreakdown(visibleExpenses, {
+                type: row.type,
+                ...(costScope === 'month' ? { monthKey: monthKeyOf(new Date()) } : {}),
+              }).byPayee
+              : [];
+            return (
+              <div key={row.type} style={{ marginTop: 10 }}>
+                <button
+                  style={{ background: 'none', border: 'none', padding: 0, width: '100%', cursor: row.amount ? 'pointer' : 'default', fontFamily: 'inherit' }}
+                  onClick={() => row.amount && setOpenType(open ? null : row.type)}
+                >
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <div style={{ ...styles.itemDesc, flex: 1, textAlign: 'left', color: row.amount ? BRAND.navy : BRAND.textMuted }}>
+                      {row.type}{row.amount ? (open ? ' \u25B4' : ' \u25BE') : ''}
+                    </div>
+                    <div style={{ ...styles.itemAmount, color: row.amount ? BRAND.navy : BRAND.textMuted }}>{currency(row.amount)}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                    <div style={{ flex: 1, height: 6, borderRadius: 999, background: '#EEF0F5', overflow: 'hidden' }}>
+                      <div style={{ width: row.share + '%', height: '100%', background: row.type === 'Karigar Payment' ? BRAND.navy : BRAND.gold }} />
+                    </div>
+                    <div style={{ ...styles.itemSub, minWidth: 92, textAlign: 'right' }}>
+                      {row.share}% &middot; {row.count} entry
+                    </div>
+                  </div>
+                </button>
+                {open && (
+                  <div style={{ marginTop: 8, marginLeft: 10, paddingLeft: 10, borderLeft: '2px solid ' + BRAND.line }}>
+                    {people.map((pp) => (
+                      <button
+                        key={pp.name}
+                        style={{ display: 'flex', width: '100%', background: 'none', border: 'none', padding: '5px 0', cursor: 'pointer', fontFamily: 'inherit' }}
+                        onClick={() => setActivePayee(pp.name.trim().toLowerCase())}
+                      >
+                        <div style={{ ...styles.itemDesc, flex: 1, textAlign: 'left' }}>{pp.name}</div>
+                        <div style={styles.itemSub}>{pp.count} entry</div>
+                        <div style={{ ...styles.itemAmount, marginLeft: 10 }}>{currency(pp.total)}</div>
+                      </button>
+                    ))}
+                    <div style={{ ...styles.itemSub, marginTop: 4 }}>
+                      {row.type === 'Material' ? 'Naam par tap karein - us supplier ki poori history' : 'Naam par tap karein - uski poori history'}
+                    </div>
+                  </div>
+                )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                <div style={{ flex: 1, height: 6, borderRadius: 999, background: '#EEF0F5', overflow: 'hidden' }}>
-                  <div style={{ width: row.share + '%', height: '100%', background: row.type === 'Karigar Payment' ? BRAND.navy : BRAND.gold }} />
-                </div>
-                <div style={{ ...styles.itemSub, minWidth: 92, textAlign: 'right' }}>
-                  {row.share}% &middot; {row.count} entry
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
           <div style={{ display: 'flex', marginTop: 14, paddingTop: 10, borderTop: '1px solid ' + BRAND.line }}>
             <div style={{ ...styles.itemDesc, flex: 1, fontWeight: 800 }}>
               Kul kharch{costScope === 'month' ? ' (is mahine)' : ''}
