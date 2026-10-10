@@ -165,7 +165,19 @@ await ctx.addInitScript(() => {
     fileStorage: { upload: async (k, d) => ({ url: d }), delete: async () => ({ deleted: true }) },
     pushMessaging: { requestPermissionAndGetToken: async () => null, onForegroundMessage: () => {}, sendPush: async () => null },
     dataCheck: { probe: async () => ({ projectId: 'x', online: true, auth: { ok: true } }) },
-    leads: { loadAll: async () => [], update: async () => ({}), remove: async () => ({}) },
+    // Counted, and made to fail. An effect that re-runs on every
+    // render is invisible when the call succeeds - it just loads
+    // twice and looks fine. It shows up only when the call FAILS,
+    // because then the failure re-renders and the loop never stops,
+    // which is what "error blinking kar raha he" was.
+    leads: {
+      loadAll: async () => {
+        window.__leadLoads = (window.__leadLoads || 0) + 1;
+        return { ok: false, reason: 'denied', rows: [] };
+      },
+      update: async () => ({}),
+      remove: async () => ({}),
+    },
     staffAlerts: { add: async () => ({}), loadAll: async () => [], clear: async () => ({}) },
     errorLog: { report: async () => ({}), loadAll: async () => [], clearAll: async () => ({}) },
     backups: { list: async () => ({ ok: true, backups: [] }), linkFor: async () => ({ ok: true, url: '#' }), runNow: async () => ({ ok: true, sizeBytes: 1 }) },
@@ -342,6 +354,21 @@ for (const panel of PANELS) {
     }
   }
 }
+
+// ---- The enquiry screen, with its load failing on purpose. A screen
+//      that cannot load something must say so once, not forever.
+await step('a failing enquiry list settles instead of looping', async () => {
+  await loginAs('7777');
+  await page.getByText('Home', { exact: true }).last().click({ timeout: 8000 });
+  await page.waitForTimeout(700);
+  await tap('Website enquiry');
+  await page.waitForTimeout(3000);
+  const calls = await page.evaluate(() => window.__leadLoads || 0);
+  if (calls > 3) throw new Error('the list reloaded ' + calls + ' times - the effect is looping');
+  const text = await page.locator('#root').innerText();
+  if (!/Firebase rules/i.test(text)) throw new Error('it does not say what is actually wrong');
+  if (!/Try again/i.test(text)) throw new Error('there is no way to retry');
+});
 
 // ---- Back to admin for the deepest screen in the app: every tab of a
 //      job, which is where the most imports are used in one place.

@@ -38,6 +38,7 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
+import { leadLoadMessage } from './leadForm.js';
 import { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, chunkReloadDecision, clearChunkReloadFlag, backupAge, readableSize, needsOffsiteCopy, otpFailureClass, otpOutageMessage, shouldRaiseOutage } from './jobCore.js';
 import { normalizeError, installErrorReporting, groupErrors } from './errorLog.js';
 export { groupErrors };
@@ -45,6 +46,7 @@ import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
 export { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, backupAge, readableSize, needsOffsiteCopy, otpFailureClass, otpOutageMessage, shouldRaiseOutage };
+export { leadLoadMessage };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -2894,10 +2896,25 @@ export default function App() {
   }
 
 
-  const showToast = (msg, isError) => {
+  /* Stable, deliberately.
+   *
+   * This used to be rebuilt on every render, which made it a trap for
+   * anything listing it as a dependency. AdminLeads did: its load was
+   * a useCallback depending on showToast, and its effect depended on
+   * that callback. When the load failed it showed a toast, the toast
+   * re-rendered this component, the new showToast changed the
+   * callback, the effect re-ran, and it failed again - for ever. From
+   * the outside, a red message flashing on and off.
+   *
+   * The screen that caused it is fixed too, but one screen getting it
+   * right is not the lesson. Nothing in here needs rebuilding - both
+   * setToast and uid are stable - so the identity can be stable as
+   * well, and then depending on it is simply safe.
+   */
+  const showToast = useCallback((msg, isError) => {
     setToast({ msg, isError, id: uid() });
     setTimeout(() => setToast((t) => (t && t.msg === msg ? null : t)), 2400);
-  };
+  }, []);
 
   // Foreground push notifications (the app IS open right now) don't go
   // through the service worker's background handler at all - FCM

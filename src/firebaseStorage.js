@@ -875,12 +875,34 @@ async function clearErrorReports() {
    SDK; staff read them here and clear them once they have called. */
 const LEADS_COLLECTION = 'leads';
 
+/* Website enquiries, with the reason when there are none.
+ *
+ * It used to throw, and the screen turned every throw into the same
+ * "could not load the enquiries". That covers two completely
+ * different situations: the rules in the Firebase console are older
+ * than this collection and deny the read, or the phone is simply
+ * offline. The first needs one paste into a console and the second
+ * needs nothing at all, and telling them apart is the difference
+ * between a fix and an evening of guessing.
+ */
 async function loadLeads() {
-  const snap = await getDocs(collection(db, LEADS_COLLECTION));
-  const rows = [];
-  snap.forEach((d) => rows.push({ docId: d.id, ...d.data() }));
-  rows.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-  return rows;
+  try {
+    const snap = await getDocs(collection(db, LEADS_COLLECTION));
+    const rows = [];
+    snap.forEach((d) => rows.push({ docId: d.id, ...d.data() }));
+    rows.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    return { ok: true, rows };
+  } catch (e) {
+    const code = String((e && e.code) || e);
+    console.error('loadLeads failed', code);
+    if (code.includes('permission-denied') || code.includes('insufficient')) {
+      return { ok: false, reason: 'denied', rows: [] };
+    }
+    if (code.includes('unavailable') || code.includes('network')) {
+      return { ok: false, reason: 'offline', rows: [] };
+    }
+    return { ok: false, reason: 'error', rows: [] };
+  }
 }
 
 async function updateLead(docId, patch) {

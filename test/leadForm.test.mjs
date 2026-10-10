@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   LEAD_NEEDS, LEAD_SIZES, LEAD_MAX, normalizeLeadPhone, normalizeLead,
-  leadFailureMessage, leadSummary,
+  leadFailureMessage, leadSummary, leadLoadMessage,
 } from '../src/leadForm.js';
 
 let n = 0;
@@ -210,6 +210,24 @@ t('the summary leads with what decides the job', () => {
   // Missing pieces leave no stray separators.
   assert.equal(leadSummary({ name: 'Ramesh' }), 'Ramesh');
   assert.equal(leadSummary({ name: 'Ramesh', size: '3 BHK' }), 'Ramesh - 3 BHK');
+});
+
+t('a list that will not load says which of the two things went wrong', () => {
+  // "Could not load the enquiries" covered both a rules file older
+  // than this collection and a phone that is simply offline. One
+  // needs a paste into a console; the other needs nothing at all.
+  const denied = leadLoadMessage('denied');
+  assert.match(denied, /firestore\.rules/i, 'it does not name the file to paste');
+  assert.match(denied, /nothing has been lost/i, 'it reads like the enquiries are gone');
+
+  const offline = leadLoadMessage('offline');
+  assert.match(offline, /internet/i);
+  assert.ok(!/rules/i.test(offline), 'it sends someone to the console over a weak signal');
+
+  // Anything else still says something, rather than nothing.
+  for (const other of ['error', '', null, undefined, 'something-new']) {
+    assert.ok(leadLoadMessage(other).length > 10, String(other));
+  }
 });
 
 console.log(n + ' assertions passed');

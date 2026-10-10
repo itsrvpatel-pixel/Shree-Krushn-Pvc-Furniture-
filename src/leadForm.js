@@ -123,3 +123,25 @@ export function leadSummary(lead) {
   if (lead.area) bits.push(lead.area);
   return bits.join(' - ');
 }
+
+/* Why the enquiry list is empty, in words that lead somewhere.
+ *
+ * The screen used to say "Could not load the enquiries" for anything
+ * that went wrong, and then say it again, and again - the effect that
+ * loaded them depended on showToast, which is rebuilt on every
+ * render, so each failure re-rendered, which re-ran the load, which
+ * failed. That is what "error blinking kar raha he" was.
+ *
+ * The loop is fixed where it was caused. This is the other half: the
+ * two situations behind it need different things done, and only one
+ * of them needs anything done at all.
+ */
+export function leadLoadMessage(reason) {
+  if (reason === 'denied') {
+    return 'The Firebase rules do not allow this list yet. Paste the latest firestore.rules into the Firebase console - the enquiries themselves are safe and nothing has been lost.';
+  }
+  if (reason === 'offline') {
+    return 'No internet just now. The enquiries are safe - open this again when you are back online.';
+  }
+  return 'The enquiries could not be loaded. Try again in a moment.';
+}

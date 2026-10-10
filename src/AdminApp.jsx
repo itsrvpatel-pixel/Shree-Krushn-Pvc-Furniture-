@@ -95,6 +95,7 @@ import {
   EstimateOptionItems,
   estimateItemAmount,
   buildOptionPair,
+  leadLoadMessage,
   backupAge,
   readableSize,
   needsOffsiteCopy,
@@ -4322,14 +4323,40 @@ function AdminQuickSend({ onBack }) {
 function AdminLeads({ onBack, showToast }) {
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState('');
 
-  const load = useCallback(async () => {
+  /* Loads once.
+   *
+   * It used to depend on showToast, which is rebuilt on every render
+   * of the app - so a failure showed a toast, the toast re-rendered,
+   * the new showToast changed this callback, the effect re-ran, and it
+   * failed again. Forever. From the outside that is a red message
+   * flashing on and off, which is exactly how he described it.
+   *
+   * Nothing in here needs to re-run when anything changes, so the
+   * effect depends on nothing, and the failure goes into the page
+   * rather than into a toast - a toast cannot say what to do about it,
+   * and this one has something worth saying.
+   */
+  const load = async () => {
     setBusy(true);
-    try { setRows(await window.leads.loadAll()); }
-    catch (e) { showToast('Could not load the enquiries', true); setRows([]); }
-    finally { setBusy(false); }
-  }, [showToast]);
-  useEffect(() => { load(); }, [load]);
+    setProblem('');
+    try {
+      const res = await window.leads.loadAll();
+      // Older shape returned a bare array; keep working with both so a
+      // half-deployed update cannot empty the screen.
+      if (Array.isArray(res)) { setRows(res); }
+      else if (res && res.ok) { setRows(res.rows || []); }
+      else { setRows([]); setProblem(leadLoadMessage(res && res.reason)); }
+    } catch (e) {
+      setRows([]);
+      setProblem(leadLoadMessage('error'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, []);
 
   const mark = async (row, status) => {
     try {
@@ -4344,6 +4371,15 @@ function AdminLeads({ onBack, showToast }) {
       setRows((list) => (list || []).filter((r) => r.docId !== row.docId));
     } catch (e) { showToast('Could not remove it', true); }
   };
+
+  const Problem = () => (!problem ? null : (
+    <div style={{ ...styles.card, marginTop: 10, padding: 14, background: '#FFF4E5' }}>
+      <div style={{ ...styles.plainText, marginBottom: 10 }}>{problem}</div>
+      <button style={styles.cardActionBtn} disabled={busy} onClick={load}>
+        {busy ? 'Trying...' : 'Try again'}
+      </button>
+    </div>
+  ));
 
   const open = (rows || []).filter((r) => r.status !== 'done');
   const done = (rows || []).filter((r) => r.status === 'done');
@@ -4389,8 +4425,9 @@ function AdminLeads({ onBack, showToast }) {
         <div style={styles.plainTextMuted}>
           People who will not use WhatsApp fill in the form instead. Call them and fix a time.
         </div>
+        <Problem />
         {rows === null && <div style={styles.emptySmall}>Loading...</div>}
-        {rows !== null && rows.length === 0 && (
+        {rows !== null && rows.length === 0 && !problem && (
           <div style={styles.emptySmall}>No enquiries yet.</div>
         )}
         {open.length > 0 && <div style={{ ...styles.fieldLabel, marginTop: 14 }}>New ({open.length})</div>}

@@ -228,6 +228,44 @@ t('the hook check would have caught the bug it was written for', () => {
   assert.ok(!visible.has('useCallback'), 'the detector thinks an unimported hook is fine');
 });
 
+t('showToast is stable, so depending on it cannot loop', () => {
+  // The Website enquiry screen flashed a red error on and off. Its
+  // load was a useCallback depending on showToast, its effect
+  // depended on that callback, and showToast was rebuilt on every
+  // render - so the failure showed a toast, the toast re-rendered
+  // App, the new showToast changed the callback, the effect re-ran,
+  // and it failed again, for ever.
+  //
+  // Fixing the one screen was not enough: the next thing to list
+  // showToast as a dependency would do the same. So the identity is
+  // stable at the source, and this makes sure it stays that way.
+  const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.ok(/const showToast = useCallback\(\(msg, isError\) => \{/.test(app),
+    'showToast is rebuilt on every render again - anything depending on it will loop');
+  const at = app.indexOf('const showToast = useCallback(');
+  const tail = app.slice(at, at + 400);
+  assert.ok(/\}, \[\]\);/.test(tail),
+    'showToast has dependencies, so its identity changes and the trap is back');
+});
+
+t('nothing waits on an effect that reloads on every render', () => {
+  // The shape of the bug, rather than the one instance of it: an
+  // effect whose dependency array names a prop that is rebuilt
+  // upstream. showToast is the one that bit; it is also the only
+  // function passed down to nearly every screen, so it is the one
+  // worth naming.
+  const bad = [];
+  for (const file of ['App.jsx', 'AdminApp.jsx']) {
+    const src = readFileSync(new URL('../src/' + file, import.meta.url), 'utf8');
+    src.split('\n').forEach((line, i) => {
+      if (/useEffect\(.*\[\s*showToast\s*\]/.test(line)) {
+        bad.push(file + ':' + (i + 1) + ' an effect re-runs whenever showToast changes');
+      }
+    });
+  }
+  assert.deepEqual(bad, []);
+});
+
 t('the two tiles that broke are wired through props now', () => {
   // Pinned by behaviour rather than by the general check above, because
   // this is the specific thing a customer-facing screen lost.
