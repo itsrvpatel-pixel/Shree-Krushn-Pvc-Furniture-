@@ -25,6 +25,28 @@ export const LEAD_NEEDS = [
   'Something else',
 ];
 
+/* How big the place is.
+ *
+ * His own request, in his words: "ketla BHK ma banava nu am" - how
+ * many BHK is it to be done in. It is the first thing he asks on the
+ * phone, because it decides everything after it: roughly what the job
+ * is worth, how many days it takes, and whether it is worth a site
+ * visit this week or next. An enquiry without it is a call that has
+ * to happen before any of that can be judged.
+ *
+ * Shop/office is here because PVC furniture goes into those too, and
+ * a shopkeeper picking "2 BHK" because nothing else fits would be
+ * worse than no answer.
+ */
+export const LEAD_SIZES = [
+  '1 BHK',
+  '2 BHK',
+  '3 BHK',
+  '4 BHK or bigger',
+  'Bungalow / villa',
+  'Shop / office',
+];
+
 export const LEAD_MAX = { name: 60, area: 80, message: 500 };
 
 // 10 digits, however they were typed: +91, 91, a leading 0, spaces,
@@ -62,6 +84,10 @@ export function normalizeLead(raw) {
   if (!phone) return { ok: false, reason: 'phone', lead: null };
 
   const need = LEAD_NEEDS.includes(r.need) ? r.need : '';
+  // Same rule as need: anything the page did not offer is dropped
+  // rather than stored, so a bot cannot post arbitrary text into a
+  // field the owner reads as a fact.
+  const size = LEAD_SIZES.includes(r.size) ? r.size : '';
   const area = clean(r.area, LEAD_MAX.area);
   const message = clean(r.message, LEAD_MAX.message);
 
@@ -69,7 +95,7 @@ export function normalizeLead(raw) {
     ok: true,
     reason: null,
     lead: {
-      name, phone, need, area, message,
+      name, phone, need, size, area, message,
       source: clean(r.source, 60) || 'website',
       createdAt: new Date().toISOString(),
       status: 'new',
@@ -91,6 +117,9 @@ export function leadSummary(lead) {
   if (!lead) return '';
   const bits = [lead.name];
   if (lead.need) bits.push(lead.need);
+  // Size before area: on a push notification only the first few words
+  // survive, and "2 BHK" decides more than "Nikol" does.
+  if (lead.size) bits.push(lead.size);
   if (lead.area) bits.push(lead.area);
   return bits.join(' - ');
 }

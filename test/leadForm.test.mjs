@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  LEAD_NEEDS, LEAD_MAX, normalizeLeadPhone, normalizeLead,
+  LEAD_NEEDS, LEAD_SIZES, LEAD_MAX, normalizeLeadPhone, normalizeLead,
   leadFailureMessage, leadSummary,
 } from '../src/leadForm.js';
 
@@ -166,19 +166,50 @@ t('the form offers exactly what the validator accepts', () => {
   // had its need silently dropped: normalizeLead only keeps a need it
   // recognises, and an unrecognised one is not an error.
   const page = readFileSync(new URL('../site/index.html', import.meta.url), 'utf8');
-  const form = page.slice(page.indexOf('<select'), page.indexOf('</select>'));
-  const offered = [...form.matchAll(/<option(?: value="")?>([^<]+)<\/option>/g)]
-    .map((m) => m[1].trim())
-    .filter((v) => !/\(optional\)/.test(v));
-  assert.ok(offered.length >= 5, 'only ' + offered.length + ' options found - the form has moved');
-  assert.deepEqual(offered, LEAD_NEEDS,
+  const optionsOf = (html, selectName) => {
+    const at = html.indexOf('name="' + selectName + '"');
+    const block = html.slice(at, html.indexOf('</select>', at));
+    return [...block.matchAll(/<option(?: value="")?>([^<]+)<\/option>/g)]
+      .map((m) => m[1].trim())
+      .filter((v) => !/\(optional\)/.test(v));
+  };
+  assert.deepEqual(optionsOf(page, 'need'), LEAD_NEEDS,
     'the page offers a need the validator will throw away');
+  assert.deepEqual(optionsOf(page, 'size'), LEAD_SIZES,
+    'the page offers a size the validator will throw away');
   // And the template the page is built from, so a rebuild cannot
   // reintroduce the drift.
   const tpl = readFileSync(new URL('../tools/a.tpl', import.meta.url), 'utf8');
-  for (const need of LEAD_NEEDS) {
-    assert.ok(tpl.includes('>' + need + '<'), 'the template is missing: ' + need);
+  for (const value of [...LEAD_NEEDS, ...LEAD_SIZES]) {
+    assert.ok(tpl.includes('>' + value + '<'), 'the template is missing: ' + value);
   }
+});
+
+t('how big the place is survives the round trip', () => {
+  // The thing he asks first on the phone. An enquiry without it is a
+  // call that has to happen before the job can be judged at all.
+  const res = normalizeLead({ name: 'Ramesh', phone: '9876543210', need: 'Kitchen', size: '2 BHK' });
+  assert.equal(res.ok, true);
+  assert.equal(res.lead.size, '2 BHK');
+  // Optional, like need.
+  assert.equal(normalizeLead({ name: 'Ramesh', phone: '9876543210' }).lead.size, '');
+  // And anything the page did not offer is dropped, not stored - a bot
+  // must not be able to post free text into a field read as a fact.
+  for (const junk of ['5 BHK', '<script>', 'Poora ghar', 42, null, { a: 1 }]) {
+    assert.equal(normalizeLead({ name: 'Ramesh', phone: '9876543210', size: junk }).lead.size, '',
+      'accepted a size the form never offered: ' + JSON.stringify(junk));
+  }
+});
+
+t('the summary leads with what decides the job', () => {
+  const summary = leadSummary({ name: 'Ramesh', need: 'Kitchen', size: '2 BHK', area: 'Nikol' });
+  assert.equal(summary, 'Ramesh - Kitchen - 2 BHK - Nikol');
+  // On a push notification only the first few words survive, so size
+  // comes before area: "2 BHK" decides more than "Nikol" does.
+  assert.ok(summary.indexOf('2 BHK') < summary.indexOf('Nikol'));
+  // Missing pieces leave no stray separators.
+  assert.equal(leadSummary({ name: 'Ramesh' }), 'Ramesh');
+  assert.equal(leadSummary({ name: 'Ramesh', size: '3 BHK' }), 'Ramesh - 3 BHK');
 });
 
 console.log(n + ' assertions passed');

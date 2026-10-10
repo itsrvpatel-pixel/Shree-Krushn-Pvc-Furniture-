@@ -101,20 +101,63 @@ function localNames(body) {
   return names;
 }
 
+// Everything visible at the top of a file: its own functions, its
+// consts, and every shape of import. The import handling is spelled
+// out rather than approximated, because a hook used but never
+// imported is exactly what this file now exists to catch, and a
+// collector that quietly missed `import React, { useCallback }` would
+// hide the bug instead of finding it.
+function moduleNames(src, fns) {
+  const names = new Set(fns.map((f) => f.name));
+  for (const m of src.matchAll(/^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/gm)) names.add(m[1]);
+  for (const m of src.matchAll(/^import\s+([\s\S]*?)\s+from\s+['"][^'"]+['"]/gm)) {
+    const clause = m[1];
+    const def = /^\s*([A-Za-z_$][\w$]*)\s*(?:,|$)/.exec(clause);
+    if (def) names.add(def[1]);
+    const ns = /\*\s+as\s+([A-Za-z_$][\w$]*)/.exec(clause);
+    if (ns) names.add(ns[1]);
+    const braced = /\{([\s\S]*)\}/.exec(clause);
+    if (braced) {
+      for (const part of braced[1].split(',')) {
+        const id = /^\s*(?:[A-Za-z_$][\w$]*\s+as\s+)?([A-Za-z_$][\w$]*)/.exec(part);
+        if (id) names.add(id[1]);
+      }
+    }
+  }
+  return names;
+}
+
+// For the JSX check only: every name the file defines ANYWHERE, not
+// just at the top. Plenty of small components are declared inside the
+// screen that uses them - `const Card = ({ r }) => ...` inside
+// AdminLeads - and an icon arrives as a renamed prop, `{ icon: Icon }`.
+// None of those is a bug; the bug is a name defined nowhere at all,
+// which is all this needs to find.
+// Comments blanked, so a name mentioned in prose - App.jsx explains a
+// key format as 'gallery_cat_<CategoryName>' - is not mistaken for a
+// component being rendered.
+function withoutComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => p1 + ' '.repeat(m.length - p1.length));
+}
+
+function allDefinedNames(src, fns) {
+  const names = moduleNames(src, fns);
+  for (const m of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g)) names.add(m[1]);
+  for (const m of src.matchAll(/\b(?:function|class)\s+([A-Za-z_$][\w$]*)/g)) names.add(m[1]);
+  // Renamed destructuring, which is how icons are passed about.
+  for (const m of src.matchAll(/[A-Za-z_$][\w$]*\s*:\s*([A-Z][\w$]*)/g)) names.add(m[1]);
+  return names;
+}
+
 function offenders(file) {
   const src = readFileSync(new URL('../src/' + file, import.meta.url), 'utf8');
   const fns = topLevelFunctions(src);
   // Anything at module scope is visible everywhere in the file.
   // Setter-shaped things that are simply always there.
-  const moduleScope = new Set(['setTimeout', 'setInterval', 'setImmediate']);
-  for (const f of fns) moduleScope.add(f.name);
-  for (const m of src.matchAll(/^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/gm)) moduleScope.add(m[1]);
-  for (const m of src.matchAll(/^import\s+\{([^}]*)\}/gm)) {
-    for (const part of m[1].split(',')) {
-      const id = /^\s*(?:[A-Za-z_$][\w$]*\s+as\s+)?([A-Za-z_$][\w$]*)/.exec(part);
-      if (id) moduleScope.add(id[1]);
-    }
-  }
+  const moduleScope = moduleNames(src, fns);
+  for (const always of ['setTimeout', 'setInterval', 'setImmediate']) moduleScope.add(always);
 
   const bad = [];
   for (const fn of fns) {
@@ -138,6 +181,51 @@ function offenders(file) {
 t('no component calls a setter it cannot see', () => {
   const bad = [...offenders('AdminApp.jsx'), ...offenders('App.jsx')];
   assert.deepEqual(bad, [], bad.length + ' setter(s) out of scope:\n  ' + bad.join('\n  '));
+});
+
+t('every hook a file calls is actually imported', () => {
+  // The third bug of this family, and the one he saw on his screen:
+  // AdminLeads called useCallback; AdminApp.jsx imported useState,
+  // useEffect, useMemo and useRef, and not useCallback. The build was
+  // perfectly happy. It is a plain ReferenceError the moment the
+  // screen opens - invisible to anything that does not know which
+  // names a file can actually see.
+  const bad = [];
+  for (const file of ['App.jsx', 'AdminApp.jsx', 'jobsStore.js', 'firebaseStorage.js', 'useBackToClose.js']) {
+    const src = readFileSync(new URL('../src/' + file, import.meta.url), 'utf8');
+    const visible = moduleNames(src, topLevelFunctions(src));
+    for (const m of src.matchAll(/\b(use[A-Z][\w$]*)\s*\(/g)) {
+      if (new RegExp('\\.\\s*' + m[1] + '\\s*\\(').test(src)) continue;
+      if (!visible.has(m[1])) bad.push(file + ' calls ' + m[1] + ', which it never imports');
+    }
+  }
+  assert.deepEqual([...new Set(bad)], []);
+});
+
+t('every component and icon used in JSX is in scope', () => {
+  // The same failure in a different shape: an icon used on one screen
+  // and left out of the import list throws the moment that screen
+  // renders.
+  const bad = [];
+  for (const file of ['App.jsx', 'AdminApp.jsx']) {
+    const src = readFileSync(new URL('../src/' + file, import.meta.url), 'utf8');
+    const visible = allDefinedNames(src, topLevelFunctions(src));
+    for (const m of withoutComments(src).matchAll(/<([A-Z][\w$]*)[\s/>.]/g)) {
+      if (!visible.has(m[1])) bad.push(file + ' renders <' + m[1] + '>, which is not in scope');
+    }
+  }
+  assert.deepEqual([...new Set(bad)], []);
+});
+
+t('the hook check would have caught the bug it was written for', () => {
+  // Without this, removing useCallback from the import list would be
+  // caught, but so would nothing else - a collector that returns every
+  // name under the sun passes everything.
+  const src = "import React, { useState } from 'react';\nfunction A() { const x = useCallback(() => {}, []); return x; }";
+  const visible = moduleNames(src, topLevelFunctions(src));
+  assert.ok(visible.has('useState'), 'a real import is being missed');
+  assert.ok(visible.has('React'), 'the default import is being missed');
+  assert.ok(!visible.has('useCallback'), 'the detector thinks an unimported hook is fine');
 });
 
 t('the two tiles that broke are wired through props now', () => {

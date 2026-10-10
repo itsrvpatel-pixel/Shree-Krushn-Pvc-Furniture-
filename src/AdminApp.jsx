@@ -21,6 +21,7 @@ import React, {
   useEffect,
   useMemo,
   useRef,
+  useCallback,
 } from 'react';
 import {
   Calendar,
@@ -4354,9 +4355,9 @@ function AdminLeads({ onBack, showToast }) {
         <span style={styles.metaItem}><Phone size={11} /> {formatPhoneDisplay(r.phone)}</span>
         <span style={styles.metaItem}><Calendar size={11} /> {formatDate(r.createdAt)}</span>
       </div>
-      {(r.need || r.area) && (
+      {(r.need || r.size || r.area) && (
         <div style={{ ...styles.itemSub, marginTop: 6 }}>
-          {[r.need, r.area].filter(Boolean).join(' \u00B7 ')}
+          {[r.need, r.size, r.area].filter(Boolean).join(' \u00B7 ')}
         </div>
       )}
       {r.message && <div style={{ ...styles.itemDesc, marginTop: 6 }}>&ldquo;{r.message}&rdquo;</div>}
