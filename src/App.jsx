@@ -38,13 +38,13 @@ import { useBackToClose } from './useBackToClose.js';
 // uid, logActivity and finalizeEstimateDraft live in their own module so
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
-import { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, chunkReloadDecision, clearChunkReloadFlag, backupAge, readableSize, needsOffsiteCopy } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, chunkReloadDecision, clearChunkReloadFlag, backupAge, readableSize, needsOffsiteCopy, otpFailureClass, otpOutageMessage, shouldRaiseOutage } from './jobCore.js';
 import { normalizeError, installErrorReporting, groupErrors } from './errorLog.js';
 export { groupErrors };
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, backupAge, readableSize, needsOffsiteCopy };
+export { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, backupAge, readableSize, needsOffsiteCopy, otpFailureClass, otpOutageMessage, shouldRaiseOutage };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
 
@@ -4441,8 +4441,18 @@ function LoginScreen({ adminPin, adminPinReadDenied, partnerPin, dhPartnerPin, s
         // rejected" from "billing is off" from "too many tries" - and
         // without it the only report anybody can make from a phone is
         // "it says it could not send", which names none of the three.
+        const code = (result && result.code) || 'unknown';
+        // A failure that is only this person's - a mistyped number,
+        // too many tries from their phone - is theirs to fix and
+        // nobody needs waking. One that means nobody at all can get
+        // in, which is what a lapsed prepaid balance looks like, has
+        // to reach the owner: it is invisible from his side, because
+        // the app in his hand logged in months ago and still works.
+        if (otpFailureClass(code) === 'outage') {
+          try { window.adminAlert.outage(code); } catch (e) { /* already failing; never make it worse */ }
+        }
         setError(t('Could not send the OTP - try again shortly or contact the admin.')
-          + ' [' + ((result && result.code) || 'unknown') + ']'
+          + ' [' + code + ']'
           + ((result && result.detail) ? ' ' + result.detail : ''));
         return;
       }

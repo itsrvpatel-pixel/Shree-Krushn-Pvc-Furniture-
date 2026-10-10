@@ -1391,3 +1391,65 @@ export function needsOffsiteCopy(lastDownloadIso, now) {
   if (!Number.isFinite(at)) return true;
   return (Number(now) - at) >= OFFSITE_REMIND_DAYS * 86400000;
 }
+
+/* Telling an OTP that failed for this customer apart from one that is
+ * failing for everybody.
+ *
+ * The reason this matters is a billing arrangement, not a bug. The
+ * Firebase bill is paid on a prepaid balance, and a prepaid balance
+ * runs out. When it does, Phone Auth is the first thing to stop - and
+ * from the owner's side nothing happens at all. No error, no empty
+ * screen. New customers simply cannot get in, see a code they did not
+ * ask to debug, and leave. He would find out from whoever bothered to
+ * complain, which is nobody.
+ *
+ * So the codes are sorted by who can fix them:
+ *
+ *   outage - the app is down for every new customer. Billing lapsed,
+ *            the API key or reCAPTCHA is misconfigured, the project
+ *            quota is spent. The owner must act, and must be told.
+ *   user   - this one person, this one attempt. A wrong number, too
+ *            many tries from their phone. Nothing to report.
+ *
+ * Only 'outage' wakes anyone up. A warning that fires for an ordinary
+ * typo is a warning that gets ignored on the day it is real.
+ */
+export const OTP_OUTAGE_CODES = [
+  'auth/billing-not-enabled',
+  'auth/quota-exceeded',
+  'auth/invalid-app-credential',
+  'auth/app-not-authorized',
+  'auth/invalid-api-key',
+  'auth/operation-not-allowed',
+  'auth/internal-error',
+];
+
+export function otpFailureClass(code) {
+  const c = String(code || '').trim();
+  if (!c) return 'unknown';
+  if (OTP_OUTAGE_CODES.includes(c)) return 'outage';
+  return 'user';
+}
+
+// What the owner reads on his phone. Says what broke AND what to do,
+// because "auth/billing-not-enabled" at nine at night is not an
+// instruction.
+export function otpOutageMessage(code) {
+  if (code === 'auth/billing-not-enabled' || code === 'auth/quota-exceeded') {
+    return 'New customers cannot log in - the Firebase balance has probably run out. Top it up and it starts working again.';
+  }
+  return 'New customers cannot log in (' + String(code || 'unknown') + '). Nothing is lost - existing customers are unaffected.';
+}
+
+// One alert an hour from any one phone. A real outage hits several
+// customers at once and a handful of notifications is not a problem;
+// the same phone retrying ten times is.
+export const OUTAGE_ALERT_GAP_MS = 60 * 60 * 1000;
+
+export function shouldRaiseOutage(lastAt, now) {
+  const prev = Number(lastAt);
+  if (!lastAt || !Number.isFinite(prev) || prev <= 0) return true;
+  // A clock set forward must not silence the alert for ever.
+  if (prev > Number(now)) return true;
+  return (Number(now) - prev) >= OUTAGE_ALERT_GAP_MS;
+}

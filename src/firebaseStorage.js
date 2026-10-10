@@ -24,6 +24,7 @@
 
 import { initializeApp } from "firebase/app";
 import { createJobsStore, createCustomersStore } from "./jobsStore.js";
+import { shouldRaiseOutage, otpOutageMessage } from "./jobCore.js";
 import {
   initializeFirestore,
   getFirestore,
@@ -571,6 +572,59 @@ async function callBackupApi(body) {
   return { ...data, ok: true };
 }
 
+/* Tells the owner that new customers cannot log in.
+ *
+ * The one failure nobody would otherwise see. A prepaid Firebase
+ * balance runs out, Phone Auth stops, and on the owner's phone
+ * absolutely nothing happens - the app he is holding still works,
+ * because he logged in months ago. Meanwhile every new customer gets a
+ * code they cannot read and goes away. The first he would hear of it
+ * is never.
+ *
+ * So the customer's own phone raises it, from inside the failure. It
+ * sends a push to the admin devices and leaves a line in the bell, so
+ * the news survives a notification that was swiped away.
+ *
+ * Throttled per device, because a real outage hits several customers
+ * at once: a handful of notifications on the day it matters is fine,
+ * one phone retrying ten times is not. Best-effort throughout - this
+ * runs while something is already broken, and it must never make the
+ * screen the customer is looking at any worse than it already is.
+ */
+const OUTAGE_STAMP_KEY = 'last-outage-alert';
+
+async function raiseOutageAlert(code) {
+  let last = null;
+  try { last = window.localStorage.getItem(OUTAGE_STAMP_KEY); } catch (e) { /* private window */ }
+  if (!shouldRaiseOutage(last, Date.now())) return { ok: true, skipped: true };
+  try { window.localStorage.setItem(OUTAGE_STAMP_KEY, String(Date.now())); } catch (e) { /* ignored */ }
+
+  const body = otpOutageMessage(code);
+
+  // The bell first: it is the copy that keeps.
+  try {
+    await addStaffAlert({
+      type: 'login_outage',
+      title: 'New customers cannot log in',
+      body,
+      at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error('raiseOutageAlert: alert write failed (ignored)', e);
+  }
+
+  // Then the push, which is what actually reaches him tonight.
+  try {
+    const stored = await get('admin_push_tokens');
+    const tokens = stored && stored.value ? JSON.parse(stored.value) : [];
+    const list = (Array.isArray(tokens) ? tokens : []).filter((t) => typeof t === 'string' && t);
+    if (list.length > 0) await sendPushViaApi(list, 'Login is down', body);
+  } catch (e) {
+    console.error('raiseOutageAlert: push failed (ignored)', e);
+  }
+  return { ok: true };
+}
+
 async function signOutStaff() {
   try {
     await auth.signOut();
@@ -837,6 +891,9 @@ export function installWindowStorage() {
     add: (e) => addStaffAlert(e),
     loadAll: () => loadStaffAlerts(),
     clear: (ids) => clearStaffAlerts(ids),
+  };
+  window.adminAlert = {
+    outage: (code) => raiseOutageAlert(code),
   };
   window.backups = {
     list: () => callBackupApi({ action: 'list' }),
