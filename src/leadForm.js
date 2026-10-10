@@ -138,7 +138,16 @@ export function leadSummary(lead) {
  */
 export function leadLoadMessage(reason) {
   if (reason === 'denied') {
-    return 'The Firebase rules do not allow this list yet. Paste the latest firestore.rules into the Firebase console - the enquiries themselves are safe and nothing has been lost.';
+    // Named the rules alone once, with confidence, and sent him to
+    // paste a file that was already correct. Two things produce an
+    // identical refusal: rules older than this collection, and a
+    // session carrying no staff role - and the second is the likelier
+    // of the two, because the app keeps showing everything else from
+    // its stored copy while the server quietly refuses. So the
+    // cheaper, more likely fix goes first.
+    return 'Refused by Firebase. Log out and log in again with your PIN first - that is usually it. '
+      + 'If it still says this, run "Check the whole app" in Settings: it will say whether the problem '
+      + 'is the login or the rules. Nothing has been lost either way.';
   }
   if (reason === 'offline') {
     return 'No internet just now. The enquiries are safe - open this again when you are back online.';

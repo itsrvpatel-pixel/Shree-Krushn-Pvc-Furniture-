@@ -217,8 +217,16 @@ t('a list that will not load says which of the two things went wrong', () => {
   // than this collection and a phone that is simply offline. One
   // needs a paste into a console; the other needs nothing at all.
   const denied = leadLoadMessage('denied');
-  assert.match(denied, /firestore\.rules/i, 'it does not name the file to paste');
+  // It used to blame the rules outright, which sent him to paste a
+  // file that was already correct. Two things refuse identically -
+  // stale rules, and a session with no staff role - and the second is
+  // likelier, because everything else keeps rendering from the local
+  // cache while the server refuses. So the cheap fix comes first.
+  assert.match(denied, /log out and log in/i, 'it does not offer the likely fix first');
+  assert.match(denied, /Check the whole app/i, 'it does not say how to tell the two causes apart');
   assert.match(denied, /nothing has been lost/i, 'it reads like the enquiries are gone');
+  assert.ok(!/^The Firebase rules do not allow/.test(denied),
+    'it blames the rules outright again');
 
   const offline = leadLoadMessage('offline');
   assert.match(offline, /internet/i);

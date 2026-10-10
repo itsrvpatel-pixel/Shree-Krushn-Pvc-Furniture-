@@ -366,7 +366,7 @@ await step('a failing enquiry list settles instead of looping', async () => {
   const calls = await page.evaluate(() => window.__leadLoads || 0);
   if (calls > 3) throw new Error('the list reloaded ' + calls + ' times - the effect is looping');
   const text = await page.locator('#root').innerText();
-  if (!/Firebase rules/i.test(text)) throw new Error('it does not say what is actually wrong');
+  if (!/log out and log in/i.test(text)) throw new Error('it does not offer the likely fix');
   if (!/Try again/i.test(text)) throw new Error('there is no way to retry');
 });
 
