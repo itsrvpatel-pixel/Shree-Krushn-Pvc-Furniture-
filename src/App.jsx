@@ -2061,6 +2061,7 @@ export default function App() {
   const categoriesRef = useLatestRef(categories);
   const brochuresRef = useLatestRef(brochures);
   const notificationsRef = useLatestRef(notifications);
+  const sessionRef = useLatestRef(session);
   const expensesRef = useLatestRef(expenses);
   const staffRef = useLatestRef(staff);
   const archivedReviewsRef = useLatestRef(archivedReviews);
@@ -2570,6 +2571,32 @@ export default function App() {
     // on the login screen either, so it waits for a session.
     if (session && session.role !== 'customer') {
       sub('notifications', (v) => setNotificationsRaw(normalizeNotifications(v)));
+    }
+
+    // Whatever customers raised while nobody was looking. Folded into
+    // the shared list and deleted, so staff_alerts stays a hand-off
+    // point rather than becoming a second place the bell lives in. Runs
+    // once per staff session, not on a timer: the real-time half of
+    // this is the push notification, which goes out at the same moment.
+    if (session && session.role !== 'customer' && window.staffAlerts) {
+      (async () => {
+        let rows = [];
+        try { rows = await window.staffAlerts.loadAll(); }
+        catch (e) { return; }
+        if (!rows.length) return;
+        const known = new Set(notificationsRef.current.map((n) => n.id));
+        const fresh = rows
+          .filter((r) => r && r.id && !known.has(r.id))
+          .map(({ docId, createdAtMs, ...n }) => n);
+        if (fresh.length) {
+          await persistNotifications([...fresh, ...notificationsRef.current]
+            .sort((x, y) => new Date(y.createdAt || 0) - new Date(x.createdAt || 0))
+            .slice(0, NOTIFICATION_CAP));
+        }
+        // Deleted whether or not they were new to us - a duplicate has
+        // already been folded in by another device.
+        try { await window.staffAlerts.clear(rows.map((r) => r.docId)); } catch (e) { /* next load retries */ }
+      })();
     }
 
     // Gallery is a document per category plus an index listing them, so
@@ -3244,6 +3271,16 @@ export default function App() {
   const CUSTOMER_BOUND_NOTIFICATION_TYPES = ['appointment_confirmed', 'payment_due', 'extra_work_approved', 'extra_work_rejected', 'complaint_in_progress', 'complaint_resolved', 'payment_completed', 'question_answered'];
   const pushNotification = useCallback((type, message, jobId) => {
     const entry = { id: uid(), type, message, jobId: jobId || null, createdAt: new Date().toISOString(), readBy: [] };
+    // The shared bell document is staff-writable only, and almost every
+    // entry worth having is raised BY a customer - booking a visit,
+    // approving an estimate, asking for a change. Their write was
+    // refused inside a catch, so the bell stayed empty and nothing said
+    // why. A customer now drops the entry in staff_alerts, which they
+    // may add to and not read; staff fold it in on their next load.
+    if (sessionRef.current && sessionRef.current.role === 'customer') {
+      if (window.staffAlerts) window.staffAlerts.add(entry);
+      return;
+    }
     persistNotifications([entry, ...notificationsRef.current].slice(0, NOTIFICATION_CAP));
     // Anything addressed to a customer is also written to that customer's
     // own document, so their app can read just their own notifications
@@ -3308,6 +3345,9 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Staff only: this appends to the shared admin token list, which
+      // a customer is rightly refused.
+      if (!sessionRef.current || sessionRef.current.role === 'customer') return;
       if (!window.pushMessaging || !pushPermissionGranted(window)) return;
       let token = null;
       try { ({ token } = await window.pushMessaging.requestPermissionAndGetToken()); }

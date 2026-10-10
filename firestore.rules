@@ -121,6 +121,30 @@ service cloud.firestore {
       allow update: if false;
     }
 
+    // ---- staff_alerts ---------------------------------------------
+    // What a customer did, on its way to the staff bell.
+    //
+    // Every bell entry used to be appended to one shared app_data
+    // document. That works for staff and cannot work for a customer:
+    // the rules above let them write their own record, their own job
+    // and their own notification document, and nothing else. So a
+    // customer booking a visit, approving an estimate or asking for a
+    // change wrote the entry and had it refused inside a catch that
+    // swallowed it - the bell was empty for every customer action and
+    // nothing said why. That was a hole in these rules, not in the app.
+    //
+    // Same shape as error_reports for the same reasons. Create-only:
+    // anyone signed in may raise one, because the whole point is
+    // hearing from the customer's own device; only staff may read the
+    // list; nothing may be edited afterwards, so no one can rewrite
+    // what their own app reported. Staff delete them as they fold them
+    // into the shared list.
+    match /staff_alerts/{alertId} {
+      allow create: if request.auth != null;
+      allow get, list, delete: if isStaff();
+      allow update: if false;
+    }
+
     // The role PINs, written by api/change-pin.js and read by
     // api/staff-login.js - both through the Admin SDK, which bypasses
     // rules entirely. Denied to every client, including an admin.

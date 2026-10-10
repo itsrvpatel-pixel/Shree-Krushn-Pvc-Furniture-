@@ -688,6 +688,54 @@ async function clearErrorReports() {
 }
 
 
+/* ---- Alerts a customer raises for staff ----
+
+   Every bell entry used to be appended to one shared app_data document.
+   That works for staff and cannot work for a customer: the phase-2
+   rules let a customer write their own record, their own job and their
+   own notification document, and nothing else - so a customer booking
+   a visit, approving an estimate or asking for a change wrote the entry
+   and had it refused, inside a catch that swallowed it. The bell stayed
+   empty for every single customer action and nothing anywhere said why.
+
+   Same shape as error_reports, for the same reason: one document per
+   alert, create-only. A customer can add but cannot read, list, edit or
+   delete, so nobody can rewrite or clear what their own app reported.
+   Staff fold them into the shared list and delete them as they go. */
+const ALERTS_COLLECTION = 'staff_alerts';
+const MAX_ALERT_ROWS = 200;
+
+async function addStaffAlert(entry) {
+  try {
+    await setDoc(doc(collection(db, ALERTS_COLLECTION)), { ...entry, createdAtMs: Date.now() });
+    return true;
+  } catch (e) {
+    console.warn('staff alert not sent (ignored)', e && e.code);
+    return false;
+  }
+}
+
+async function loadStaffAlerts() {
+  const snap = await getDocs(collection(db, ALERTS_COLLECTION));
+  const rows = [];
+  snap.forEach((d) => rows.push({ docId: d.id, ...d.data() }));
+  rows.sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+  return rows.slice(0, MAX_ALERT_ROWS);
+}
+
+// Taken out once staff have folded them into the shared list, so the
+// collection stays a hand-off point and not a second store.
+async function clearStaffAlerts(docIds) {
+  const ids = Array.isArray(docIds) ? docIds.filter(Boolean) : [];
+  if (!ids.length) return 0;
+  for (let i = 0; i < ids.length; i += ERROR_DELETE_BATCH) {
+    const batch = writeBatch(db);
+    for (const id of ids.slice(i, i + ERROR_DELETE_BATCH)) batch.delete(doc(db, ALERTS_COLLECTION, id));
+    await batch.commit();
+  }
+  return ids.length;
+}
+
 export function installWindowStorage() {
   window.storage = {
     get: (key) => get(key),
@@ -703,6 +751,11 @@ export function installWindowStorage() {
   window.phoneAuth = {
     sendOtp: (phoneE164, recaptchaContainerId) => sendPhoneOtp(phoneE164, recaptchaContainerId),
     verifyOtp: (confirmationResult, code) => verifyPhoneOtp(confirmationResult, code),
+  };
+  window.staffAlerts = {
+    add: (e) => addStaffAlert(e),
+    loadAll: () => loadStaffAlerts(),
+    clear: (ids) => clearStaffAlerts(ids),
   };
   window.errorLog = {
     report: (r) => reportError(r),
