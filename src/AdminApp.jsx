@@ -632,6 +632,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
           pendingEstimates={pendingEstimates} overdue={overdue} pendingAppointments={pendingAppointments} pendingExtraWork={pendingExtraWork}
           onOpenJob={setActiveJobId} setTab={setTab} isPartner={isPartner} isDhPartner={isDhPartner}
           onSaveJob={(nextJob) => setJobs(jobs.map((j) => (j.id === nextJob.id ? nextJob : j)))} showToast={showToast}
+          onOpenLeads={() => setShowLeads(true)} onOpenQuickSend={() => setShowQuickSend(true)}
         />
       )}
       {tab === 'customers' && <AdminCustomers customers={customers} setCustomers={setCustomers} customersLoading={customersLoading} customersLoadFailed={customersLoadFailed} jobs={jobs} setJobs={setJobs} expenses={expenses} archivedReviews={archivedReviews} setArchivedReviews={setArchivedReviews} onOpenJob={setActiveJobId} showToast={showToast} isPartner={isPartner} isDhPartner={isDhPartner} />}
@@ -670,7 +671,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   );
 }
 
-export function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEstimates, overdue, pendingAppointments, pendingExtraWork, onOpenJob, setTab, onSaveJob, showToast, isPartner, isDhPartner }) {
+export function AdminHome({ customers, jobs, expenses, gallery, categories, pendingEstimates, overdue, pendingAppointments, pendingExtraWork, onOpenJob, setTab, onSaveJob, showToast, isPartner, isDhPartner, onOpenLeads, onOpenQuickSend }) {
   const [showList, setShowList] = useState(null); // null | 'inProgress' | 'dueList' | 'todaysVisits' | 'tomorrowsVisits' | 'staleJobs' | 'allEstimates' | 'appVisits'
   // Who has been in the app and when. Recomputed on render rather
   // than memoised: it is one pass over a list of fifty, and a stale
@@ -1092,8 +1093,8 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
         <QuickTile icon={<Grid3x3 size={20} color={BRAND.navy} />} label={'Gallery (' + totalPhotos + ')'} onClick={() => setTab('gallery')} />
         <QuickTile icon={<User size={20} color={BRAND.navy} />} label='All Customers' onClick={() => setTab('customers')} />
         <QuickTile icon={<Star size={20} color={BRAND.navy} />} label='Reviews' onClick={() => setTab('reviews')} />
-        <QuickTile icon={<MessageSquare size={20} color={BRAND.navy} />} label='Website enquiry' onClick={() => setShowLeads(true)} />
-        <QuickTile icon={<Send size={20} color={BRAND.navy} />} label='Send to a new number' onClick={() => setShowQuickSend(true)} />
+        <QuickTile icon={<MessageSquare size={20} color={BRAND.navy} />} label='Website enquiry' onClick={onOpenLeads} />
+        <QuickTile icon={<Send size={20} color={BRAND.navy} />} label='Send to a new number' onClick={onOpenQuickSend} />
         <QuickTile icon={<Hammer size={20} color={BRAND.navy} />} label={'Service Due' + (serviceDueJobs.length ? (' (' + serviceDueJobs.length + ')') : '')} onClick={() => setShowList('serviceDue')} />
         {!isPartner && <QuickTile icon={<IndianRupee size={20} color={BRAND.navy} />} label='Expenses' onClick={() => setTab('expenses')} />}
       </div>

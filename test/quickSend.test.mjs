@@ -100,8 +100,15 @@ t('the message is shown before it is sent, and can be copied', () => {
 });
 
 t('it is reachable from Home', () => {
-  assert.ok(/Send to a new number/.test(admin), 'there is no way in');
-  assert.ok(/setShowQuickSend\(true\)/.test(admin), 'the tile does not open it');
+  // This used to search the whole file for setShowQuickSend(true) and
+  // pass, while the tile was calling it from AdminHome, where the
+  // state does not exist - so tapping it threw "Can't find variable".
+  // Scoped to the component the tile is actually in now;
+  // componentScope.test.mjs does the same for every setter in the app.
+  const home = admin.slice(admin.indexOf('export function AdminHome('), admin.indexOf('function QuickTile('));
+  assert.ok(/Send to a new number/.test(home), 'there is no way in');
+  assert.ok(/onClick=\{onOpenQuickSend\}/.test(home), 'the tile does not open it');
+  assert.ok(/setShowQuickSend\(true\)/.test(admin), 'nothing opens the screen at all');
   assert.ok(/useBackToClose\(showQuickSend/.test(admin), 'Android Back will close the whole app');
 });
 
