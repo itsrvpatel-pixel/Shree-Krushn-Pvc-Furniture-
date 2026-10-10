@@ -49,6 +49,7 @@ export const HINGLISH = new RegExp('\\b(' + [
   // a third pass, from words that reached a screen anyway
   'pichhla', 'pichhle', 'pichla', 'natija', 'nateeja', 'jaankari',
   'suchna', 'vivran', 'kripya', 'dhyan', 'yaad', 'shuruat', 'ant',
+  'maujood', 'gayab', 'mitana', 'mita', 'jodna', 'ginna',
 
 ].join('|') + ')\\b', 'i');
 

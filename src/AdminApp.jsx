@@ -5275,13 +5275,14 @@ function DataCheckPanel({ gallery, showToast }) {
     if (!r.ok) return 'ERROR: ' + r.error;
     if (!r.exists) return 'document does not exist';
     const size = Math.round(r.bytes / 1024) + ' KB';
-    const count = typeof r.records === 'number' ? ', ' + r.records + ' record' : '';
-    return 'maujood (' + size + count + ')' + (r.fromCache ? ' [cache se]' : '');
+    const n = typeof r.records === 'number' ? r.records : null;
+    const count = n === null ? '' : (', ' + n + ' record' + (n === 1 ? '' : 's'));
+    return 'there (' + size + count + ')' + (r.fromCache ? ' [from the stored copy]' : '');
   };
   const describeList = (r) => {
     if (!r) return '-';
     if (!r.ok) return 'ERROR: ' + r.error;
-    return r.count + ' document' + (r.fromCache ? ' [cache se]' : '');
+    return r.count + ' document' + (r.count === 1 ? '' : 's') + (r.fromCache ? ' [from the stored copy]' : '');
   };
 
   const run = async () => {
@@ -5805,7 +5806,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     try {
       const n = await window.errorLog.clearAll();
       setErrorRows([]);
-      showToast(n + ' error mita diye');
+      showToast(n + ' error' + (n === 1 ? '' : 's') + ' cleared');
     } catch (e) {
       console.error('clearing error reports failed', e);
       showToast('Could not clear it', true);
