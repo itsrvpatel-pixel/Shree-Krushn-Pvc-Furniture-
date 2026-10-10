@@ -2061,7 +2061,6 @@ export default function App() {
   const categoriesRef = useLatestRef(categories);
   const brochuresRef = useLatestRef(brochures);
   const notificationsRef = useLatestRef(notifications);
-  const sessionRef = useLatestRef(session);
   const expensesRef = useLatestRef(expenses);
   const staffRef = useLatestRef(staff);
   const archivedReviewsRef = useLatestRef(archivedReviews);
@@ -2078,6 +2077,7 @@ export default function App() {
   // toggle one.
   const featuredNeedsBackfillRef = useRef(false);
   const [session, setSessionRaw] = useState(() => loadStoredSession());
+  const sessionRef = useLatestRef(session);
   // Wraps setSession so every update (login, logout, role switch) is
   // automatically persisted to localStorage, keeping the session alive
   // across page refreshes without needing to update every call site.
