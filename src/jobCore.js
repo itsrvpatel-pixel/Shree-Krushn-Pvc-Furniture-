@@ -1619,3 +1619,86 @@ export function partnerDashboard(jobs, percent, payouts, now, totalOf, paidOf) {
     attention: partnerNeedsAttention(list, now, totalOf, paidOf),
   };
 }
+
+/* --- One staff member, everything about them -----------------------
+ *
+ * Asked for directly: how does the admin open a staff member and see
+ * that person's record, and add something to it.
+ *
+ * Until now there was no such place. A karigar's workload sat in one
+ * report on Home, a partner's commission in another, their PIN in
+ * Settings, and the money paid to them in Expenses under a name typed
+ * by hand. Answering "how is Rishi doing, and what do we owe him"
+ * meant visiting four screens and adding up by eye.
+ *
+ * HOW MONEY PAID TO A KARIGAR IS FOUND, AND WHY IT IS FRAGILE
+ *
+ * Expenses record a payee as free text, so the only link between an
+ * expense and a staff member is that the names match. Matching is
+ * therefore case- and space-insensitive, and the screen says plainly
+ * that it works by name - because renaming somebody in the staff list
+ * silently detaches their payment history, and a figure that quietly
+ * becomes wrong is worse than one that is obviously missing.
+ *
+ * jobTotal and jobPaid are passed in for the same reason as the
+ * partner dashboard: there is one definition of what a customer owes
+ * and this is not a second one.
+ */
+const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+
+export function staffRecord(member, jobs, expenses, attendance, percentOverride, paidOf) {
+  const m = member || {};
+  const mine = (jobs || []).filter((j) => j.assignedStaffId === m.id);
+  const completed = mine.filter((j) => j.status === 'delivered' || j.status === 'paid');
+  const active = mine.filter((j) => j.status === 'in_progress');
+
+  // Payments made TO this person, by name. See the note above.
+  const payments = (expenses || [])
+    .filter((e) => e && sameName(e.payee, m.name))
+    .sort((a, b) => timeOf(b.date) - timeOf(a.date));
+  const paidToThem = payments.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  const pct = Number(percentOverride != null ? percentOverride : m.commissionPercent) || 0;
+  const collected = mine.reduce((s, j) => s + (Number(paidOf(j)) || 0), 0);
+  const commissionEarned = Math.round(collected * (pct / 100));
+  const commissionPaid = (m.commissionPayouts || []).reduce((s, p) => s + (Number(p && p.amount) || 0), 0);
+
+  return {
+    id: m.id,
+    name: m.name || '(no name)',
+    role: m.role || 'admin',
+    hasPin: !!(m.hasPin || m.pin),
+    jobs: { all: mine, active: active.length, completed: completed.length, total: mine.length },
+    photos: mine.reduce((s, j) => s + (j.progressPhotos || []).length, 0),
+    attendanceDays: (attendance || []).filter((a) => a && a.staffId === m.id).length,
+    collected,
+    payments,
+    paidToThem,
+    commission: {
+      percent: pct,
+      earned: commissionEarned,
+      paid: commissionPaid,
+      due: commissionEarned - commissionPaid,
+      payouts: [...(m.commissionPayouts || [])].sort((a, b) => timeOf(b.date) - timeOf(a.date)),
+    },
+    // Only meaningful once they have actually been given work: an
+    // untested person shows 0%, never a flattering 100% from an empty
+    // division.
+    completionRate: mine.length > 0 ? completed.length / mine.length : 0,
+  };
+}
+
+// What the admin is being asked to do about this person, if anything.
+// Same rule as the partner's own screen: name only what is actionable,
+// or the list stops being read.
+export function staffNeedsAttention(rec) {
+  const out = [];
+  if (!rec) return out;
+  if (!rec.hasPin) out.push('No PIN set - they cannot log in');
+  if (rec.role === 'regional_partner' && rec.commission.percent <= 0) {
+    out.push('No commission rate set - they earn nothing');
+  }
+  if (rec.commission.due > 0) out.push('Commission owed');
+  if (rec.jobs.total === 0) out.push('No work assigned yet');
+  return out;
+}

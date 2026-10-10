@@ -455,7 +455,48 @@ await step('the admin Settings cards are all there', async () => {
   if (!/If a PIN gets out/i.test(text)) throw new Error('the PIN card never rendered');
 });
 
+// The staff record, opened the way the admin would: Settings, then a
+// name. It is the screen that was missing entirely - four reports and
+// no way to get from a person to their jobs.
+await step('a staff member\'s record opens from Settings', async () => {
+  await loginAs('7777');
+  await page.getByText('Settings', { exact: true }).last().click({ timeout: 8000 });
+  await page.waitForTimeout(900);
+  await page.mouse.wheel(0, 20000);
+  await page.waitForTimeout(700);
+  await tap('Jayesh');
+  await page.waitForTimeout(1500);
+  const text = await page.locator('#root').innerText();
+  const flat = text.toLowerCase();
+  if (!/staff record/i.test(text)) throw new Error('the record screen did not open');
+  if (!flat.includes('commission')) throw new Error('a partner record shows no commission');
+  if (!flat.includes('their jobs')) throw new Error('their jobs are not listed');
+  if (!/Ramesh Patel/.test(text)) throw new Error('the job assigned to them is missing');
+  if (!flat.includes('reset their pin')) throw new Error('there is no way to reset their PIN');
+});
+
+await step('a karigar record shows payments rather than commission', async () => {
+  await loginAs('7777');
+  await page.getByText('Settings', { exact: true }).last().click({ timeout: 8000 });
+  await page.waitForTimeout(900);
+  await page.mouse.wheel(0, 20000);
+  await page.waitForTimeout(700);
+  await tap('Rishi');
+  await page.waitForTimeout(1500);
+  const flat = (await page.locator('#root').innerText()).toLowerCase();
+  if (!flat.includes('paid to them so far')) throw new Error('a karigar record shows no payment total');
+  if (!flat.includes('record payment')) throw new Error('a payment cannot be added');
+});
+
 await step('the error list opens', async () => {
+  // Navigates itself rather than leaning on wherever the previous
+  // step happened to leave the app - which is what broke it the
+  // moment two steps were inserted above.
+  await loginAs('7777');
+  await page.getByText('Settings', { exact: true }).last().click({ timeout: 8000 });
+  await page.waitForTimeout(900);
+  await page.mouse.wheel(0, 20000);
+  await page.waitForTimeout(700);
   await tap('Show errors');
   await page.waitForTimeout(900);
 });

@@ -95,6 +95,8 @@ import {
   EstimateOptionItems,
   estimateItemAmount,
   buildOptionPair,
+  staffRecord,
+  staffNeedsAttention,
   leadLoadMessage,
   backupAge,
   readableSize,
@@ -523,12 +525,18 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   // top so the job screen can raise it over itself and Back drops you
   // straight into the job you were already in.
   const [showLeads, setShowLeads] = useState(false);
+  // Which staff member is open. Held here rather than inside Settings
+  // because the same screen is reached from three places - the staff
+  // list, the karigar report and the commission report - and all three
+  // should land somewhere that outlives them.
+  const [profileStaffId, setProfileStaffId] = useState(null);
   const [showQuickSend, setShowQuickSend] = useState(false);
   useBackToClose(showQuickSend, () => setShowQuickSend(false));
   useBackToClose(showLeads, () => setShowLeads(false));
   const [profileCustomerId, setProfileCustomerId] = useState(null);
   useBackToClose(!!profileCustomerId, () => setProfileCustomerId(null));
   const profileCustomer = profileCustomerId ? customers.find((c) => c.id === profileCustomerId) : null;
+  const profileStaff = profileStaffId ? (staff || []).find((m) => m.id === profileStaffId) : null;
   // Once the Gallery tab has been visited, it stays MOUNTED (just
   // hidden via CSS when a different tab is active) instead of being
   // unmounted/remounted every time admin switches away and back - see
@@ -559,6 +567,49 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
       <div style={{ paddingBottom: 20 }}>
         <TopBar title='Website enquiry' subtitle='From the form' onBack={() => setShowLeads(false)} hideLogout />
         <AdminLeads onBack={() => setShowLeads(false)} showToast={showToast} />
+      </div>
+    );
+  }
+
+  if (profileStaff) {
+    return (
+      <div style={{ paddingBottom: 20 }}>
+        <TopBar title={profileStaff.name} subtitle='Staff record' onBack={() => setProfileStaffId(null)} hideLogout />
+        <AdminStaffProfile
+          member={profileStaff}
+          jobs={jobs}
+          expenses={expenses}
+          setExpenses={setExpenses}
+          attendance={attendance}
+          backLabel='Back'
+          onBack={() => setProfileStaffId(null)}
+          onOpenJob={(id) => { setProfileStaffId(null); setActiveJobId(id); }}
+          onRecordPayout={(staffId, amount) => {
+            const payout = { id: uid(), amount: Number(amount), date: new Date().toISOString() };
+            setStaff(staff.map((m) => (m.id === staffId
+              ? { ...m, commissionPayouts: [...(m.commissionPayouts || []), payout] }
+              : m)));
+            showToast('Payout recorded');
+          }}
+          onResetPin={async (rec) => {
+            const entered = window.prompt('New PIN for ' + rec.name + ' (4+ digits):', '');
+            if (entered === null) return;
+            const next = String(entered).trim();
+            if (!/^[0-9]{4,10}$/.test(next)) { showToast('The PIN must be 4 to 10 digits', true); return; }
+            const api = window.staffAuth && window.staffAuth.changePin;
+            const res = api ? await api('staff:' + rec.id, '', next) : { unconfigured: true };
+            if (res && res.ok) {
+              setStaff(staff.map((m) => (m.id === rec.id ? { ...m, pin: undefined, hasPin: true } : m)));
+              showToast('PIN changed');
+            } else if (res && res.unconfigured) {
+              setStaff(staff.map((m) => (m.id === rec.id ? { ...m, pin: next } : m)));
+              showToast('PIN changed');
+            } else {
+              showToast((res && res.error) || 'The PIN could not be set', true);
+            }
+          }}
+          showToast={showToast}
+        />
       </div>
     );
   }
@@ -653,6 +704,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
         (isPartner || isDhPartner)
           ? <PartnerSettings staffName={staffName} onLogout={onLogout} />
           : <AdminSettings
+            onOpenStaff={setProfileStaffId}
             googleReviewLink={googleReviewLink} setGoogleReviewLink={setGoogleReviewLink} adminPin={adminPin} setAdminPin={setAdminPin} partnerPin={partnerPin} setPartnerPin={setPartnerPin} dhPartnerPin={dhPartnerPin} setDhPartnerPin={setDhPartnerPin} staff={staff} setStaff={setStaff} appointmentItemOptions={appointmentItemOptions} setAppointmentItemOptions={setAppointmentItemOptions} categories={categories} setCategories={setCategories} gallery={gallery} setGallery={setGallery} pendingGalleryPhotos={pendingGalleryPhotos} setPendingGalleryPhotos={setPendingGalleryPhotos} brochures={brochures} addBrochure={addBrochure} removeBrochure={removeBrochure} allData={allData} jobs={jobs} customers={customers} attendance={attendance} estimateRates={estimateRates} setEstimateRates={setEstimateRates} faqs={faqs} setFaqs={setFaqs} materialSpecs={materialSpecs} setMaterialSpecs={setMaterialSpecs} companyBenefits={companyBenefits} setCompanyBenefits={setCompanyBenefits} adminPushTokens={adminPushTokens} enableAdminPushNotifications={enableAdminPushNotifications} onDeadPushTokens={onDeadPushTokens} onLogout={onLogout} showToast={showToast} />
       )}
 
@@ -1139,7 +1191,181 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
    delivered/paid among assigned), total progress photos uploaded, and
    attendance days logged - a single view for admin to see who's
    actually productive, not just who's on the staff list. ---- */
-function AdminKarigarPerformance({ staff, jobs, attendance }) {
+/* ---- One staff member, everything in one place -------------------
+ *
+ * Asked for directly: how does the admin open a staff member, see
+ * that person's record, and add something to it.
+ *
+ * There was no such place. A karigar's workload sat in one report on
+ * Home, a partner's commission in another, their PIN in Settings, and
+ * money paid to them in Expenses under a name typed by hand.
+ * Answering "how is Rishi doing and what do we owe him" meant four
+ * screens and adding up by eye.
+ *
+ * Reachable from all three of those places, so whichever one the
+ * admin happens to be looking at, the person's name opens the person.
+ * ---- */
+export function AdminStaffProfile({ member, jobs, expenses, setExpenses, attendance, onBack, onOpenJob, onRecordPayout, onResetPin, showToast, backLabel = 'Staff' }) {
+  const [payAmount, setPayAmount] = useState('');
+  const [payNote, setPayNote] = useState('');
+  const [payoutAmount, setPayoutAmount] = useState('');
+
+  const rec = staffRecord(member, jobs, expenses, attendance, null, jobPaid);
+  const todo = staffNeedsAttention(rec);
+  const isPartner = rec.role === 'regional_partner';
+
+  // A payment to a karigar is an ordinary expense with their name on
+  // it - the same row the Expenses screen would create, so the two
+  // never disagree and the money still lands in the month's totals.
+  const addPayment = () => {
+    if (!payAmount || Number(payAmount) <= 0) { showToast('Enter a valid amount', true); return; }
+    const entry = {
+      id: uid(), type: 'Karigar Payment', payee: rec.name, amount: payAmount,
+      note: payNote.trim(), jobId: null, date: new Date().toISOString(),
+    };
+    setExpenses([entry, ...(expenses || [])]);
+    setPayAmount(''); setPayNote('');
+    showToast('Payment recorded');
+  };
+
+  return (
+    <div style={{ paddingBottom: 24 }}>
+      <div style={{ padding: '12px 16px 0' }}>
+        <button style={styles.backLink} onClick={onBack}><ArrowLeft size={13} /> {backLabel}</button>
+      </div>
+      <div style={{ padding: '12px 16px' }}>
+        <div style={styles.sectionTitle}>{rec.name}</div>
+        <div style={styles.cardMeta}>
+          <span style={styles.reqCatBadge}>
+            {rec.role === 'karigar' ? 'Karigar' : (isPartner ? 'Regional Partner' : 'Admin')}
+          </span>
+          <span style={rec.hasPin ? styles.metaItem : styles.metaItemWarn}>
+            {rec.hasPin ? 'PIN set' : 'No PIN - cannot log in'}
+          </span>
+        </div>
+
+        {todo.length > 0 && (
+          <div style={{ ...styles.card, background: '#FFF4E5', borderColor: BRAND.gold, marginTop: 10 }}>
+            <div style={styles.fieldLabel}>Needs doing</div>
+            {todo.map((line) => <div key={line} style={styles.itemSub}>- {line}</div>)}
+          </div>
+        )}
+
+        <div style={styles.statRow2}>
+          <StatCard icon={<Hammer size={14} />} label='Jobs' value={rec.jobs.total} />
+          <StatCard icon={<CheckCircle2 size={14} />} label='Finished' value={rec.jobs.completed} />
+        </div>
+        <div style={styles.statRow2}>
+          <StatCard icon={<Grid3x3 size={14} />} label='Photos' value={rec.photos} />
+          <StatCard icon={<Calendar size={14} />} label='Attendance' value={rec.attendanceDays} />
+        </div>
+        <div style={{ ...styles.itemSub, marginTop: 6 }}>
+          {Math.round(rec.completionRate * 100)}% of their jobs finished
+          {rec.collected > 0 ? (' - ' + currency(rec.collected) + ' collected on their work') : ''}
+        </div>
+
+        {/* ---- Money. Two quite different questions depending on who
+            this is: what we still owe a partner in commission, or what
+            we have paid a karigar so far. ---- */}
+        {isPartner ? (
+          <div style={{ ...styles.card, marginTop: 12 }}>
+            <div style={styles.fieldLabel}>Commission ({rec.commission.percent}% of what is collected)</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+              <div><div style={styles.itemSub}>Earned</div><div style={{ fontWeight: 800 }}>{currency(rec.commission.earned)}</div></div>
+              <div><div style={styles.itemSub}>Paid</div><div style={{ fontWeight: 800, color: '#2F7D4F' }}>{currency(rec.commission.paid)}</div></div>
+              <div><div style={styles.itemSub}>Owed</div><div style={{ fontWeight: 800, color: rec.commission.due > 0 ? '#C62828' : '#2F7D4F' }}>{currency(rec.commission.due)}</div></div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <input
+                style={{ ...styles.input, flex: 1 }} inputMode='decimal' placeholder='Payout amount'
+                value={payoutAmount} onChange={(e) => setPayoutAmount(e.target.value)}
+              />
+              <button
+                style={styles.addBtn}
+                onClick={() => {
+                  if (!payoutAmount || Number(payoutAmount) <= 0) { showToast('Enter a valid amount', true); return; }
+                  onRecordPayout(rec.id, payoutAmount);
+                  setPayoutAmount('');
+                }}
+              >Record payout</button>
+            </div>
+            {rec.commission.payouts.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <div style={styles.fieldLabel}>Payouts so far</div>
+                {rec.commission.payouts.map((po) => (
+                  <div key={po.id || po.date} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid ' + BRAND.line }}>
+                    <span style={styles.itemSub}>{formatDate(po.date)}</span>
+                    <span style={{ fontWeight: 700 }}>{currency(po.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ ...styles.card, marginTop: 12 }}>
+            <div style={styles.fieldLabel}>Paid to them so far</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: BRAND.navy }}>{currency(rec.paidToThem)}</div>
+            {/* Said plainly, because it is true and it will bite
+                somebody otherwise. */}
+            <div style={{ ...styles.itemSub, marginTop: 4 }}>
+              Found by matching the name on each expense. Renaming them here will
+              detach their older payments.
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <input
+                style={{ ...styles.input, flex: 1 }} inputMode='decimal' placeholder='Amount'
+                value={payAmount} onChange={(e) => setPayAmount(e.target.value)}
+              />
+              <button style={styles.addBtn} onClick={addPayment}>Record payment</button>
+            </div>
+            <input
+              style={{ ...styles.input, marginTop: 8 }} placeholder='What for (optional)'
+              value={payNote} onChange={(e) => setPayNote(e.target.value)}
+            />
+            {rec.payments.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <div style={styles.fieldLabel}>Payment history ({rec.payments.length})</div>
+                {rec.payments.slice(0, 20).map((e) => (
+                  <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid ' + BRAND.line }}>
+                    <span style={styles.itemSub}>{formatDate(e.date)}{e.note ? (' - ' + e.note) : ''}</span>
+                    <span style={{ fontWeight: 700 }}>{currency(e.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ---- Their work. Tapping a name here is how the admin gets
+            from "who" to "which job", which was the missing step. ---- */}
+        <div style={{ ...styles.sectionTitle, marginTop: 16 }}>Their jobs ({rec.jobs.total})</div>
+        {rec.jobs.total === 0 && <div style={styles.emptySmall}>No work assigned to them yet.</div>}
+        {rec.jobs.all.map((j) => (
+          <button
+            key={j.id}
+            style={{ ...styles.card, width: '100%', textAlign: 'left', marginTop: 8, padding: 14, cursor: 'pointer' }}
+            onClick={() => onOpenJob(j.id)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ ...styles.cardName, flex: 1 }}>{j.customerName}</div>
+              <StageBadge status={j.status} />
+            </div>
+            <div style={styles.itemSub}>
+              {currency(jobPaid(j))} collected of {currency(jobTotal(j))}
+              {(j.progressPhotos || []).length > 0 ? (' - ' + j.progressPhotos.length + ' photos') : ''}
+            </div>
+          </button>
+        ))}
+
+        <button style={{ ...styles.cardActionBtn, marginTop: 16 }} onClick={() => onResetPin(rec)}>
+          <ShieldCheck size={12} /> Reset their PIN
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AdminKarigarPerformance({ staff, jobs, attendance, onOpenStaff }) {
   const karigars = staff.filter((s) => s.role === 'karigar');
   const rows = karigars.map((k) => {
     const assignedJobs = jobs.filter((j) => j.assignedStaffId === k.id);
@@ -1155,14 +1381,21 @@ function AdminKarigarPerformance({ staff, jobs, attendance }) {
       <div style={styles.plainTextMuted}>{t('How much work each carpenter is handling.')}</div>
       {rows.length === 0 && <div style={styles.emptySmall}>{t('No carpenters added yet.')}</div>}
       {rows.map((r) => (
-        <div key={r.karigar.id} style={styles.reviewCard}>
-          <div style={styles.cardName}>{r.karigar.name}</div>
+        <button
+          key={r.karigar.id}
+          style={{ ...styles.reviewCard, width: '100%', textAlign: 'left', cursor: 'pointer' }}
+          onClick={() => onOpenStaff && onOpenStaff(r.karigar.id)}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ ...styles.cardName, flex: 1 }}>{r.karigar.name}</div>
+            <ChevronRight size={14} color={BRAND.textMuted} />
+          </div>
           <div style={styles.statRow2}>
             <StatCard icon={<Hammer size={14} />} label='Assigned' value={r.assignedCount} />
             <StatCard icon={<CheckCircle2 size={14} />} label='Completed' value={r.completedCount} />
           </div>
-          <div style={styles.itemSub}>{r.totalPhotos} progress photos - {r.attendanceDays} din attendance</div>
-        </div>
+          <div style={styles.itemSub}>{r.totalPhotos} progress photos - {r.attendanceDays} days attendance</div>
+        </button>
       ))}
     </div>
   );
@@ -1174,7 +1407,7 @@ function AdminKarigarPerformance({ staff, jobs, attendance }) {
 // partner's own app computes it (percentage of what's actually been
 // COLLECTED so far, not the full estimate), so the two always agree on
 // the number, and nobody's surprised at payout time.
-function AdminCommissionReport({ staff, jobs, setStaff, showToast }) {
+function AdminCommissionReport({ staff, jobs, setStaff, showToast, onOpenStaff }) {
   const [payoutAmountByPartner, setPayoutAmountByPartner] = useState({});
   const partners = staff.filter((s) => s.role === 'regional_partner');
   const rows = partners.map((p) => {
@@ -2544,7 +2777,7 @@ function PaymentStagesEditor({ job, onSave, showToast }) {
           </div>
         </div>
         <button style={styles.linkBtn2} onClick={() => { setDraft(stages.map((st) => String(st.percent))); setOpen((o) => !o); }}>
-          {open ? 'Close' : 'Badlein'}
+          {open ? 'Close' : 'Change'}
         </button>
       </div>
 
@@ -3461,7 +3694,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
                   call it, and only suggests the old value. */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 8 }}>
                 <div style={styles.itemSub}>Certificate No: <b>{warrantyCertNo(job)}</b></div>
-                <button style={styles.previewLinkBtn} onClick={() => editDocNumber('warranty')}>Badlein</button>
+                <button style={styles.previewLinkBtn} onClick={() => editDocNumber('warranty')}>Change</button>
               </div>
               </>
             )}
@@ -5602,7 +5835,7 @@ function BackupPanel({ showToast }) {
   );
 }
 
-function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, pendingGalleryPhotos, setPendingGalleryPhotos, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, googleReviewLink, setGoogleReviewLink, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, adminPushTokens, enableAdminPushNotifications, onDeadPushTokens, onLogout, showToast }) {
+function AdminSettings({ onOpenStaff, adminPin, setAdminPin, partnerPin, setPartnerPin, dhPartnerPin, setDhPartnerPin, staff, setStaff, appointmentItemOptions, setAppointmentItemOptions, categories, setCategories, gallery, setGallery, pendingGalleryPhotos, setPendingGalleryPhotos, brochures, addBrochure, removeBrochure, allData, jobs, customers, attendance, estimateRates, setEstimateRates, faqs, setFaqs, googleReviewLink, setGoogleReviewLink, materialSpecs, setMaterialSpecs, companyBenefits, setCompanyBenefits, adminPushTokens, enableAdminPushNotifications, onDeadPushTokens, onLogout, showToast }) {
   const [signingOutAll, setSigningOutAll] = useState(false);
   // Same union fix as GalleryBrowser/AdminGallery's matching comment -
   // used here so a category with real gallery photos never becomes
@@ -6109,7 +6342,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         <div style={{ padding: '12px 16px 0' }}>
           <button style={styles.backLink} onClick={() => setShowKarigarPerformance(false)}><ArrowLeft size={13} /> Settings</button>
         </div>
-        <AdminKarigarPerformance staff={staff} jobs={jobs || []} attendance={attendance || []} />
+        <AdminKarigarPerformance staff={staff} jobs={jobs || []} attendance={attendance || []} onOpenStaff={onOpenStaff} />
       </div>
     );
   }
@@ -6120,7 +6353,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         <div style={{ padding: '12px 16px 0' }}>
           <button style={styles.backLink} onClick={() => setShowCommissionReport(false)}><ArrowLeft size={13} /> Settings</button>
         </div>
-        <AdminCommissionReport staff={staff} jobs={jobs || []} setStaff={setStaff} showToast={showToast} />
+        <AdminCommissionReport staff={staff} jobs={jobs || []} setStaff={setStaff} showToast={showToast} onOpenStaff={onOpenStaff} />
       </div>
     );
   }
@@ -6415,12 +6648,18 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         {staff.map((s) => (
           <div key={s.id} style={styles.staffRow}>
             <div style={{ flex: 1 }}>
-              <div style={styles.itemDesc}>{s.name} <span style={styles.reqCatBadge}>{s.role === 'karigar' ? 'Karigar' : (s.role === 'regional_partner' ? 'Regional Partner' : 'Admin')}</span></div>
+              <button
+                style={{ ...styles.itemDesc, background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                onClick={() => onOpenStaff && onOpenStaff(s.id)}
+              >
+                {s.name} <span style={styles.reqCatBadge}>{s.role === 'karigar' ? 'Karigar' : (s.role === 'regional_partner' ? 'Regional Partner' : 'Admin')}</span>
+                <ChevronRight size={13} color={BRAND.textMuted} />
+              </button>
               <div style={styles.itemSub}>
                 {s.pin ? ('PIN: ' + s.pin) : t('PIN is set (secure)')}
                 {s.role === 'regional_partner' && s.commissionPercent ? (' - Commission: ' + s.commissionPercent + '%') : ''}
               </div>
-              <button style={{ ...styles.previewLinkBtn, marginTop: 6 }} onClick={() => resetStaffPin(s)}>PIN badlein</button>
+              <button style={{ ...styles.previewLinkBtn, marginTop: 6 }} onClick={() => resetStaffPin(s)}>Change PIN</button>
             </div>
             <button style={styles.iconBtnSmall} onClick={() => removeStaff(s.id)}><Trash2 size={14} color='#C7CCDC' /></button>
           </div>

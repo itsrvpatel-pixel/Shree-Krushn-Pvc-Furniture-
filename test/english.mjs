@@ -50,6 +50,7 @@ export const HINGLISH = new RegExp('\\b(' + [
   'pichhla', 'pichhle', 'pichla', 'natija', 'nateeja', 'jaankari',
   'suchna', 'vivran', 'kripya', 'dhyan', 'yaad', 'shuruat', 'ant',
   'maujood', 'gayab', 'mitana', 'mita', 'jodna', 'ginna',
+  'badlein', 'badlo', 'badalna', 'chunein', 'chuno', 'bharo',
 
 ].join('|') + ')\\b', 'i');
 
