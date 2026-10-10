@@ -2292,10 +2292,18 @@ export default function App() {
         // up and rendering unauthenticated is always the better failure -
         // the user then sees the app, or its own error, rather than a
         // blank screen.
+        // Whether we actually got signed in, as opposed to the 12s
+        // timeout winning. It matters below: every read the migration
+        // makes is denied to a signed-out client, and reporting that as
+        // "purane data load nahi ho paye - admin ko batayein" sends the
+        // owner looking for a data problem when the truth is a slow
+        // network. The race itself stays - the app must start either
+        // way - but it no longer lies about why.
+        let signedIn = false;
         try {
-          await Promise.race([
-            window.appAuth.ensureSignedIn(),
-            new Promise((resolve) => setTimeout(resolve, 12000)),
+          signedIn = await Promise.race([
+            window.appAuth.ensureSignedIn().then(() => true),
+            new Promise((resolve) => setTimeout(() => resolve(false), 12000)),
           ]);
         } catch (e) { /* carry on unauthenticated */ }
         // Copies a pre-split app_data/jobs document into per-job documents
@@ -2317,10 +2325,21 @@ export default function App() {
         // gone" - so anything other than a clean result says so on
         // screen instead of only in the console. The pre-split documents
         // are never deleted, so nothing is actually lost either way.
-        const migrations = await Promise.all([
-          window.jobsStore.migrateLegacyIfNeeded(),
-          window.customersStore.migrateLegacyIfNeeded(),
-        ]);
+        //
+        // Staff only, for the same reason the shared notifications read
+        // above is: this reads app_data/jobs and app_data/customers and
+        // then LISTS both collections, none of which a customer may
+        // touch - every one of those is denied, the first throws, and
+        // the catch reports reason 'error'. Which is how every customer
+        // got a red "purane data se load nahi ho paye - admin ko
+        // batayein" on every single app open, for a migration that is
+        // not theirs to run and finished long ago anyway.
+        const migrations = (!signedIn || (storedSession && storedSession.role === 'customer'))
+          ? []
+          : await Promise.all([
+            window.jobsStore.migrateLegacyIfNeeded(),
+            window.customersStore.migrateLegacyIfNeeded(),
+          ]);
         migrations.forEach((m, i) => {
           const what = i === 0 ? 'Jobs' : 'Customers';
           if (m.reason === 'error' || m.reason === 'legacy-unreadable') {
