@@ -16,6 +16,7 @@
 // on, which is why it is pinned here rather than left to be found.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { hinglishIn } from './english.mjs';
 import { pushFailureMessage, isIosInBrowser, pruneDeadPushTokens } from '../src/jobCore.js';
 
 const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
@@ -81,11 +82,10 @@ t('one wording for every reason, shared by all three screens', () => {
     'a screen words this itself again - including for the case where nobody was ever asked');
 });
 
-t('every message it can produce is translated', () => {
-  const dict = readFileSync(new URL('../src/translations.js', import.meta.url), 'utf8');
+t('every message it can produce is English', () => {
   for (const reason of ['not_configured', 'unsupported', 'denied', 'no_token', 'anything-else']) {
     const msg = pushFailureMessage(reason);
-    assert.ok(dict.includes("'" + msg + "':"), 'no English for: ' + msg);
+    assert.deepEqual(hinglishIn(msg), [], 'not English: ' + msg);
   }
 });
 

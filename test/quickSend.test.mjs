@@ -88,7 +88,7 @@ t('the send is blocked until the number is real', () => {
   const screen = strip(admin).slice(strip(admin).indexOf('function AdminQuickSend('));
   assert.ok(/pointerEvents: ready \? 'auto' : 'none'/.test(screen),
     'WhatsApp opens on an incomplete number');
-  assert.ok(/10 digit number likhein/.test(screen), 'a bad number gives no reason');
+  assert.ok(/Enter a 10-digit number/.test(screen), 'a bad number gives no reason');
 });
 
 t('the message is shown before it is sent, and can be copied', () => {

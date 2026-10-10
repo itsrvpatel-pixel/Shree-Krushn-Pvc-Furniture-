@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { stripUndefined } from '../src/jobsStore.js';
 
-// The exact record "+ Naya Customer" used to build for an ordinary
+// The exact record "+ New customer" used to build for an ordinary
 // admin. Firestore rejects the whole write over that one undefined, so
 // the customer never saved while their job did.
 {

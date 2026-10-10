@@ -14,6 +14,7 @@
 // and locked - the lock is the proof - while Home stays quiet.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { hinglishIn } from './english.mjs';
 import { reviewPrompt, canLeaveReview } from '../src/jobCore.js';
 
 const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
@@ -64,12 +65,12 @@ t('once it is open, it asks for the review instead', () => {
   for (const status of ['delivered', 'paid']) {
     const p = reviewPrompt({ status });
     assert.equal(p.title, 'Review Dein');
-    assert.equal(p.sub, 'Aapka anubhav kaisa raha?');
+    assert.equal(p.sub, 'How was your experience?');
   }
 
   const again = reviewPrompt({ status: 'delivered', review: { rating: 5 } });
-  assert.equal(again.title, 'Aapka Review');
-  assert.equal(again.sub, 'Badalna ho to yahan se');
+  assert.equal(again.title, 'Your review');
+  assert.equal(again.sub, 'Change it from here');
 
   for (const job of [null, undefined, {}]) {
     const p = reviewPrompt(job);
@@ -77,8 +78,7 @@ t('once it is open, it asks for the review instead', () => {
   }
 });
 
-t('every string it returns is translated', () => {
-  const dict = readFileSync(new URL('../src/translations.js', import.meta.url), 'utf8');
+t('every string it returns is English', () => {
   const all = [
     reviewPrompt({ status: 'in_progress' }),
     reviewPrompt({ status: 'delivered' }),
@@ -86,7 +86,7 @@ t('every string it returns is translated', () => {
   ];
   for (const p of all) {
     for (const str of [p.title, p.sub]) {
-      assert.ok(dict.includes("'" + str + "':"), 'no English for: ' + str);
+      assert.deepEqual(hinglishIn(str), [], 'not English: ' + str);
     }
   }
 });
@@ -96,7 +96,7 @@ t('both places call the helper - neither writes the wording itself', () => {
   const home = app.slice(app.indexOf('export function CustomerHome('), app.indexOf('export function ProgressRing('));
   assert.ok(/reviewPrompt\(job\)/.test(more), 'the More tab does not use the helper');
   assert.ok(/reviewPrompt\(job\)/.test(home), 'Home does not use the helper');
-  assert.ok(!/job\.review \? t\('Aapka Review'\)/.test(app), 'the wording is inlined again somewhere');
+  assert.ok(!/job\.review \? t\('Your review'\)/.test(app), 'the wording is inlined again somewhere');
 });
 
 t('Home hides the row until it works; More shows it locked', () => {

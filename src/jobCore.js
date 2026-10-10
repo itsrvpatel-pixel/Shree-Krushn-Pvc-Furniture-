@@ -215,7 +215,7 @@ export function planPdfPages(contentHeight, pageHeight, breaks, minFillRatio = 0
 // surfaces nothing they could not already read.
 //
 // `now` is injected rather than read from the clock so this can be
-// tested, and so "Aaj" means the same thing for every entry in one
+// tested, and so "Today" means the same thing for every entry in one
 // render.
 function dayKeyOf(iso) {
   const d = new Date(iso);
@@ -408,7 +408,7 @@ export const DEFAULT_PAYMENT_STAGES = [
   // never show a nonzero due amount: by the time it is reached the job
   // is settled by definition. Tying the last stage to delivery means
   // it correctly reads as outstanding while payment is still pending.
-  { key: 'final', label: 'Final payment', percent: 10, when: 'Delivery ke baad', atStatus: 'delivered' },
+  { key: 'final', label: 'Final payment', percent: 10, when: 'After delivery', atStatus: 'delivered' },
 ];
 
 // Which stages a job is on: its own, if admin set them, otherwise the
@@ -505,8 +505,8 @@ export function jobCostBreakdown(expenses, jobId) {
     // Names are typed by hand every time, so "Suresh", "suresh " and
     // "Suresh" are one person. The first spelling seen is the one
     // shown, matching how the Expenses tab already groups them.
-    const key = String(e.payee || '').trim().toLowerCase() || '(naam nahi)';
-    const payee = byPayee.get(key) || { name: String(e.payee || '').trim() || '(naam nahi)', total: 0, count: 0 };
+    const key = String(e.payee || '').trim().toLowerCase() || '(no name)';
+    const payee = byPayee.get(key) || { name: String(e.payee || '').trim() || '(no name)', total: 0, count: 0 };
     payee.total += amount;
     payee.count += 1;
     byPayee.set(key, payee);
@@ -574,8 +574,8 @@ export function canLeaveReview(job) {
 // anyone who merely logged in. Home hides the row instead, because
 // Home is the screen he wants quiet.
 export function reviewPrompt(job) {
-  if (job && job.review) return { title: 'Aapka Review', sub: 'Badalna ho to yahan se' };
-  if (canLeaveReview(job)) return { title: 'Review Dein', sub: 'Aapka anubhav kaisa raha?' };
+  if (job && job.review) return { title: 'Your review', sub: 'Change it from here' };
+  if (canLeaveReview(job)) return { title: 'Review Dein', sub: 'How was your experience?' };
   return { title: 'Review Dein', sub: 'Kaam poora hone ke baad hi de sakte hain' };
 }
 
@@ -589,7 +589,7 @@ export function reviewsSummary(testimonials) {
   return { count: list.length, avg: avg.toFixed(1) };
 }
 
-// "Aakhri baar kab aaya" - the stamp, and how it reads.
+// "Last seen kab aaya" - the stamp, and how it reads.
 //
 // Two separate decisions, kept apart because only one of them is about
 // money. Writing costs a Firestore write every time a customer opens
@@ -601,7 +601,7 @@ export const LAST_SEEN_GAP_MS = 60 * 60 * 1000;
 // Worth a write? Only if the last one is old enough. A customer who
 // opens the app eight times while waiting for a photo to upload is one
 // visit, not eight, and the admin screen cannot tell the difference
-// anyway - it says "2 ghante pehle" either way.
+// anyway - it says "2 hours ago" either way.
 //
 // A missing or unparseable stamp always writes: that is a customer
 // whose last visit is unknown, which is the one case worth spending a
@@ -623,27 +623,27 @@ export function shouldTouchLastSeen(stored, now, gapMs) {
 // - a finished sentence cannot be translated without the table growing
 // one entry per number.
 //
-// Deliberately vague past a day: "6 din pehle" is what he actually
+// Deliberately vague past a day: "6 days ago" is what he actually
 // wants to know, and a date and time to the minute from last Tuesday is
 // just harder to read.
 export function lastSeenLabel(stored, now) {
   const prev = Number(stored);
-  if (!stored || !Number.isFinite(prev) || prev <= 0) return { key: 'Kabhi nahi khola' };
+  if (!stored || !Number.isFinite(prev) || prev <= 0) return { key: 'Never opened' };
   const ms = Number(now) - prev;
   // A stamp from the future means a phone with a wrong clock. Never
-  // "-3 ghante pehle", which on his screen is worse than useless.
-  if (ms < 0) return { key: 'Abhi abhi' };
+  // "-3 hours ago", which on his screen is worse than useless.
+  if (ms < 0) return { key: 'Just now' };
   const mins = Math.floor(ms / 60000);
-  if (mins < 2) return { key: 'Abhi abhi' };
-  if (mins < 60) return { key: '{n} minute pehle', n: mins };
+  if (mins < 2) return { key: 'Just now' };
+  if (mins < 60) return { key: '{n} minutes ago', n: mins };
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return { key: '{n} ghante pehle', n: hours };
+  if (hours < 24) return { key: '{n} hours ago', n: hours };
   const days = Math.floor(hours / 24);
-  if (days === 1) return { key: 'Kal' };
-  if (days < 30) return { key: '{n} din pehle', n: days };
+  if (days === 1) return { key: 'Yesterday' };
+  if (days < 30) return { key: '{n} days ago', n: days };
   const months = Math.floor(days / 30);
-  if (months < 12) return { key: '{n} mahine pehle', n: months };
-  return { key: '{n} saal pehle', n: Math.floor(days / 365) };
+  if (months < 12) return { key: '{n} months ago', n: months };
+  return { key: '{n} years ago', n: Math.floor(days / 365) };
 }
 
 // Why switching notifications on did not work, in words the person
@@ -833,7 +833,7 @@ export function visitFollowUp(job, name) {
 
 /* ---- What the customer asked to be changed in the estimate ----
 
-   The customer could already tap "Change Chahiye", type what they
+   The customer could already tap "Request a change", type what they
    wanted and send it. Three things were wrong with where it went.
 
    It was stored in one field, estimateResponseNote, which the NEXT
@@ -1063,9 +1063,9 @@ export function expenseBreakdown(expenses, opts) {
     amounts.set(type, (amounts.get(type) || 0) + amount);
     counts.set(type, (counts.get(type) || 0) + 1);
 
-    const key = String(e.payee || '').trim().toLowerCase() || '(naam nahi)';
+    const key = String(e.payee || '').trim().toLowerCase() || '(no name)';
     const who = byPayee.get(key)
-      || { name: String(e.payee || '').trim() || '(naam nahi)', total: 0, count: 0 };
+      || { name: String(e.payee || '').trim() || '(no name)', total: 0, count: 0 };
     who.total += amount;
     who.count += 1;
     byPayee.set(key, who);
@@ -1145,7 +1145,7 @@ export function compareBreakdowns(current, previous) {
     diff,
     direction: diff > 0 ? 'up' : (diff < 0 ? 'down' : 'same'),
     // Nothing to compare against is not the same as "no change", and
-    // saying "100% zyada" against a month that does not exist is
+    // saying "100% more" against a month that does not exist is
     // worse than saying nothing.
     hasPrevious: !!(previous && previous.entries > 0),
   };
@@ -1175,7 +1175,7 @@ export function expenseReportText(breakdown, opts) {
   }
   if (o.collected !== undefined) {
     lines.push('Jama hua: ' + rs(o.collected));
-    lines.push('Bacha: ' + rs((Number(o.collected) || 0) - breakdown.total));
+    lines.push('Left over: ' + rs((Number(o.collected) || 0) - breakdown.total));
   }
   return lines.join('\n');
 }
@@ -1265,7 +1265,7 @@ export function canCloseAt(upTo, closings) {
 
 export function closingFailureMessage(reason) {
   if (reason === 'date-invalid') return 'Tareekh sahi nahi hai';
-  if (reason === 'date-future') return 'Aane wali tareekh par hisab band nahi kar sakte';
+  if (reason === 'date-future') return 'The books cannot be closed on a future date';
   if (reason === 'before-last-closing') return 'Pichhle band hisab ke baad ki tareekh chunein';
   return 'Hisab band nahi ho paya';
 }

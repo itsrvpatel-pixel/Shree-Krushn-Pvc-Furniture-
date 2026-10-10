@@ -1,7 +1,7 @@
 // "Estimate dene ke baad change bheja, par app mein kuch show nahi
 // ho raha."
 //
-// The customer could tap "Change Chahiye", type what they wanted and
+// The customer could tap "Request a change", type what they wanted and
 // send it. Three separate things then went wrong, and all three ended
 // in the same place - nothing happened.
 //

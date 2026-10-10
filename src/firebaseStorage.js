@@ -435,7 +435,7 @@ async function ensureSignedIn() {
 // Both halves of this can hang rather than fail: a request on a dead
 // mobile connection, and signInWithCustomToken when Firebase Auth is
 // unreachable (the SDK retries internally instead of rejecting). Either
-// one would leave the PIN button stuck on "Check kar rahe hain..."
+// one would leave the PIN button stuck on "Checking..."
 // forever with no error, so both get a deadline.
 const LOGIN_TIMEOUT_MS = 15000;
 

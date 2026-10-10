@@ -236,7 +236,7 @@ t('spending less reads as less', () => {
 });
 
 t('a first month is not compared against nothing', () => {
-  // "100% zyada" against a month that does not exist is worse than
+  // "100% more" against a month that does not exist is worse than
   // saying nothing, so the screen has something to check.
   const c = compareBreakdowns(oct, expenseBreakdown([], { monthKey: '2026-09' }));
   assert.equal(c.hasPrevious, false);
@@ -268,7 +268,7 @@ t('the message holds up with nothing to report', () => {
 t('collected and left over are included when known', () => {
   const text = expenseReportText(oct, { monthKey: '2026-10', collected: 40000 });
   assert.ok(text.includes('Jama hua: Rs. 40,000'));
-  assert.ok(text.includes('Bacha: Rs. 15,000'));
+  assert.ok(text.includes('Left over: Rs. 15,000'));
   // And left out entirely when not passed, rather than shown as zero.
   assert.ok(!expenseReportText(oct, { monthKey: '2026-10' }).includes('Jama hua'));
 });

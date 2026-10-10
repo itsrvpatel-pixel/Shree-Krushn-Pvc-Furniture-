@@ -47,32 +47,36 @@ t('the gap can be overridden, and the default is an hour', () => {
 
 t('the label says something useful at every distance', () => {
   const L = (ms) => lastSeenLabel(NOW - ms, NOW);
-  assert.deepEqual(lastSeenLabel(null, NOW), { key: 'Kabhi nahi khola' });
-  assert.deepEqual(L(0), { key: 'Abhi abhi' });
-  assert.deepEqual(L(30000), { key: 'Abhi abhi' });
-  assert.deepEqual(L(20 * MIN), { key: '{n} minute pehle', n: 20 });
-  assert.deepEqual(L(1 * HOUR), { key: '{n} ghante pehle', n: 1 });
-  assert.deepEqual(L(5 * HOUR), { key: '{n} ghante pehle', n: 5 });
-  assert.deepEqual(L(1 * DAY), { key: 'Kal' });
-  assert.deepEqual(L(6 * DAY), { key: '{n} din pehle', n: 6 });
-  assert.deepEqual(L(45 * DAY), { key: '{n} mahine pehle', n: 1 });
-  assert.deepEqual(L(100 * DAY), { key: '{n} mahine pehle', n: 3 });
-  assert.deepEqual(L(400 * DAY), { key: '{n} saal pehle', n: 1 });
+  assert.deepEqual(lastSeenLabel(null, NOW), { key: 'Never opened' });
+  assert.deepEqual(L(0), { key: 'Just now' });
+  assert.deepEqual(L(30000), { key: 'Just now' });
+  assert.deepEqual(L(20 * MIN), { key: '{n} minutes ago', n: 20 });
+  assert.deepEqual(L(1 * HOUR), { key: '{n} hours ago', n: 1 });
+  assert.deepEqual(L(5 * HOUR), { key: '{n} hours ago', n: 5 });
+  assert.deepEqual(L(1 * DAY), { key: 'Yesterday' });
+  assert.deepEqual(L(6 * DAY), { key: '{n} days ago', n: 6 });
+  assert.deepEqual(L(45 * DAY), { key: '{n} months ago', n: 1 });
+  assert.deepEqual(L(100 * DAY), { key: '{n} months ago', n: 3 });
+  assert.deepEqual(L(400 * DAY), { key: '{n} years ago', n: 1 });
 });
 
 t('a wrong clock never produces a negative reading', () => {
-  assert.deepEqual(lastSeenLabel(NOW + 2 * HOUR, NOW), { key: 'Abhi abhi' });
+  assert.deepEqual(lastSeenLabel(NOW + 2 * HOUR, NOW), { key: 'Just now' });
 });
 
-t('every phrase it can produce is in the translation table', () => {
+t('every phrase it can produce is English', () => {
   // Every branch, walked rather than listed by hand - a new one added
-  // later without its English is exactly what this is here to catch.
-  const dict = readFileSync(new URL('../src/translations.js', import.meta.url), 'utf8');
+  // later in Hinglish is exactly what this is here to catch. It used
+  // to check the phrase had an entry in the translation table; the app
+  // is written in English at source now, so the check is on the words
+  // themselves.
+  const HINGLISH = /\b(abhi|nahi|hua|hui|pehle|baad|din|mahine|saal|kabhi|kal|aaj|tak|se|ka|ki|ke)\b/i;
   const spans = [0, 30000, 20 * MIN, HOUR, 5 * HOUR, DAY, 6 * DAY, 45 * DAY, 100 * DAY, 400 * DAY, 4000 * DAY];
   const keys = new Set(spans.map((ms) => lastSeenLabel(NOW - ms, NOW).key));
   keys.add(lastSeenLabel(null, NOW).key);
+  assert.ok(keys.size >= 4, 'only ' + keys.size + ' phrases found - the branches have moved');
   for (const k of keys) {
-    assert.ok(dict.includes("'" + k + "':"), 'no English for: ' + k);
+    assert.ok(!HINGLISH.test(k), 'not English: ' + k);
   }
 });
 
@@ -130,7 +134,7 @@ t('the list shows it too, not just the profile', () => {
   assert.ok(/metaItemWarn:/.test(app), 'the warn style is gone from the stylesheet');
 
   // And still on the profile.
-  assert.ok(/label='App kab khola'/.test(admin), 'the profile row is gone');
+  assert.ok(/label='Last opened the app'/.test(admin), 'the profile row is gone');
 });
 
 console.log(n + ' assertions passed\n');

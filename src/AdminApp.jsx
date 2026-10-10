@@ -239,7 +239,7 @@ function serviceSchedule(job) {
     const hit = done.find((v) => Number(v.n) === months);
     return {
       n: months,
-      label: months === 12 ? '1 saal' : (months === 24 ? '2 saal' : months + ' mahine'),
+      label: months === 12 ? '1 year' : (months === 24 ? '2 years' : months + ' mahine'),
       dueAt: addMonths(from, months),
       doneAt: hit ? hit.at : null,
       note: hit ? hit.note : '',
@@ -262,7 +262,7 @@ function buildServiceOfferText(job, visit) {
   const lines = [];
   lines.push(tf('Namaste {name},', { name: job.customerName }));
   lines.push('');
-  lines.push(tf('Aapke kaam ko {age} ho gaye hain.', { age: visit.label }));
+  lines.push(tf('It has been {age} since your work was done.', { age: visit.label }));
   lines.push(t('Hamari 2 saal ki maintenance warranty ke andar aapka free service visit due hai -'));
   lines.push(t('fitting, adjustment, ya koi bhi chhoti dikkat ho to hum aakar theek kar denge.'));
   lines.push('');
@@ -426,7 +426,7 @@ async function shareReceiptPdf(job, payment, showToast) {
       // otherwise failed - fall through to download either way
     }
     doc.save(fileName);
-    if (showToast) showToast('Receipt download ho gaya - WhatsApp mein manually attach karein');
+    if (showToast) showToast('Receipt downloaded - attach it in WhatsApp yourself');
   } catch (e) {
     if (showToast) showToast('PDF share/download mein dikkat aayi, dobara try karein', true);
   }
@@ -454,19 +454,19 @@ function buildPaymentReminderText(job) {
   const lines = [];
   lines.push(tf('Namaste {name},', { name: job.customerName }));
   lines.push('');
-  lines.push(t('Aapke kaam ka hisaab:'));
+  lines.push(t('Your account for this job:'));
   lines.push('Total: ' + currency(total));
-  lines.push('Ab tak mila: ' + currency(paid));
+  lines.push('Received so far: ' + currency(paid));
   lines.push('Baaki: ' + currency(due));
 
   // Which stage this money belongs to, when one is actually due now.
   const milestone = jobPaymentProgress(job).find((m) => m.dueNow > 0);
   if (milestone) {
     lines.push('');
-    lines.push(milestone.label + ' ka ' + currency(milestone.dueNow) + ' abhi due hai.');
+    lines.push(milestone.label + ': ' + currency(milestone.dueNow) + ' is due now.');
   }
   lines.push('');
-  lines.push(t('Aap jab bhi bhej dein, bata dijiyega - hum receipt bhej denge.'));
+  lines.push(t('Let us know whenever you send it and we will send a receipt.'));
   lines.push(t('Koi sawaal ho to poochh lijiye.'));
   // 'payment', not 'estimate'. This signed off as an estimate, so a
   // customer being asked for money got a WhatsApp card that said
@@ -543,7 +543,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   if (showQuickSend) {
     return (
       <div style={{ paddingBottom: 20 }}>
-        <TopBar title='Naye number ko bhejein' subtitle='Instagram / WhatsApp se aaye log' onBack={() => setShowQuickSend(false)} hideLogout />
+        <TopBar title='Send to a new number' subtitle='Instagram / WhatsApp se aaye log' onBack={() => setShowQuickSend(false)} hideLogout />
         <AdminQuickSend onBack={() => setShowQuickSend(false)} />
       </div>
     );
@@ -552,7 +552,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   if (showLeads) {
     return (
       <div style={{ paddingBottom: 20 }}>
-        <TopBar title='Website enquiry' subtitle='Form se aayi' onBack={() => setShowLeads(false)} hideLogout />
+        <TopBar title='Website enquiry' subtitle='From the form' onBack={() => setShowLeads(false)} hideLogout />
         <AdminLeads onBack={() => setShowLeads(false)} showToast={showToast} />
       </div>
     );
@@ -562,7 +562,7 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
     const theirJob = jobs.find((j) => j.customerId === profileCustomer.id) || jobs.find((j) => j.phone === profileCustomer.phone);
     return (
       <div style={{ paddingBottom: 20 }}>
-        <TopBar title={profileCustomer.name} subtitle='Poori profile' onBack={() => setProfileCustomerId(null)} hideLogout />
+        <TopBar title={profileCustomer.name} subtitle='Full profile' onBack={() => setProfileCustomerId(null)} hideLogout />
         <AdminCustomerProfile
           customer={profileCustomer}
           job={theirJob}
@@ -804,9 +804,9 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
           <button style={styles.backLink} onClick={() => setShowList(null)}><ArrowLeft size={13} /> Home</button>
         </div>
         <div style={{ padding: '12px 16px' }}>
-          <div style={styles.sectionTitle}>Aaj ki Visits</div>
+          <div style={styles.sectionTitle}>Today's visits</div>
           <div style={styles.plainTextMuted}>{todaysVisits.length} visit{todaysVisits.length !== 1 ? 's' : ''} aaj</div>
-          {todaysVisits.length === 0 && <div style={styles.emptySmall}>{t('Aaj koi visit nahi hai.')}</div>}
+          {todaysVisits.length === 0 && <div style={styles.emptySmall}>{t('No visits today.')}</div>}
           {todaysVisits.map((j) => (
             <button key={j.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(j.id)}>
               <div style={styles.cardName}>{j.customerName}</div>
@@ -836,7 +836,7 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
                   <div style={styles.itemSub}>{j.appointment.confirmedTime ? formatTime12h(j.appointment.confirmedTime) : t('Time set nahi hai')} {j.appointment.address && ('- ' + j.appointment.address)}</div>
                 </button>
                 <a href={whatsAppShareUrl(j.phone, reminderText)} target='_blank' rel='noopener noreferrer' style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
-                  <Send size={13} />{t('Reminder Bhejein')}</a>
+                  <Send size={13} />{t('Reminder Send')}</a>
               </div>
             );
           })}
@@ -857,7 +857,7 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
               // No intent: this one is "here is the app", not a message
               // about any particular screen, so it gets the general
               // card rather than the progress-photos one.
-              + 'Aapka kaam, estimate aur photos sab app mein dekh sakte hain.' + waSignOff();
+              + 'Your job, estimate and photos are all in the app.' + waSignOff();
             // Someone who was just in the app was looking at
             // something. The message says what, by stage - a person
             // waiting on an estimate and a person whose wardrobe is
@@ -878,12 +878,12 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
                 {!c.lastSeenAt && c.phone && (
                   <a href={whatsAppShareUrl(c.phone, invite)} target='_blank' rel='noopener noreferrer'
                     style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
-                    <Send size={13} />{t('App Ka Link Bhejein')}</a>
+                    <Send size={13} />{t('Send the app link')}</a>
                 )}
                 {c.lastSeenAt && c.phone && (
                   <a href={whatsAppShareUrl(c.phone, followUpText)} target='_blank' rel='noopener noreferrer'
                     style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
-                    <Send size={13} />{t('Follow-up Bhejein')}</a>
+                    <Send size={13} />{t('Follow-up Send')}</a>
                 )}
               </div>
             );
@@ -900,11 +900,11 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
           <div style={styles.sectionTitle}>Kisne Kab App Khola</div>
           <div style={styles.plainTextMuted}>Har customer ka aakhri visit. Jisne kabhi nahi khola, usko aksar app ka link hi nahi mila - unhe neeche se bhej sakte hain.</div>
           {customers.length === 0 && <div style={styles.emptySmall}>{t('Koi customer nahi hai.')}</div>}
-          <Group title='Aaj' people={visits.today} />
+          <Group title='Today' people={visits.today} />
           <Group title='Is hafte' people={visits.week} />
-          <Group title='Usse purana' people={visits.older} />
-          <Group title='Kabhi nahi khola' people={visits.never}
-            note={visits.never.length > 0 ? 'Inhe link bhej dein - ek tap mein WhatsApp par chala jayega.' : null} />
+          <Group title='Older than that' people={visits.older} />
+          <Group title='Never opened' people={visits.never}
+            note={visits.never.length > 0 ? 'Send them the link - one tap opens WhatsApp.' : null} />
         </div>
       </div>
     );
@@ -922,7 +922,7 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
           {staleJobs.map((j) => {
             const lastActivityDate = (j.activity && j.activity[0]) ? new Date(j.activity[0].date) : new Date(j.createdAt);
             const daysSince = Math.floor((new Date() - lastActivityDate) / (1000 * 60 * 60 * 24));
-            const updateText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'Aapke project ka kaam chal raha hai - jaldi hi update denge.' + waSignOff('work');
+            const updateText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'Work on your project is under way - we will update you soon.' + waSignOff('work');
             return (
               <div key={j.id} style={styles.reviewCard}>
                 <button style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }} onClick={() => onOpenJob(j.id)}>
@@ -930,7 +930,7 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
                   <div style={styles.itemSub}>{daysSince} din se koi update nahi</div>
                 </button>
                 <a href={whatsAppShareUrl(j.phone, updateText)} target='_blank' rel='noopener noreferrer' style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
-                  <Send size={13} />{t('Update Bhejein')}</a>
+                  <Send size={13} />{t('Update Send')}</a>
               </div>
             );
           })}
@@ -951,7 +951,7 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
           {followUpJobs.map((j) => {
             const sinceDate = j.estimateGivenAt || j.createdAt;
             const daysSince = Math.floor((new Date() - new Date(sinceDate)) / (1000 * 60 * 60 * 24));
-            const followUpText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'Aapko humne estimate bheja tha - koi sawaal ho ya kuch clarify karna ho to bataiye, hum madad karenge.' + waSignOff('estimate');
+            const followUpText = 'Namaste ' + j.customerName + ',' + NEWLINE + NEWLINE + 'We sent you an estimate - if you have any questions or need anything cleared up, tell us and we will help.' + waSignOff('estimate');
             return (
               <div key={j.id} style={styles.reviewCard}>
                 <button style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }} onClick={() => onOpenJob(j.id)}>
@@ -959,7 +959,7 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
                   <div style={styles.itemSub}>{daysSince} din se estimate par response nahi</div>
                 </button>
                 <a href={whatsAppShareUrl(j.phone, followUpText)} target='_blank' rel='noopener noreferrer' style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}>
-                  <Send size={13} />{t('Follow-up Bhejein')}</a>
+                  <Send size={13} />{t('Follow-up Send')}</a>
               </div>
             );
           })}
@@ -975,7 +975,7 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
         </div>
         <div style={{ padding: '12px 16px' }}>
           <div style={styles.sectionTitle}>Sawaal Ka Jawab Chahiye</div>
-          <div style={styles.plainTextMuted}>{t('Customers ne Help/FAQ se sawaal poochhe hain - job kholke jawab dein.')}</div>
+          <div style={styles.plainTextMuted}>{t('Customers have asked questions from Help/FAQ - open the job and answer them.')}</div>
           {jobsWithPendingQuestions.length === 0 && <div style={styles.emptySmall}>{t('Koi pending sawaal nahi hai.')}</div>}
           {jobsWithPendingQuestions.map((j) => {
             const openCount = (j.questions || []).filter((q) => q.status !== 'answered').length;
@@ -1027,26 +1027,26 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-        <div style={styles.sectionTitle}>Aaj ka Summary</div>
+        <div style={styles.sectionTitle}>Today's summary</div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button style={styles.linkBtn2} onClick={() => setShowList('visitsByDate')}>Visits by Date</button>
           <button style={styles.linkBtn2} onClick={() => setShowList('allEstimates')}>All Estimates</button>
         </div>
       </div>
       <div style={styles.statRow2}>
-        <StatCard icon={<Calendar size={16} />} label="Aaj ki Visits" value={todaysVisits.length} onClick={() => setShowList('todaysVisits')} />
+        <StatCard icon={<Calendar size={16} />} label="Today's visits" value={todaysVisits.length} onClick={() => setShowList('todaysVisits')} />
         <StatCard icon={<Send size={16} />} label="Kal ki Visits" value={tomorrowsVisits.length} onClick={() => setShowList('tomorrowsVisits')} />
         <StatCard icon={<AlertCircle size={16} />} label="Update Chahiye" value={staleJobs.length} accent={staleJobs.length > 0} onClick={() => setShowList('staleJobs')} />
         <StatCard icon={<MessageSquare size={16} />} label="Follow-up Chahiye" value={followUpJobs.length} accent={followUpJobs.length > 0} onClick={() => setShowList('followUpJobs')} />
         <StatCard icon={<HelpCircle size={16} />} label="Sawaal Ka Jawab" value={pendingQuestionsCount} accent={pendingQuestionsCount > 0} onClick={() => setShowList('pendingQuestions')} />
         <StatCard icon={<FileText size={16} />} label='Estimates Given' value={jobs.filter((j) => (j.items || []).length > 0).length} onClick={() => setShowList('allEstimates')} />
         <StatCard icon={<UserPlus size={16} />} label='New Appointments' value={pendingAppointments} onClick={() => setShowList('newAppointments')} />
-        <StatCard icon={<Eye size={16} />} label='Aaj App Khola' value={visits.today.length} onClick={() => setShowList('appVisits')} />
+        <StatCard icon={<Eye size={16} />} label='Opened the app today' value={visits.today.length} onClick={() => setShowList('appVisits')} />
       </div>
 
       {todaysVisits.length > 0 && (
         <div style={{ marginTop: 4 }}>
-          <div style={styles.fieldLabel}>Aaj ki visits</div>
+          <div style={styles.fieldLabel}>Today's visits</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {todaysVisits.map((j) => (
               <button key={j.id} style={styles.miniRowClickArea} onClick={() => onOpenJob(j.id)}>
@@ -1093,13 +1093,13 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
         <QuickTile icon={<User size={20} color={BRAND.navy} />} label='All Customers' onClick={() => setTab('customers')} />
         <QuickTile icon={<Star size={20} color={BRAND.navy} />} label='Reviews' onClick={() => setTab('reviews')} />
         <QuickTile icon={<MessageSquare size={20} color={BRAND.navy} />} label='Website enquiry' onClick={() => setShowLeads(true)} />
-        <QuickTile icon={<Send size={20} color={BRAND.navy} />} label='Naye number ko bhejein' onClick={() => setShowQuickSend(true)} />
+        <QuickTile icon={<Send size={20} color={BRAND.navy} />} label='Send to a new number' onClick={() => setShowQuickSend(true)} />
         <QuickTile icon={<Hammer size={20} color={BRAND.navy} />} label={'Service Due' + (serviceDueJobs.length ? (' (' + serviceDueJobs.length + ')') : '')} onClick={() => setShowList('serviceDue')} />
         {!isPartner && <QuickTile icon={<IndianRupee size={20} color={BRAND.navy} />} label='Expenses' onClick={() => setTab('expenses')} />}
       </div>
 
       <div style={styles.fieldLabel}>Recent customers</div>
-      {recentJobs.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi customer register nahi hua.')}</div>}
+      {recentJobs.length === 0 && <div style={styles.emptySmall}>{t('No customer has registered yet.')}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {recentJobs.map((j) => (
           <div key={j.id} style={styles.miniRow}>
@@ -1147,7 +1147,7 @@ function AdminKarigarPerformance({ staff, jobs, attendance }) {
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Karigar Performance</div>
       <div style={styles.plainTextMuted}>{t('Kaunsa karigar kitna kaam handle kar raha hai.')}</div>
-      {rows.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi karigar add nahi kiya.')}</div>}
+      {rows.length === 0 && <div style={styles.emptySmall}>{t('No karigar added yet.')}</div>}
       {rows.map((r) => (
         <div key={r.karigar.id} style={styles.reviewCard}>
           <div style={styles.cardName}>{r.karigar.name}</div>
@@ -1217,7 +1217,7 @@ function AdminCommissionReport({ staff, jobs, setStaff, showToast }) {
     const payout = { id: uid(), amount: Number(amount), date: new Date().toISOString() };
     setStaff(staff.map((s) => (s.id === partnerId ? { ...s, commissionPayouts: [...(s.commissionPayouts || []), payout] } : s)));
     setPayoutAmountByPartner({ ...payoutAmountByPartner, [partnerId]: '' });
-    showToast('Payout record ho gaya');
+    showToast('Payout recorded');
   };
 
   return (
@@ -1243,7 +1243,7 @@ function AdminCommissionReport({ staff, jobs, setStaff, showToast }) {
         </div>
       )}
 
-      {rows.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi Regional Partner add nahi kiya.')}</div>}
+      {rows.length === 0 && <div style={styles.emptySmall}>{t('No regional partner added yet.')}</div>}
       {rows.length > 0 && (
         <div style={{ ...styles.statRow2, marginTop: 10 }}>
           <StatCard icon={<Users size={16} />} label='Partners' value={rows.length} />
@@ -1260,17 +1260,17 @@ function AdminCommissionReport({ staff, jobs, setStaff, showToast }) {
               <div style={{ fontSize: 15, fontWeight: 800, color: BRAND.navy }}>{currency(r.totalEarned)}</div>
             </div>
             <div>
-              <div style={styles.itemSub}>De Diya</div>
+              <div style={styles.itemSub}>Given</div>
               <div style={{ fontSize: 15, fontWeight: 800, color: '#2F7D4F' }}>{currency(r.totalPaidOut)}</div>
             </div>
             <div>
-              <div style={styles.itemSub}>{t('Baaki Hai')}</div>
+              <div style={styles.itemSub}>{t('Outstanding')}</div>
               <div style={{ fontSize: 15, fontWeight: 800, color: r.balanceOwed > 0 ? BRAND.gold : '#2F7D4F' }}>{currency(r.balanceOwed)}</div>
             </div>
           </div>
           {r.balanceOwed > 0 && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <input style={styles.input} inputMode='numeric' placeholder='Amount de diya' value={payoutAmountByPartner[r.partner.id] || ''} onChange={(e) => setPayoutAmountByPartner({ ...payoutAmountByPartner, [r.partner.id]: e.target.value })} />
+              <input style={styles.input} inputMode='numeric' placeholder='Amount paid' value={payoutAmountByPartner[r.partner.id] || ''} onChange={(e) => setPayoutAmountByPartner({ ...payoutAmountByPartner, [r.partner.id]: e.target.value })} />
               <button style={{ ...styles.cardActionBtn, flexShrink: 0 }} onClick={() => recordPayout(r.partner.id)}>{t('Payout Record Karein')}</button>
             </div>
           )}
@@ -1314,7 +1314,7 @@ function AdminReferralReport({ customers }) {
       </div>
 
       <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Top referrers</div>
-      {grouped.list.length === 0 && <div style={styles.emptySmall}>{t('Abhi tak koi referral record nahi hai.')}</div>}
+      {grouped.list.length === 0 && <div style={styles.emptySmall}>{t('No referral recorded yet.')}</div>}
       {grouped.list.map((g) => (
         <div key={g.displayName} style={styles.reviewCard}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1471,7 +1471,7 @@ function AdminAllEstimatesList({ jobs, onOpenJob }) {
         <input style={{ ...styles.input, marginTop: 12 }} placeholder={t('Naam ya Flat Number se search karein...')} value={query} onChange={(e) => setQuery(e.target.value)} />
       )}
 
-      {rows.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi estimate nahi bana.')}</div>}
+      {rows.length === 0 && <div style={styles.emptySmall}>{t('No estimate made yet.')}</div>}
       {rows.length > 0 && filteredRows.length === 0 && <div style={styles.emptySmall}>{t('Koi estimate match nahi hua.')}</div>}
       {filteredRows.map((r) => (
         <button key={r.job.id} style={{ ...styles.reviewCard, width: '100%', border: 'none', textAlign: 'left', cursor: 'pointer', display: 'block' }} onClick={() => onOpenJob(r.job.id)}>
@@ -1549,7 +1549,7 @@ export function AdminCustomers({ customers, setCustomers, customersLoading, cust
     if (clash) {
       const theirJob = jobsRef.current.find((j) => j.customerId === clash.id) || jobsRef.current.find((j) => j.phone === normalized);
       setNewCustName(''); setNewCustPhone(''); setShowAddCustomer(false);
-      showToast('Yeh number pehle se hai: ' + clash.name, true);
+      showToast('This number is already in use: ' + clash.name, true);
       if (theirJob) onOpenJob(theirJob.id);
       return;
     }
@@ -1570,7 +1570,7 @@ export function AdminCustomers({ customers, setCustomers, customersLoading, cust
     jobsRef.current = nextJobs;
     setJobs(nextJobs);
     setNewCustName(''); setNewCustPhone(''); setShowAddCustomer(false);
-    showToast('Customer add ho gaya');
+    showToast('Customer added');
     onOpenJob(newJob.id);
   };
   // Moved here, before the two early returns below - React's Rules of
@@ -1691,7 +1691,7 @@ export function AdminCustomers({ customers, setCustomers, customersLoading, cust
     setCustomers(customersRef.current.filter((c) => c.id !== deletingCustomer.id));
     setJobs(jobsRef.current.filter((j) => !isTheirs(j)));
     setDeletingCustomer(null);
-    showToast('Customer deleted' + (reviewsToArchive.length > 0 ? ' (review surakshit rakha gaya)' : ''));
+    showToast('Customer deleted' + (reviewsToArchive.length > 0 ? ' (the review itself is kept)' : ''));
   };
 
   return (
@@ -1699,7 +1699,7 @@ export function AdminCustomers({ customers, setCustomers, customersLoading, cust
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
         {!isDhPartner && <button style={styles.linkBtn2} onClick={() => setShowAllEstimates(true)}>All Estimates</button>}
         {!isDhPartner && <button style={styles.linkBtn2} onClick={() => setShowReferralReport(true)}>Referral Report</button>}
-        <button style={styles.linkBtn2} onClick={() => setShowAddCustomer(true)}>+ Naya Customer</button>
+        <button style={styles.linkBtn2} onClick={() => setShowAddCustomer(true)}>+ New customer</button>
       </div>
       {showAddCustomer && (
         <div style={{ ...styles.formCard, marginTop: 10 }}>
@@ -1708,7 +1708,7 @@ export function AdminCustomers({ customers, setCustomers, customersLoading, cust
           <div style={{ ...styles.fieldLabel, marginTop: 10 }}>Mobile Number</div>
           <input style={styles.input} inputMode='numeric' value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)} placeholder='98765 43210' />
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addNewCustomer}>{t('Add Karein')}</button>
+            <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addNewCustomer}>{t('Add')}</button>
             <button style={styles.cancelBtn} onClick={() => { setShowAddCustomer(false); setNewCustName(''); setNewCustPhone(''); }}>Cancel</button>
           </div>
         </div>
@@ -1772,7 +1772,7 @@ export function AdminCustomers({ customers, setCustomers, customersLoading, cust
                     {/* Out here, not only inside the profile. Scanning
                         the list for who has gone quiet is the thing he
                         actually does; opening fifty profiles to find
-                        out is not. "Kabhi nahi khola" is the one worth
+                        out is not. "Never opened" is the one worth
                         spotting - it usually means the link never
                         reached them - so it is the one that is
                         coloured rather than grey. */}
@@ -1906,17 +1906,17 @@ export function AdminCustomerProfile({ customer, job, expenses, allCustomers, on
       <div style={{ ...styles.card, padding: '4px 14px' }}>
         <Row label='Address' value={p.area || '-'} muted={!p.area} />
         <Row label='Ghar' value={p.propertyType || '-'} muted={!p.propertyType} />
-        <Row label='Kya chahiye' value={p.needs.length > 0 ? p.needs.join(', ') : '-'} muted={p.needs.length === 0} />
+        <Row label='What they need' value={p.needs.length > 0 ? p.needs.join(', ') : '-'} muted={p.needs.length === 0} />
         <Row label='Budget' value={budgetLabel(p.budget) || '-'} muted={!p.budget} />
-        <Row label='Kab tak' value={timelineLabel(p.timeline) || '-'} muted={!p.timeline} />
+        <Row label='By when' value={timelineLabel(p.timeline) || '-'} muted={!p.timeline} />
         <Row label='Birthday' value={customer.birthdayMonthDay || '-'} muted={!customer.birthdayMonthDay} />
-        <Row label='Kisne bheja' value={customer.referredBy || '-'} muted={!customer.referredBy} />
+        <Row label='Sent by' value={customer.referredBy || '-'} muted={!customer.referredBy} />
         {/* Stamped by the app itself when the customer opens it, at
             most once an hour (see shouldTouchLastSeen). Worth reading
             next to the rest of this card: a customer who has not opened
             the app in three weeks is a different conversation from one
             who was in it this morning. */}
-        <Row label='App kab khola' value={seenLabel.n == null ? t(seenLabel.key) : tf(seenLabel.key, { n: seenLabel.n })}
+        <Row label='Last opened the app' value={seenLabel.n == null ? t(seenLabel.key) : tf(seenLabel.key, { n: seenLabel.n })}
           muted={!customer.lastSeenAt} />
       </div>
 
@@ -1928,7 +1928,7 @@ export function AdminCustomerProfile({ customer, job, expenses, allCustomers, on
           <div style={styles.sectionTitle}>Pichhle visits ({visits.length})</div>
           <div style={{ ...styles.card, padding: '4px 14px' }}>
             {visits.map((v, i) => (
-              <Row key={v} label={i === 0 ? 'Aakhri baar' : ''} value={visitStamp(v)} muted={i > 0} />
+              <Row key={v} label={i === 0 ? 'Last seen' : ''} value={visitStamp(v)} muted={i > 0} />
             ))}
           </div>
         </>
@@ -1969,8 +1969,8 @@ export function AdminCustomerProfile({ customer, job, expenses, allCustomers, on
               <Row key={g.name} label={g.name + ' (' + g.count + ')'} value={currency(g.total)} />
             ))}
             <div style={{ height: 1, background: BRAND.line, margin: '4px 0' }} />
-            <Row label='Karigar ko kul' value={currency(cost.karigar)} />
-            <Row label='Poora kharcha' value={currency(cost.total)} />
+            <Row label='Total to karigars' value={currency(cost.karigar)} />
+            <Row label='Total spending' value={currency(cost.total)} />
           </>
         )}
       </div>
@@ -1980,7 +1980,7 @@ export function AdminCustomerProfile({ customer, job, expenses, allCustomers, on
           <div style={styles.payStrip}>
             <MoneyBit label='Mila' value={currency(profit.collected)} />
             <MoneyBit label='Kharcha' value={currency(profit.linkedExpenses)} muted />
-            <MoneyBit label='Bacha' value={currency(profit.profit)} highlight={profit.profit < 0} />
+            <MoneyBit label='Left over' value={currency(profit.profit)} highlight={profit.profit < 0} />
           </div>
           <div style={{ ...styles.hintText, marginTop: 8 }}>
             Jo paisa sach mein aaya uspar hisaab hai, estimate par nahi - baaki {currency(due)} abhi aana hai.
@@ -2075,7 +2075,7 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
   const [bookAddress, setBookAddress] = useState(job.address || '');
 
   const bookDirectly = () => {
-    if (!bookDate || !bookAddress.trim()) { showToast('Date aur address zaroori hai', true); return; }
+    if (!bookDate || !bookAddress.trim()) { showToast('A date and address are required', true); return; }
     const nextAppt = {
       preferredDate: bookDate, preferredTime: bookTime, address: bookAddress.trim(),
       status: 'confirmed', confirmedDate: bookDate, confirmedTime: bookTime,
@@ -2085,35 +2085,35 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
     next = logActivity(next, 'Admin booked an appointment: ' + formatDate(bookDate) + (bookTime ? (', ' + formatTime12h(bookTime)) : ''));
     saveJob(next);
     if (pushNotification) {
-      pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(bookDate) + (bookTime ? (' - ' + formatTime12h(bookTime)) : '') + ' ke liye book ho gayi hai', job.id);
+      pushNotification('appointment_confirmed', 'Your visit ' + formatDate(bookDate) + (bookTime ? (' - ' + formatTime12h(bookTime)) : '') + ' ke liye book ho gayi hai', job.id);
     }
-    showToast('Appointment book ho gayi');
+    showToast('Appointment booked');
   };
 
   const confirmAdditionalVisit = (visit) => {
-    if (!visitConfirmDate) { showToast('Date select karein', true); return; }
+    if (!visitConfirmDate) { showToast('Select a date', true); return; }
     const base = jobRef.current;
     const next = { ...base, additionalVisits: (base.additionalVisits || []).map((v) => (v.id === visit.id ? { ...v, status: 'confirmed', confirmedDate: visitConfirmDate, confirmedTime: visitConfirmTime } : v)) };
     saveJob(logActivity(next, 'Additional visit confirm ki: ' + visit.reason));
     if (pushNotification) {
-      pushNotification('appointment_confirmed', 'Aapki extra visit ' + formatDate(visitConfirmDate) + (visitConfirmTime ? (' - ' + visitConfirmTime) : '') + ' ke liye confirm ho gayi hai', job.id);
+      pushNotification('appointment_confirmed', 'Your extra visit ' + formatDate(visitConfirmDate) + (visitConfirmTime ? (' - ' + visitConfirmTime) : '') + ' ke liye confirm ho gayi hai', job.id);
     }
     setConfirmingVisitId(null);
-    showToast('Visit confirm ho gayi');
+    showToast('Visit confirmed');
   };
 
   if (!appt) {
     return (
       <div style={{ padding: '12px 16px' }}>
-        <div style={styles.emptySmall}>{t('Customer ne abhi tak koi appointment request nahi ki.')}</div>
-        <div style={{ ...styles.fieldLabel, marginTop: 16 }}>{t('Aap khud se book karein')}</div>
-        <div style={styles.plainTextMuted}>{t('Agar customer ne call karke bataya hai, to seedha yahan se book kar sakte hain.')}</div>
+        <div style={styles.emptySmall}>{t('The customer has not requested an appointment yet.')}</div>
+        <div style={{ ...styles.fieldLabel, marginTop: 16 }}>{t('Book it yourself')}</div>
+        <div style={styles.plainTextMuted}>{t('If the customer told you on the phone, you can book it straight from here.')}</div>
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
           <input style={styles.input} type='date' value={bookDate} onChange={(e) => setBookDate(e.target.value)} />
           <input style={styles.input} type='time' value={bookTime} onChange={(e) => setBookTime(e.target.value)} />
         </div>
         <input style={{ ...styles.input, marginTop: 8 }} placeholder='Address' value={bookAddress} onChange={(e) => setBookAddress(e.target.value)} />
-        <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={bookDirectly}>{t('Appointment Book Karein')}</button>
+        <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={bookDirectly}>{t('Book an appointment')}</button>
       </div>
     );
   }
@@ -2121,15 +2121,15 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
   const st = APPT_STATUS[appt.status] || APPT_STATUS.requested;
 
   const confirm = (asReschedule) => {
-    if (!confirmDate) { showToast('Date select karein', true); return; }
+    if (!confirmDate) { showToast('Select a date', true); return; }
     const nextAppt = { ...appt, status: asReschedule ? 'rescheduled' : 'confirmed', confirmedDate: confirmDate, confirmedTime: confirmTime };
     let next = { ...jobRef.current, appointment: nextAppt };
     next = logActivity(next, 'Appointment ' + (asReschedule ? 'rescheduled' : 'confirmed') + ': ' + formatDate(confirmDate) + (confirmTime ? ', ' + confirmTime : ''));
     saveJob(next);
     if (pushNotification) {
-      pushNotification('appointment_confirmed', 'Aapki visit ' + formatDate(confirmDate) + (confirmTime ? (' - ' + confirmTime) : '') + ' ke liye confirm ho gayi hai', job.id);
+      pushNotification('appointment_confirmed', 'Your visit ' + formatDate(confirmDate) + (confirmTime ? (' - ' + confirmTime) : '') + ' ke liye confirm ho gayi hai', job.id);
     }
-    showToast(asReschedule ? t('Appointment reschedule ki gayi') : t('Appointment confirm ho gayi'));
+    showToast(asReschedule ? t('Appointment rescheduled') : t('Appointment confirmed'));
   };
 
   const markCompleted = () => {
@@ -2184,11 +2184,11 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
         <>
           <button style={styles.addBtn} onClick={markCompleted}><CheckCircle2 size={14} /> Mark visit completed</button>
           <a
-            href={whatsAppShareUrl(job.phone, 'Namaste ' + job.customerName + ',\n\nAapki visit confirm ho gayi hai:\n' + formatDate(appt.confirmedDate) + (appt.confirmedTime ? (' - ' + formatTime12h(appt.confirmedTime)) : '') + '\n\nAddress: ' + (appt.address || job.address || '-') + waSignOff('visit'))}
+            href={whatsAppShareUrl(job.phone, 'Namaste ' + job.customerName + ',\n\nYour visit is confirmed:\n' + formatDate(appt.confirmedDate) + (appt.confirmedTime ? (' - ' + formatTime12h(appt.confirmedTime)) : '') + '\n\nAddress: ' + (appt.address || job.address || '-') + waSignOff('visit'))}
             target='_blank' rel='noopener noreferrer'
             style={{ ...styles.addBtn, background: '#25D366', color: '#FFF', textDecoration: 'none', justifyContent: 'center' }}
           >
-            <Send size={14} />{t('WhatsApp Par Bhejein')}</a>
+            <Send size={14} />{t('WhatsApp Par Send')}</a>
         </>
       )}
 
@@ -2203,7 +2203,7 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
                 {formatDate(v.status === 'confirmed' ? v.confirmedDate : v.preferredDate)} {(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime) && ('- ' + formatTime12h(v.status === 'confirmed' ? v.confirmedTime : v.preferredTime))}
               </div>
               {v.status === 'requested' && confirmingVisitId !== v.id && (
-                <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => { setConfirmingVisitId(v.id); setVisitConfirmDate(v.preferredDate); setVisitConfirmTime(v.preferredTime); }}>{t('Confirm karein')}</button>
+                <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => { setConfirmingVisitId(v.id); setVisitConfirmDate(v.preferredDate); setVisitConfirmTime(v.preferredTime); }}>{t('Confirm')}</button>
               )}
               {confirmingVisitId === v.id && (
                 <div style={{ marginTop: 8 }}>
@@ -2216,7 +2216,7 @@ function AdminAppointmentTab({ job, onSave, showToast, pushNotification }) {
               )}
               {v.status === 'confirmed' && (
                 <div style={{ ...styles.estimateStatusBanner, background: '#E8F5E9', color: '#2E7D32', marginTop: 8 }}>
-                  <ThumbsUp size={14} />{t('Confirm ho gayi')}</div>
+                  <ThumbsUp size={14} />{t('Confirmed')}</div>
               )}
             </div>
           ))}
@@ -2305,7 +2305,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
     if (!newItem.desc.trim()) { showToast('Pehle description bharein', true); return; }
     const t = { id: uid(), desc: newItem.desc.trim(), length: newItem.length || '', height: newItem.height || '', qty: newItem.qty || '1', rate: newItem.rate || '' };
     setItemTemplates([...itemTemplates, t]);
-    showToast('Template save ho gaya - ab har naye customer ke liye use kar sakte ho');
+    showToast('Template saved - you can use it for every new customer now');
   };
   const removeTemplate = (id) => setItemTemplates(itemTemplates.filter((t) => t.id !== id));
 
@@ -2316,9 +2316,9 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
   // estimate tab because it is the reason he opened the tab.
   const asked = openChangeRequests(job);
   const markAnswered = () => {
-    if (!window.confirm('Naya estimate bhej diya?\n\nCustomer ko dikhega ki ye change ho gaya hai, aur unka Approve button wapas aa jayega.')) return;
+    if (!window.confirm('Sent the new estimate?\n\nThe customer will see this change is done, and their Approve button comes back.')) return;
     onSave(answerChangeRequests(job, staffName, Date.now()));
-    showToast('Customer ko bata diya gaya');
+    showToast('The customer has been notified');
   };
 
   return (
@@ -2410,7 +2410,7 @@ function AdminEstimateTab({ job, onSave, newItem, setNewItem, addItem, updateIte
               {s.length && s.height && <div style={styles.itemSub}>{s.length}&quot; x {s.height}&quot; = {estimateItemSqft(s).toFixed(2)} sq ft</div>}
               <div style={styles.itemSub}>{currency(estimateItemAmount(s))} - {s.suggestedBy} ne banaya</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => approveSuggestedItem(s)}><CheckCircle2 size={13} />{t('Approve Karein')}</button>
+                <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => approveSuggestedItem(s)}><CheckCircle2 size={13} />{t('Approve')}</button>
                 <button style={styles.cancelBtn} onClick={() => rejectSuggestedItem(s.id)}>Reject</button>
               </div>
             </div>
@@ -2522,10 +2522,10 @@ function PaymentStagesEditor({ job, onSave, showToast }) {
   const sum = draft.reduce((a, v) => a + (Number(v) || 0), 0);
 
   const save = () => {
-    if (sum !== 100) { showToast('Teeno milkar 100% hone chahiye - abhi ' + sum + '%', true); return; }
+    if (sum !== 100) { showToast('The three must add up to 100% - right now ' + sum + '%', true); return; }
     onSave({ ...job, paymentStages: stages.map((s, i) => ({ ...s, percent: Number(draft[i]) })) });
     setOpen(false);
-    showToast('Payment schedule save ho gaya');
+    showToast('Payment schedule saved');
   };
 
   return (
@@ -2538,7 +2538,7 @@ function PaymentStagesEditor({ job, onSave, showToast }) {
           </div>
         </div>
         <button style={styles.linkBtn2} onClick={() => { setDraft(stages.map((st) => String(st.percent))); setOpen((o) => !o); }}>
-          {open ? 'Band karein' : 'Badlein'}
+          {open ? 'Close' : 'Badlein'}
         </button>
       </div>
 
@@ -2560,7 +2560,7 @@ function PaymentStagesEditor({ job, onSave, showToast }) {
             </div>
           ))}
           <div style={{ ...styles.hintText, color: sum === 100 ? BRAND.textMuted : '#B5562E', marginTop: 8 }}>
-            Total: {sum}%{sum === 100 ? '' : ' - 100% hona chahiye'}
+            Total: {sum}%{sum === 100 ? '' : ' - must come to 100%'}
           </div>
           <button style={{ ...styles.primaryBtn2, marginTop: 8 }} onClick={save}><Check size={14} /> Save</button>
         </div>
@@ -2643,7 +2643,7 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
   const removeRow = (id) => setForm((f) => ({ ...f, items: f.items.filter((it) => it.id !== id) }));
 
   const saveBoth = () => {
-    if (!form.a.label.trim() || !form.b.label.trim()) { showToast('Dono option ka naam bharein', true); return; }
+    if (!form.a.label.trim() || !form.b.label.trim()) { showToast('Fill in a name for both options', true); return; }
     if (form.items.length === 0) { showToast('Kam se kam ek item add karein', true); return; }
     const base = jobRef.current;
     // Anything beyond the two this screen edits is left alone rather
@@ -2661,19 +2661,19 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
   // made on the phone. Same code path as the customer's, so both
   // produce the same estimate, and both record who decided.
   const finalizeDraft = (d) => {
-    const lines = ['"' + d.label + '" ko final estimate banayein?'];
-    if (hasEstimate) lines.push('\nAbhi ka estimate (' + currency(jobTotal(jobRef.current)) + ') iski jagah hat jayega.');
-    if (paidSoFar > 0) lines.push('\nDhyan dein: is job par ' + currency(paidSoFar) + ' payment aa chuki hai. Total badlega to baaki rakam bhi badlegi.');
+    const lines = ['"' + d.label + '" the final estimate?'];
+    if (hasEstimate) lines.push('\nAbhi ka estimate (' + currency(jobTotal(jobRef.current)) + ') will be removed in its place.');
+    if (paidSoFar > 0) lines.push('\nNote: ' + currency(paidSoFar) + ' has already been paid on this job. If the total changes, the balance changes too.');
     lines.push('\nBaaki options hat jayenge.');
     if (!window.confirm(lines.join('\n'))) return;
     const nextJob = finalizeEstimateDraft(jobRef.current, d, 'admin', staffName);
     jobRef.current = nextJob;
     onSave(nextJob);
-    showToast(d.label + ' final estimate ban gaya');
+    showToast(d.label + ' is now the final estimate');
   };
 
   const deleteAll = () => {
-    if (!window.confirm(t('Dono option hata dein?'))) return;
+    if (!window.confirm(t('Remove both options?'))) return;
     const next = { ...jobRef.current, estimateDrafts: [] };
     jobRef.current = next;
     onSave(next);
@@ -2695,7 +2695,7 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
           onChange={(e) => setForm((f) => ({ ...f, [side]: { ...f[side], label: e.target.value } }))}
         />
         <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-          <input style={styles.input} placeholder={t('Company (jaise Kaka)')} value={form[side].materialCompany}
+          <input style={styles.input} placeholder={t('Company (for example Kaka)')} value={form[side].materialCompany}
             onChange={(e) => setForm((f) => ({ ...f, [side]: { ...f[side], materialCompany: e.target.value } }))} />
           <input style={{ ...styles.input, maxWidth: 96 }} placeholder='Sheet kg' inputMode='decimal' value={form[side].sheetWeightKg}
             onChange={(e) => setForm((f) => ({ ...f, [side]: { ...f[side], sheetWeightKg: e.target.value } }))} />
@@ -2705,7 +2705,7 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
 
     return (
       <div style={styles.formCard}>
-        <div style={styles.fieldLabel}>{t('Dono Option Ek Saath')}</div>
+        <div style={styles.fieldLabel}>{t('Both options together')}</div>
         <div style={styles.hintText}>{t('Item ek hi baar likhein. Har item par dono ka rate bharein - doosra khaali chhoda to pehle wala hi lag jayega.')}</div>
 
         {meta('a', 1)}
@@ -2758,7 +2758,7 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
         {cheaper && <div style={styles.hintText}>{cheaper} {currency(diff)} sasta padta hai.</div>}
 
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={saveBoth}><Check size={14} />{t('Dono Option Save Karein')}</button>
+          <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={saveBoth}><Check size={14} />{t('Save both options')}</button>
           <button style={styles.cancelBtn} onClick={() => { setForm(null); setEditingRowId(null); }}>Cancel</button>
         </div>
       </div>
@@ -2769,15 +2769,15 @@ function AdminEstimateDraftsPanel({ job, onSave, showToast, staffName }) {
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={styles.fieldLabel}>Compare Materials (optional)</div>
-        <button style={styles.linkBtn2} onClick={openBuilder}>{drafts.length > 0 ? t('Edit karein') : '+ Do Option Banayein'}</button>
+        <button style={styles.linkBtn2} onClick={openBuilder}>{drafts.length > 0 ? t('Edit') : '+ Build two options'}</button>
       </div>
       <div style={styles.plainTextMuted}>
         {hasEstimate
-          ? 'Estimate ban chuka hai. Customer doosre material ka rate poochhe to yahan do option banayein - wahi item, alag rate. Final karne par ye mojuda estimate ki jagah le lega.'
+          ? 'The estimate is already made. If the customer asks the rate for another material, build two options here - same items, different rates. Making one final replaces the current estimate.'
           : t('Wahi item, do alag rate - customer ko dono total dikhenge aur jo pasand aaye wahi final estimate ban jayega.')}
       </div>
 
-      {drafts.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi option nahi bana. Customer ko sirf ek hi estimate dikhega jab tak options na banayein.')}</div>}
+      {drafts.length === 0 && <div style={styles.emptySmall}>{t('No options built yet. Until you build them, the customer sees only one estimate.')}</div>}
       {drafts.map((d) => (
         <div key={d.id} style={styles.extraWorkCard}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -2935,7 +2935,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
     const base = jobRef.current;
     saveJob(logActivity({ ...base, materials: [entry, ...(base.materials || [])] }, (newMaterial.category === 'hardware' ? 'Hardware' : 'Material') + ' added: ' + entry.desc));
     setNewMaterial({ desc: '', category: newMaterial.category });
-    showToast('Add ho gaya');
+    showToast('Added');
   };
   const setMaterialStatus = (id, status) => {
     const base = jobRef.current;
@@ -2950,7 +2950,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
     const base = jobRef.current;
     saveJob({ ...base, karigarMessages: [...(base.karigarMessages || []), entry] });
     setReplyText('');
-    showToast('Reply bhej diya');
+    showToast('Reply sent');
   };
 
   // Lets the business set its own certificate / receipt numbers. Both
@@ -2972,7 +2972,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
     } else {
       saveJob({ ...base, payments: (base.payments || []).map((p) => (p.id === payment.id ? { ...p, receiptNo: value } : p)) });
     }
-    showToast('Number save ho gaya');
+    showToast('Number saved');
   };
 
   const updateStatus = (status) => {
@@ -2993,8 +2993,8 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
     let next = { ...base, complaints };
     next = logActivity(next, 'Repair started on the complaint');
     saveJob(next);
-    showToast('Repair shuru mark ho gaya');
-    if (pushNotification) pushNotification('complaint_in_progress', t('Aapki complaint par repair shuru ho gaya hai'), job.id);
+    showToast('Repair marked as started');
+    if (pushNotification) pushNotification('complaint_in_progress', t('Repair work has started on your complaint'), job.id);
   };
   const resolveComplaint = (id, resolutionNote) => {
     const base = jobRef.current;
@@ -3002,8 +3002,8 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
     let next = { ...base, complaints };
     next = logActivity(next, 'Complaint resolved');
     saveJob(next);
-    showToast('Complaint resolved mark ho gayi');
-    if (pushNotification) pushNotification('complaint_resolved', t('Aapki complaint solve ho gayi hai'), job.id);
+    showToast('Complaint marked resolved');
+    if (pushNotification) pushNotification('complaint_resolved', t('Your complaint has been resolved'), job.id);
   };
   // Lets admin log a repair directly on an already-delivered job, even
   // when the customer never reported anything through the app (a phone
@@ -3025,7 +3025,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
     next = logActivity(next, 'Repair added by admin: ' + entry.text);
     saveJob(next);
     setAdminRepairText(''); setShowAdminRepairForm(false);
-    showToast('Repair add ho gaya');
+    showToast('Repair added');
   };
 
   // Customer questions asked from the Help/FAQ screen (see HelpScreen's
@@ -3041,8 +3041,8 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
     next = logActivity(next, 'Replied to the customer question');
     saveJob(next);
     setAnsweringQuestionId(null); setAnswerText('');
-    showToast('Jawab bhej diya');
-    if (pushNotification) pushNotification('question_answered', t('Aapke sawaal ka jawab mil gaya hai'), job.id);
+    showToast('Answer sent');
+    if (pushNotification) pushNotification('question_answered', t('Your question has been answered'), job.id);
   };
 
   const addItem = () => {
@@ -3088,7 +3088,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
     if (!(base.items || []).length) next.estimateGivenAt = new Date().toISOString();
     next = logActivity(next, 'Partner suggestion approved: ' + suggestion.desc);
     saveJob(next);
-    showToast('Estimate mein add ho gaya');
+    showToast('Added to the estimate');
   };
   const rejectSuggestedItem = (suggestionId) => {
     saveJob({ ...jobRef.current, suggestedItems: (jobRef.current.suggestedItems || []).filter((s) => s.id !== suggestionId) });
@@ -3109,7 +3109,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
     if (justCompletedPayment) nextJob.status = 'paid';
     saveJob(nextJob);
     if (justCompletedPayment && pushNotification) {
-      pushNotification('payment_completed', tf('Aapka poora payment ho gaya hai - {business} ki taraf se dhanyavaad! Hume aapke saath kaam karke khushi hui.', { business: BUSINESS.name }), job.id);
+      pushNotification('payment_completed', tf('Your payment is complete - thank you from {business}! It was a pleasure working with you.', { business: BUSINESS.name }), job.id);
     }
     setNewPayment({ amount: '', note: '', method: 'Cash' });
     showToast('Payment recorded');
@@ -3171,11 +3171,11 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
     const next = { ...base, extraWork: (base.extraWork || []).map((e) => (e.id === item.id ? { ...e, items: pricingItems, amount, status: 'pending_customer_approval' } : e)) };
     saveJob(logActivity(next, 'Extra work priced: ' + item.desc + ' (' + currency(amount) + ')'));
     if (pushNotification) {
-      pushNotification('extra_work_needs_price', tf('Aapke extra kaam "{item}" ka price {amount} set ho gaya hai - approve karein', { item: item.desc, amount: currency(amount) }), job.id);
+      pushNotification('extra_work_needs_price', tf('The price for your extra work "{item}" is set at {amount} - please approve', { item: item.desc, amount: currency(amount) }), job.id);
     }
     setPricingId(null);
     setPricingItems([]);
-    showToast('Price set, customer approval ke liye bheja gaya');
+    showToast('Price set and sent to the customer for approval');
   };
   const removeExtraWork = (id) => saveJob({ ...jobRef.current, extraWork: (jobRef.current.extraWork || []).filter((e) => e.id !== id) });
   // Folds an approved extra-work entry's line items into the main
@@ -3202,7 +3202,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
     if (!(base.items || []).length) next.estimateGivenAt = new Date().toISOString();
     next = logActivity(next, 'Extra work merged into the estimate: ' + entry.desc + ' (' + currency(entry.amount) + ')');
     saveJob(next);
-    showToast('Estimate mein merge ho gaya');
+    showToast('Merged into the estimate');
   };
 
   const addPhotosFromPanel = async (photos) => {
@@ -3218,7 +3218,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
       if (uploaded && !uploaded.error) {
         newPhotos.push({ id, url: uploaded.url, origUrl: p.origUrl || null, caption: p.caption, date: new Date().toISOString() });
       } else {
-        showToast('Ek photo save nahi ho payi: ' + (uploaded?.error || 'unknown error'), true);
+        showToast('One photo could not be saved: ' + (uploaded?.error || 'unknown error'), true);
       }
     }
     if (newPhotos.length === 0) return false;
@@ -3271,7 +3271,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
                 </div>
                 {openChangeRequests(job).map((r) => (
                   <div key={r.id} style={{ ...styles.itemDesc, fontWeight: 700, marginTop: 4 }}>
-                    {r.text ? '\u201C' + r.text + '\u201D' : 'Likha kuch nahi - call karke poochein'}
+                    {r.text ? '\u201C' + r.text + '\u201D' : 'Nothing written - call and ask'}
                   </div>
                 ))}
                 <div style={{ ...styles.hintText, marginTop: 6 }}>Estimate tab kholne ke liye yahan dabayein &rsaquo;</div>
@@ -3306,7 +3306,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
                     <div style={styles.itemAmount}>{currency(collected)}</div>
                   </div>
                   <div style={{ display: 'flex', marginTop: 6 }}>
-                    <div style={{ ...styles.itemDesc, flex: 1, fontWeight: 800 }}>Abhi tak bacha</div>
+                    <div style={{ ...styles.itemDesc, flex: 1, fontWeight: 800 }}>Left over so far</div>
                     <div style={{ ...styles.itemAmount, fontWeight: 800, color: collected - cost.total >= 0 ? '#2F7D4F' : '#B5562E' }}>
                       {currency(collected - cost.total)}
                     </div>
@@ -3352,7 +3352,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
                     if (newStaffId && newStaffId !== job.assignedStaffId && window.pushMessaging) {
                       const assignedStaff = staff.find((s) => s.id === newStaffId);
                       if (assignedStaff?.pushToken) {
-                        window.pushMessaging.sendPush(assignedStaff.pushToken, BUSINESS.name, 'Aapko ' + job.customerName + ' ka naya kaam assign hua hai').catch(() => {});
+                        window.pushMessaging.sendPush(assignedStaff.pushToken, BUSINESS.name, 'You have a new job: ' + job.customerName).catch(() => {});
                       }
                     }
                   }}
@@ -3366,17 +3366,17 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
             {(job.status === 'delivered' || job.status === 'paid') && (
               <div style={{ marginTop: 16 }}>
                 <div style={styles.fieldLabel}>{t('Repair Ka Record Rakhein')}</div>
-                <div style={styles.plainTextMuted}>Agar customer ne phone par bataya ho ya aapko khud pata chala ho ki kuch theek karna hai - yahan add karein, taaki record rahe.</div>
+                <div style={styles.plainTextMuted}>If the customer mentioned something on the phone, or you spotted it yourself, add it here so there is a record.</div>
                 {showAdminRepairForm ? (
                   <div style={{ marginTop: 8 }}>
                     <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} placeholder={t('Kya repair karna hai, detail likhein...')} value={adminRepairText} onChange={(e) => setAdminRepairText(e.target.value)} autoFocus />
                     <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                      <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addAdminRepair}>{t('Add Karein')}</button>
+                      <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={addAdminRepair}>{t('Add')}</button>
                       <button style={styles.cancelBtn} onClick={() => { setShowAdminRepairForm(false); setAdminRepairText(''); }}>Cancel</button>
                     </div>
                   </div>
                 ) : (
-                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => setShowAdminRepairForm(true)}><Plus size={14} />{t('Repair Add Karein')}</button>
+                  <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={() => setShowAdminRepairForm(true)}><Plus size={14} />{t('Repair Add')}</button>
                 )}
               </div>
             )}
@@ -3390,14 +3390,14 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
                     <div style={styles.itemSub}>{formatDate(q.createdAt)}</div>
                     {q.status === 'answered' ? (
                       <div style={{ ...styles.formCard, background: '#F0F7F0', marginTop: 8, padding: 8 }}>
-                        <div style={styles.itemSub}>{t('Aapka jawab:')}</div>
+                        <div style={styles.itemSub}>{t('Your answer:')}</div>
                         <div style={{ ...styles.itemDesc, marginTop: 2 }}>{q.answer}</div>
                       </div>
                     ) : answeringQuestionId === q.id ? (
                       <div style={{ marginTop: 8 }}>
                         <textarea style={{ ...styles.input, minHeight: 60, resize: 'vertical' }} placeholder={t('Jawab likhein...')} value={answerText} onChange={(e) => setAnswerText(e.target.value)} autoFocus />
                         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                          <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => answerQuestion(q.id)}>{t('Jawab Bhejein')}</button>
+                          <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => answerQuestion(q.id)}>{t('Jawab Send')}</button>
                           <button style={styles.cancelBtn} onClick={() => { setAnsweringQuestionId(null); setAnswerText(''); }}>Cancel</button>
                         </div>
                       </div>
@@ -3414,7 +3414,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
                 <div style={styles.fieldLabel}>Complaints ({job.complaints.length})</div>
                 {job.complaints.map((c) => (
                   <div key={c.id} style={{ ...styles.formCard, marginTop: 8, padding: 10 }}>
-                    <div style={styles.itemDesc}>{c.text} {c.source === 'admin' && <span style={styles.reqCatBadge}>{t('Admin ne add kiya')}</span>}</div>
+                    <div style={styles.itemDesc}>{c.text} {c.source === 'admin' && <span style={styles.reqCatBadge}>{t('Added by the admin')}</span>}</div>
                     {c.photo && (
                       <button style={{ border: 'none', padding: 0, background: 'none', cursor: 'pointer', marginTop: 8, display: 'block' }} onClick={() => setReqLightbox({ photos: [{ id: c.id, url: c.photo.url, origUrl: c.photo.origUrl, caption: c.text }], index: 0 })}>
                         <SmartImg src={c.photo.url} origUrl={c.photo.origUrl} alt='Problem' style={{ width: 90, height: 90, objectFit: 'cover', borderRadius: 8 }} />
@@ -3462,7 +3462,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
 
             <div style={{ marginTop: 16 }}>
               <div style={styles.fieldLabel}>Expected Completion Date</div>
-              <div style={styles.plainTextMuted}>Customer ko Home screen par dikhega.</div>
+              <div style={styles.plainTextMuted}>The customer sees this on the Home screen.</div>
               <input type='date' style={styles.input} value={job.expectedCompletionDate || ''} onChange={(e) => saveJob({ ...jobRef.current, expectedCompletionDate: e.target.value || null })} />
             </div>
 
@@ -3470,7 +3470,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
               <div style={styles.fieldLabel}>{t('Material (poore estimate ke liye)')}</div>
               <div style={styles.plainTextMuted}>{t('Kaunsi company ki sheet, kitni kg - poore estimate mein ek hi material use hota hai.')}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                <SavedInput style={styles.input} placeholder={t('Company (jaise Kaka)')} value={job.materialCompany || ''} onCommit={(v) => saveJob({ ...jobRef.current, materialCompany: v })} />
+                <SavedInput style={styles.input} placeholder={t('Company (for example Kaka)')} value={job.materialCompany || ''} onCommit={(v) => saveJob({ ...jobRef.current, materialCompany: v })} />
                 <SavedInput style={styles.input} placeholder='Sheet weight (kg)' inputMode='decimal' value={job.sheetWeightKg || ''} onCommit={(v) => saveJob({ ...jobRef.current, sheetWeightKg: v })} />
               </div>
             </div>
@@ -3542,8 +3542,8 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
                 <div style={styles.totalBar}><span>Extra Work Total</span><span style={styles.totalAmt}>{currency(newExtraWork.items.reduce((s, it) => s + estimateItemAmount(it), 0))}</span></div>
               )}
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button style={{ ...styles.addBtn, flex: 1, marginTop: 0 }} onClick={() => addExtraWork(false)}><Send size={14} />{t('Customer Approval Bhejein')}</button>
-                <button style={{ ...styles.addBtn, flex: 1, marginTop: 0, background: BRAND.navy, color: '#FFF', border: 'none' }} onClick={() => addExtraWork(true)}><CheckCircle2 size={14} />{t('Seedha Add Karein')}</button>
+                <button style={{ ...styles.addBtn, flex: 1, marginTop: 0 }} onClick={() => addExtraWork(false)}><Send size={14} />{t('Customer Approval Send')}</button>
+                <button style={{ ...styles.addBtn, flex: 1, marginTop: 0, background: BRAND.navy, color: '#FFF', border: 'none' }} onClick={() => addExtraWork(true)}><CheckCircle2 size={14} />{t('Seedha Add')}</button>
               </div>
             </div>
 
@@ -3552,7 +3552,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
             {extraWork.map((e) => (
               <div key={e.id} style={styles.extraWorkCard}>
                 <div style={styles.itemDesc}>{e.desc}</div>
-                <div style={styles.itemSub}>{e.addedBy === 'admin' ? t('Aapne add kiya') : t('Customer ne request kiya')} - {formatDate(e.createdAt)}</div>
+                <div style={styles.itemSub}>{e.addedBy === 'admin' ? t('You added') : t('The customer requested it')} - {formatDate(e.createdAt)}</div>
 
                 {(e.items || []).length > 0 && (
                   <div style={{ marginTop: 6 }}>
@@ -3616,14 +3616,14 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
                   </div>
                 )}
                 {e.status === 'approved' && !e.mergedIntoEstimate && (
-                  <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => mergeExtraWorkIntoEstimate(e)}><FileText size={13} />{t('Estimate Mein Merge Karein')}</button>
+                  <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => mergeExtraWorkIntoEstimate(e)}><FileText size={13} />{t('Merge into the estimate')}</button>
                 )}
                 {e.mergedIntoEstimate && (
                   <div style={{ ...styles.itemSub, marginTop: 6 }}>{t('Estimate ke items mein merge ho chuka hai')}</div>
                 )}
                 {e.status === 'rejected' && (
                   <div style={{ ...styles.estimateStatusBanner, background: '#FFEBEE', color: '#C62828', marginTop: 8 }}>
-                    <XCircle size={14} />{t('Customer ne reject kiya')}</div>
+                    <XCircle size={14} />{t('The customer rejected it')}</div>
                 )}
                 <button style={{ ...styles.cardActionBtn, marginTop: 8 }} onClick={() => removeExtraWork(e.id)}><Trash2 size={12} /> Remove</button>
               </div>
@@ -3697,7 +3697,7 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
         {tab === 'req' && (
           <div>
             <div style={styles.fieldLabel}>Customer requirements</div>
-            {(job.requirements || []).length === 0 && <div style={styles.emptySmall}>{t('Customer ne abhi koi requirement nahi di.')}</div>}
+            {(job.requirements || []).length === 0 && <div style={styles.emptySmall}>{t('The customer has not given any requirement yet.')}</div>}
             {(job.requirements || []).map((r) => (
               <div key={r.id} style={styles.reqRow}>
                 {r.photoRef && resolveGalleryPhotoForAdmin(r.photoRef.photoId) && (
@@ -3780,8 +3780,8 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
         {tab === 'karigar' && (
           <div>
             <div style={styles.fieldLabel}>Karigar se Messages</div>
-            <div style={styles.plainTextMuted}>{t('Assigned karigar ke sawal yahan aayenge, reply karein.')}</div>
-            {karigarMessages.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi message nahi hai.')}</div>}
+            <div style={styles.plainTextMuted}>{t('Questions from the assigned karigar arrive here - reply to them.')}</div>
+            {karigarMessages.length === 0 && <div style={styles.emptySmall}>{t('No messages yet.')}</div>}
             {karigarMessages.map((m) => (
               <div key={m.id} style={{ ...styles.extraWorkCard, ...(m.from === 'admin' ? { background: '#E1EDEA' } : {}) }}>
                 <div style={styles.itemSub}>{m.authorName} - {formatDate(m.createdAt)}</div>
@@ -3806,17 +3806,17 @@ function AdminJobDetail({ job, customer, expenses, onSaveCustomer, onOpenCustome
                 <button onClick={() => setNewMaterial((n) => ({ ...n, category: 'material' }))} style={{ ...styles.chip, ...(newMaterial.category === 'material' ? styles.chipActive : {}) }}>Material</button>
                 <button onClick={() => setNewMaterial((n) => ({ ...n, category: 'hardware' }))} style={{ ...styles.chip, ...(newMaterial.category === 'hardware' ? styles.chipActive : {}) }}>Hardware/Fitting</button>
               </div>
-              <button style={styles.addBtn} onClick={addMaterial}><Plus size={14} />{t('Add karein')}</button>
+              <button style={styles.addBtn} onClick={addMaterial}><Plus size={14} />{t('Add')}</button>
             </div>
 
-            {materials.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi material/hardware add nahi kiya.')}</div>}
+            {materials.length === 0 && <div style={styles.emptySmall}>{t('No material or hardware added yet.')}</div>}
             {materials.map((m) => (
               <div key={m.id} style={styles.extraWorkCard}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={styles.itemDesc}>{m.desc} <span style={styles.reqCatBadge}>{m.category === 'hardware' ? 'Hardware' : 'Material'}</span></div>
                   <button style={styles.iconBtnSmall} onClick={() => removeMaterial(m.id)}><Trash2 size={13} color='#C7CCDC' /></button>
                 </div>
-                <div style={styles.itemSub}>Status: {m.status === 'pending' ? 'Pending' : m.status === 'ordered' ? t('Order ho gaya') : t('Aa gaya')}</div>
+                <div style={styles.itemSub}>Status: {m.status === 'pending' ? 'Pending' : m.status === 'ordered' ? t('Order ho gaya') : t('Arrived')}</div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                   <button style={{ ...styles.chip, ...(m.status === 'pending' ? styles.chipActive : {}) }} onClick={() => setMaterialStatus(m.id, 'pending')}>Pending</button>
                   <button style={{ ...styles.chip, ...(m.status === 'ordered' ? styles.chipActive : {}) }} onClick={() => setMaterialStatus(m.id, 'ordered')}>Ordered</button>
@@ -4005,7 +4005,7 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
         [activeCat]: remaining,
         [newCategory]: [{ ...photo, caption: newCaption }, ...targetPhotos],
       });
-      if (ok) showToast('Photo ' + newCategory + ' mein move ho gayi');
+      if (ok) showToast('Photo ' + newCategory + ' moved to');
     }
     setEditingPhoto(null);
   };
@@ -4013,7 +4013,7 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={styles.sectionTitle}>Design Gallery Manager</div>
-      <div style={styles.plainTextMuted}>{t('Categories add/remove karne ke liye Settings mein jaayein.')}</div>
+      <div style={styles.plainTextMuted}>{t('Go to Settings to add or remove categories.')}</div>
 
       <div style={styles.chipRow}>
         <button
@@ -4031,13 +4031,13 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
       <div style={{ marginTop: 12 }}>
         <div style={styles.fieldLabel}>Add photo to '{activeCat}'</div>
         {activeCat === UNCATEGORIZED && (
-          <div style={styles.plainTextMuted}>Bahut saari mixed photos ek saath daalne ke liye yahan add karein - baad mein har photo ko sahi category mein move kar sakte hain (photo par tap karke "Edit" se).</div>
+          <div style={styles.plainTextMuted}>Add a lot of mixed photos at once here - you can move each one into the right category later (tap a photo, then Edit).</div>
         )}
         <PhotoAddPanel addLabel='Add photo' showToast={showToast} onAdd={addPhotosFromPanel} />
         <button style={styles.linkBtn2} onClick={() => setShowBulk((s) => !s)}>{showBulk ? 'Hide bulk add' : 'Bulk add (many URLs at once) ->'}</button>
         {showBulk && (
           <div style={{ marginTop: 8 }}>
-            <textarea style={{ ...styles.input, minHeight: 100, resize: 'vertical' }} placeholder={[t('Ek line mein ek URL daalein (Google Drive links bhi chalenge):'), 'https://example.com/1.jpg', 'https://drive.google.com/file/d/.../view'].join(NEWLINE)} value={bulkText} onChange={(e) => setBulkText(e.target.value)} />
+            <textarea style={{ ...styles.input, minHeight: 100, resize: 'vertical' }} placeholder={[t('One URL per line (Google Drive links work too):'), 'https://example.com/1.jpg', 'https://drive.google.com/file/d/.../view'].join(NEWLINE)} value={bulkText} onChange={(e) => setBulkText(e.target.value)} />
             <button style={styles.addBtn} onClick={addBulk}><Plus size={14} /> Add all URLs</button>
           </div>
         )}
@@ -4046,7 +4046,7 @@ function AdminGallery({ gallery, galleryLoading, setGallery, categories, setCate
       {allPhotos.length > 6 && (
         <div style={{ ...styles.searchWrap, marginTop: 16 }}>
           <Search size={15} color={BRAND.textMuted} />
-          <input style={styles.searchInput} placeholder={t('Caption se search karein...')} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input style={styles.searchInput} placeholder={t('Search by caption...')} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
       )}
 
@@ -4122,7 +4122,7 @@ function AdminReviews({ jobs, setJobs, archivedReviews, setArchivedReviews, show
 
   const removeArchivedReview = (id) => {
     setArchivedReviews((archivedReviews || []).filter((r) => r.id !== id));
-    showToast('Archived review hata diya gaya');
+    showToast('Archived review removed');
   };
 
   const toggleFeatured = (job) => {
@@ -4135,7 +4135,7 @@ function AdminReviews({ jobs, setJobs, archivedReviews, setArchivedReviews, show
     const next = jobs.map((j) => (j.id === job.id ? { ...j, review: { ...j.review, rating: newRating, text: newText.trim() } } : j));
     setJobs(next);
     setEditingJobId(null);
-    showToast('Review update ho gaya');
+    showToast('Review updated');
   };
 
   return (
@@ -4146,7 +4146,7 @@ function AdminReviews({ jobs, setJobs, archivedReviews, setArchivedReviews, show
         <StatCard icon={<MessageSquare size={16} />} label='Total Reviews' value={reviewed.length} />
       </div>
       <div style={styles.plainTextMuted}>{featuredCount} review{featuredCount !== 1 ? 's' : ''} customers ko dikh rahe hain (featured)</div>
-      {reviewed.length === 0 && <div style={styles.empty}>{t('Abhi tak koi review nahi mila.')}</div>}
+      {reviewed.length === 0 && <div style={styles.empty}>{t('No review received yet.')}</div>}
       {reviewed.map((j) => (
         <div key={j.id} style={styles.reviewCard}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -4174,7 +4174,7 @@ function AdminReviews({ jobs, setJobs, archivedReviews, setArchivedReviews, show
 
       {(archivedReviews || []).length > 0 && (
         <div style={{ marginTop: 18 }}>
-          <div style={styles.fieldLabel}>{t('Archived Reviews (customer delete ho chuke hain)')}</div>
+          <div style={styles.fieldLabel}>{t('Archived reviews (these customers were deleted)')}</div>
           <div style={styles.plainTextMuted}>{t('Ye reviews un customers ke hain jo delete ho chuke hain - marketing ke liye surakshit rakhe gaye hain.')}</div>
           {archivedReviews.map((r) => (
             <div key={r.id} style={styles.reviewCard}>
@@ -4238,10 +4238,10 @@ function AdminQuickSend({ onBack }) {
   const [intent, setIntent] = useState('designs');
 
   const CHOICES = [
-    { intent: 'designs', label: '500+ design', why: 'Jo abhi dekh raha hai, sochne wala hai' },
-    { intent: 'book', label: 'Free site visit', why: 'Jo rate poochh raha hai - naap ke bina rate nahi' },
-    { intent: 'estimate', label: 'Rate kaise lagta hai', why: 'Jo seedha daam poochh raha hai' },
-    { intent: 'app', label: 'App', why: 'Jiska kaam shuru hone wala hai' },
+    { intent: 'designs', label: '500+ design', why: 'Someone still looking and thinking it over' },
+    { intent: 'book', label: 'Free site visit', why: 'Someone asking the rate - no rate without a measurement' },
+    { intent: 'estimate', label: 'How the rate works', why: 'Someone asking the price straight out' },
+    { intent: 'app', label: 'App', why: 'Someone whose work is about to start' },
   ];
 
   const digits = String(phone).replace(/\D/g, '').replace(/^91/, '').replace(/^0/, '');
@@ -4299,7 +4299,7 @@ function AdminQuickSend({ onBack }) {
           }}
         >WhatsApp par bhejein</a>
         {!ready && phone.trim() !== '' && (
-          <div style={{ ...styles.itemSub, marginTop: 6 }}>10 digit number likhein</div>
+          <div style={{ ...styles.itemSub, marginTop: 6 }}>Enter a 10-digit number</div>
         )}
         {/* Opening WhatsApp without a number is useful too: the owner
             is often already in the chat and just wants the text. */}
@@ -4321,7 +4321,7 @@ function AdminLeads({ onBack, showToast }) {
   const load = useCallback(async () => {
     setBusy(true);
     try { setRows(await window.leads.loadAll()); }
-    catch (e) { showToast('Enquiry load nahi hui', true); setRows([]); }
+    catch (e) { showToast('Could not load the enquiries', true); setRows([]); }
     finally { setBusy(false); }
   }, [showToast]);
   useEffect(() => { load(); }, [load]);
@@ -4330,14 +4330,14 @@ function AdminLeads({ onBack, showToast }) {
     try {
       await window.leads.update(row.docId, { status });
       setRows((list) => (list || []).map((r) => (r.docId === row.docId ? { ...r, status } : r)));
-    } catch (e) { showToast('Save nahi hua', true); }
+    } catch (e) { showToast('Not saved', true); }
   };
   const remove = async (row) => {
-    if (!window.confirm('Ye enquiry hata dein?')) return;
+    if (!window.confirm('Remove this enquiry?')) return;
     try {
       await window.leads.remove(row.docId);
       setRows((list) => (list || []).filter((r) => r.docId !== row.docId));
-    } catch (e) { showToast('Hata nahi paye', true); }
+    } catch (e) { showToast('Could not remove it', true); }
   };
 
   const open = (rows || []).filter((r) => r.status !== 'done');
@@ -4359,7 +4359,7 @@ function AdminLeads({ onBack, showToast }) {
       <div style={{ display: 'flex', gap: 8, marginTop: 11, flexWrap: 'wrap' }}>
         <a href={'tel:+91' + r.phone} style={{ ...styles.cardActionBtn, color: '#2F7D4F' }}><Phone size={12} /> Call</a>
         <a
-          href={whatsAppShareUrl(r.phone, 'Namaste ' + r.name + ', Shree Krushn PVC Furniture se. Aapne website par enquiry bheji thi - free site visit ka time tay kar lein?')}
+          href={whatsAppShareUrl(r.phone, 'Namaste ' + r.name + ', this is Shree Krushn PVC Furniture. You sent an enquiry on our website - shall we fix a time for a free site visit?')}
           target='_blank' rel='noopener noreferrer'
           style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF' }}
         ><Send size={12} /> WhatsApp</a>
@@ -4386,7 +4386,7 @@ function AdminLeads({ onBack, showToast }) {
         </div>
         {rows === null && <div style={styles.emptySmall}>Load ho raha hai...</div>}
         {rows !== null && rows.length === 0 && (
-          <div style={styles.emptySmall}>Abhi koi enquiry nahi aayi.</div>
+          <div style={styles.emptySmall}>No enquiries yet.</div>
         )}
         {open.length > 0 && <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Naye ({open.length})</div>}
         {open.map((r) => <Card key={r.docId} r={r} />)}
@@ -4481,11 +4481,11 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
     const snap = closingSnapshot(visibleExpenses, collectedNow, upTo, lastClosing ? lastClosing.upTo : null);
     const label = monthLabel(monthKeyOf(upTo));
     if (!window.confirm(
-      'Aaj tak ka hisab band karein?\n\n'
-      + 'Is period ka kharch: ' + currency(snap.expense) + '\n'
+      'Close the books up to today?\n\n'
+      + 'This period\'s spending: ' + currency(snap.expense) + '\n'
       + 'Karigar: ' + currency(snap.karigar) + '\n'
       + 'Material: ' + currency(snap.material) + '\n\n'
-      + 'Kuch delete nahi hoga - purana sab "Purane hisab" mein dikhta rahega. '
+      + 'Nothing is deleted - everything stays visible under "Past periods". '
       + 'Sirf chalu total aaj se zero se ginna shuru karega.',
     )) return;
     setBookClosings([
@@ -4493,7 +4493,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
       { id: uid(), upTo, closedAt: upTo, label, totals: snap },
     ]);
     setCostScope('book');
-    showToast('Hisab band ho gaya - naya hisab aaj se shuru');
+    showToast('Books closed - the new period starts today');
   };
 
   if (showClosings) {
@@ -4509,18 +4509,18 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
             Har band kiye gaye period ka hisab, usi din ka. Record delete nahi hote - ye sirf
             batata hai ki us din tak kya tha.
           </div>
-          {all.length === 0 && <div style={styles.emptySmall}>Abhi koi hisab band nahi kiya gaya.</div>}
+          {all.length === 0 && <div style={styles.emptySmall}>No books have been closed yet.</div>}
           {all.map((c) => (
             <div key={c.id} style={{ ...styles.card, marginTop: 10, padding: 14 }}>
               <div style={styles.cardName}>{c.label || formatDate(c.upTo)} tak</div>
               <div style={styles.itemSub}>{formatDate(c.upTo)} ko band kiya</div>
               <div style={{ marginTop: 10 }}>
                 {[['Karigar', c.totals && c.totals.karigar], ['Material', c.totals && c.totals.material],
-                  ['Kul kharch', c.totals && c.totals.expense], ['Jama hua', c.totals && c.totals.collected],
-                  ['Bacha', c.totals && c.totals.profit]].map(([k, v]) => (
+                  ['Total spent', c.totals && c.totals.expense], ['Collected', c.totals && c.totals.collected],
+                  ['Left over', c.totals && c.totals.profit]].map(([k, v]) => (
                     <div key={k} style={{ display: 'flex', marginTop: 4 }}>
-                      <div style={{ ...styles.itemDesc, flex: 1, fontWeight: k === 'Bacha' ? 800 : 600 }}>{k}</div>
-                      <div style={{ ...styles.itemAmount, fontWeight: k === 'Bacha' ? 800 : 700 }}>{currency(v || 0)}</div>
+                      <div style={{ ...styles.itemDesc, flex: 1, fontWeight: k === 'Left over' ? 800 : 600 }}>{k}</div>
+                      <div style={{ ...styles.itemAmount, fontWeight: k === 'Left over' ? 800 : 700 }}>{currency(v || 0)}</div>
                     </div>
                 ))}
               </div>
@@ -4577,7 +4577,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
     expensesRef.current = next;
     setExpenses(next);
     setPayee(''); setAmount(''); setNote(''); setLinkedJobId('');
-    showToast('Expense add ho gaya');
+    showToast('Expense added');
   };
   const removeExpense = (id) => {
     const next = expensesRef.current.filter((e) => e.id !== id);
@@ -4598,7 +4598,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
         <button style={styles.backLink} onClick={() => setActivePayee(null)}><ArrowLeft size={13} />{t('Sab log')}</button>
         <div style={styles.catTitle}>{activePayeeDisplayName}</div>
         <div style={{ ...styles.payStrip, marginTop: 10 }}>
-          <MoneyBit label='Total Diya' value={currency(activeTotal)} highlight />
+          <MoneyBit label='Total paid' value={currency(activeTotal)} highlight />
           <MoneyBit label='Entries' value={String(activePayeeEntries.length)} muted />
         </div>
         <div style={{ ...styles.fieldLabel, marginTop: 14 }}>{t('Poori history')}</div>
@@ -4627,7 +4627,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
           <button style={styles.linkBtn2} onClick={() => setShowClosings(true)}>Purane hisab</button>
         </div>
       </div>
-      <div style={styles.plainTextMuted}>{t('Customer se aayi payment alag, karigar/company kharch alag track hota hai.')}</div>
+      <div style={styles.plainTextMuted}>{t('Money received from the customer is tracked separately from what is spent on karigars and the company.')}</div>
 
       <div style={styles.statRow2}>
         <StatCard icon={<IndianRupee size={16} />} label='Collected' value={currency(totalCollected)} />
@@ -4646,7 +4646,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
             style={styles.cardActionBtn}
             onClick={() => setCostScope((v) => (v === 'month' ? (lastClosing ? 'book' : 'all') : (v === 'book' ? 'all' : 'month')))}
           >
-            {costScope === 'month' ? 'Is mahine' : (costScope === 'book' ? 'Is hisab me' : 'Shuru se')}
+            {costScope === 'month' ? 'Is mahine' : (costScope === 'book' ? 'This period' : 'Shuru se')}
           </button>
         </div>
         <div style={styles.formCard}>
@@ -4684,7 +4684,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
                   </div>
                   {/* Against the same month last time. Shown only
                       where there is a last time to compare with -
-                      "100% zyada" against a month with nothing in it
+                      "100% more" against a month with nothing in it
                       is worse than saying nothing. */}
                   {cmpFor && cmpFor.direction !== 'same' && costCompare && costCompare.hasPrevious && (
                     <div style={{ ...styles.itemSub, textAlign: 'left', marginTop: 3, color: cmpFor.direction === 'up' ? '#B5562E' : '#2F7D4F' }}>
@@ -4708,7 +4708,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
                       </button>
                     ))}
                     <div style={{ ...styles.itemSub, marginTop: 4 }}>
-                      {row.type === 'Material' ? 'Naam par tap karein - us supplier ki poori history' : 'Naam par tap karein - uski poori history'}
+                      {row.type === 'Material' ? 'Tap a name for that supplier\'s full history' : 'Tap a name for their full history'}
                     </div>
                   </div>
                 )}
@@ -4717,7 +4717,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
           })}
           <div style={{ display: 'flex', marginTop: 14, paddingTop: 10, borderTop: '1px solid ' + BRAND.line }}>
             <div style={{ ...styles.itemDesc, flex: 1, fontWeight: 800 }}>
-              Kul kharch{costScope === 'month' ? ' (' + monthLabel(thisMonth) + ')' : (costScope === 'book' ? ' (' + formatDate(lastClosing.upTo) + ' ke baad)' : ' (shuru se)')}
+              Kul kharch{costScope === 'month' ? ' (' + monthLabel(thisMonth) + ')' : (costScope === 'book' ? ' (' + formatDate(lastClosing.upTo) + ' onwards)' : ' (from the start)')}
             </div>
             <div style={{ ...styles.itemAmount, fontWeight: 800 }}>{currency(costBreakdown.total)}</div>
           </div>
@@ -4756,7 +4756,7 @@ function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDh
           )}
           {costBreakdown.entries === 0 && (
             <div style={{ ...styles.plainTextMuted, marginTop: 8 }}>
-              {costScope === 'month' ? 'Is mahine abhi koi kharch nahi likha gaya.' : 'Abhi koi kharch nahi likha gaya.'}
+              {costScope === 'month' ? 'No expenses recorded this month yet.' : 'No expenses recorded yet.'}
             </div>
           )}
         </div>
@@ -4911,7 +4911,7 @@ function AdminMonthlyReport({ jobs, expenses }) {
    Progress, Delivered, etc) open a real filtered list instead of either
    doing nothing or dumping into the unfiltered full Customers tab -
    which is what "In Progress" and "Total Due" cards did before (no
-   onClick at all), and what "Aaj ki Visits" did (navigated to the
+   onClick at all), and what "Today's visits" did (navigated to the
    generic Customers tab, showing every customer rather than just
    today's visits). ---- */
 function AdminJobStatusList({ jobs, statuses, title, onOpenJob }) {
@@ -4975,7 +4975,7 @@ function AdminDuePaymentsList({ jobs, expenses, onOpenJob }) {
               <div style={styles.cardName}>{r.job.customerName}</div>
               <span style={{ ...styles.badge, background: '#FFEBEE', color: '#C62828' }}>{currency(r.due)} due</span>
             </div>
-            <div style={styles.itemSub}>{STATUS[r.job.status]?.label || r.job.status}{r.linkedExpense > 0 && (' - ' + currency(r.linkedExpense) + ' expense is project mein')}</div>
+            <div style={styles.itemSub}>{STATUS[r.job.status]?.label || r.job.status}{r.linkedExpense > 0 && (' - ' + currency(r.linkedExpense) + ' spent on this project')}</div>
           </button>
           <a
             href={whatsAppShareUrl(r.job.phone, buildPaymentReminderText(r.job))}
@@ -5016,7 +5016,7 @@ function AdminServiceDueList({ jobs, onSaveJob, onOpenJob, showToast }) {
     let next = { ...job, serviceVisits: done };
     next = logActivity(next, 'Free service visit (' + visit.label + ') completed');
     onSaveJob(next);
-    if (showToast) showToast('Service visit mark ho gaya');
+    if (showToast) showToast('Service visit recorded');
   };
 
   const daysLate = (iso) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
@@ -5030,11 +5030,11 @@ function AdminServiceDueList({ jobs, onSaveJob, onOpenJob, showToast }) {
       </div>
 
       <div style={styles.statRow2}>
-        <StatCard icon={<AlertCircle size={16} />} label={t('Abhi due')} value={rows.length} accent />
+        <StatCard icon={<AlertCircle size={16} />} label={t('Due now')} value={rows.length} accent />
         <StatCard icon={<Calendar size={16} />} label='Aage aane wale' value={upcoming.length} />
       </div>
 
-      {rows.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi service visit due nahi hai.')}</div>}
+      {rows.length === 0 && <div style={styles.emptySmall}>{t('No service visit is due.')}</div>}
       {rows.map((r) => (
         <div key={r.job.id} style={styles.reviewCard}>
           <button
@@ -5060,7 +5060,7 @@ function AdminServiceDueList({ jobs, onSaveJob, onOpenJob, showToast }) {
               rel='noopener noreferrer'
               style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', display: 'inline-flex' }}
             >
-              <Send size={13} />{t('Visit Offer Bhejein')}</a>
+              <Send size={13} />{t('Visit Offer Send')}</a>
             <button style={styles.cardActionBtn} onClick={() => markDone(r.job, r.visit)}>
               <CheckCircle2 size={13} />{t('Ho gaya')}</button>
           </div>
@@ -5160,7 +5160,7 @@ function AdminProfitReport({ jobs, expenses }) {
       )}
 
       <div style={{ ...styles.fieldLabel, marginTop: 16 }}>Project-wise breakdown</div>
-      {rows.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi payment ya linked expense record nahi hai.')}</div>}
+      {rows.length === 0 && <div style={styles.emptySmall}>{t('No payment or linked expense recorded yet.')}</div>}
       {rows.map((r) => (
         <div key={r.job.id} style={styles.reviewCard}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -5231,7 +5231,7 @@ function DataCheckPanel({ gallery, showToast }) {
   const describeDoc = (r) => {
     if (!r) return '-';
     if (!r.ok) return 'ERROR: ' + r.error;
-    if (!r.exists) return 'document maujood nahi';
+    if (!r.exists) return 'document does not exist';
     const size = Math.round(r.bytes / 1024) + ' KB';
     const count = typeof r.records === 'number' ? ', ' + r.records + ' record' : '';
     return 'maujood (' + size + count + ')' + (r.fromCache ? ' [cache se]' : '');
@@ -5248,7 +5248,7 @@ function DataCheckPanel({ gallery, showToast }) {
     const add = (label, value) => lines.push({ label, value });
     try {
       if (!window.dataCheck || !window.dataCheck.probe) {
-        add('Data Check', 'is build mein available nahi - app update kijiye');
+        add('Data Check', 'is not available in this build - update the app');
         setReport(lines);
         setRunning(false);
         return;
@@ -5256,11 +5256,11 @@ function DataCheckPanel({ gallery, showToast }) {
       const p = await window.dataCheck.probe();
 
       add('Firebase project', p.projectId);
-      add('Internet', p.online ? 'haan' : 'nahi');
+      add('Internet', p.online ? 'yes' : 'no');
       add(
         'Login (anonymous)',
         p.auth && p.auth.ok
-          ? 'ho gaya' + (p.auth.anonymous ? ' (anonymous)' : ' (staff)')
+          ? 'signed in' + (p.auth.anonymous ? ' (anonymous)' : ' (staff)')
           : 'FAIL: ' + ((p.auth && p.auth.error) || 'unknown'),
       );
       add('app_data/categories', describeDoc(p.appDataCategories));
@@ -5283,7 +5283,7 @@ function DataCheckPanel({ gallery, showToast }) {
         add('Pichhla crash', crash.scope + ' - ' + new Date(crash.at).toLocaleString('en-IN'));
         add('Crash ka message', crash.message);
       } else {
-        add('Pichhla crash', 'koi nahi');
+        add('Pichhla crash', 'none');
       }
 
       // The one-line verdict, so the answer does not depend on reading
@@ -5305,8 +5305,8 @@ function DataCheckPanel({ gallery, showToast }) {
         if (!list || !list.ok) return null;
         if (list.count === 0) return null;
         if (list.count >= legacy.records) return null;
-        return what + ': purane document mein ' + legacy.records + ' record hain lekin naye collection mein sirf '
-          + list.count + '. Migration adhoora hai - ' + (legacy.records - list.count) + ' record app mein nahi dikh rahe.';
+        return what + ': the old document had ' + legacy.records + ' records, but the new collection has only '
+          + list.count + '. The migration is incomplete - ' + (legacy.records - list.count) + ' records are not showing in the app.';
       };
       const gaps = [
         shortfall(p.appDataJobs, p.jobsList, 'Jobs'),
@@ -5321,15 +5321,15 @@ function DataCheckPanel({ gallery, showToast }) {
       } else if (denied) {
         verdict = t('Firestore Rules reads block kar rahe hain. Data safe hai, rules theek karne par wapas aa jayega.');
       } else if (!p.online) {
-        verdict = t('Device offline hai - dobara online hokar check kijiye.');
+        verdict = t('The device is offline - go back online and check again.');
       } else if (!anyData) {
-        verdict = 'Reads chal rahe hain lekin is project mein data nahi mila. Firebase Console -> Firestore Database dekhiye.';
+        verdict = 'Reads are working but there is no data in this project. Check Firebase Console -> Firestore Database.';
       } else {
-        verdict = t('Data padha ja raha hai.');
+        verdict = t('Reading the data.');
       }
       add('NATIJA', verdict);
     } catch (e) {
-      add(t('Check fail ho gaya'), String((e && e.message) || e));
+      add(t('The check failed'), String((e && e.message) || e));
     }
     setReport(lines);
     setRunning(false);
@@ -5339,9 +5339,9 @@ function DataCheckPanel({ gallery, showToast }) {
     const text = (report || []).map((l) => l.label + ': ' + l.value).join('\n');
     try {
       await navigator.clipboard.writeText(text);
-      showToast('Copy ho gaya - ab paste karke bhej sakte hain');
+      showToast('Copied - you can paste and send it now');
     } catch (e) {
-      showToast('Copy nahi ho paya - screenshot bhej dijiye', true);
+      showToast('Could not copy - please send a screenshot', true);
     }
   };
 
@@ -5356,7 +5356,7 @@ function DataCheckPanel({ gallery, showToast }) {
         dikhata hai. Agar data gayab lage to ye chala kar result bhej dijiye.
       </div>
       <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={run} disabled={running}>
-        {running ? t('Check kar rahe hain...') : t('Data check karein')}
+        {running ? t('Checking...') : t('Check the data')}
       </button>
       {report && (
         <div style={{ marginTop: 12 }}>
@@ -5426,12 +5426,12 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     const next = [...(faqs || []), { id: uid(), question: newFaqQuestion.trim(), answer: newFaqAnswer.trim() }];
     setFaqs(next);
     setNewFaqQuestion(''); setNewFaqAnswer('');
-    showToast('FAQ add ho gaya');
+    showToast('FAQ added');
   };
   const updateFaq = (id, question, answer) => {
     setFaqs((faqs || []).map((f) => (f.id === id ? { ...f, question, answer } : f)));
     setEditingFaqId(null);
-    showToast('FAQ update ho gaya');
+    showToast('FAQ updated');
   };
   const removeFaq = (id) => setFaqs((faqs || []).filter((f) => f.id !== id));
   const moveFaq = (id, dir) => {
@@ -5457,12 +5457,12 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     const next = [...(materialSpecs || []), { id: uid(), title: newSpecTitle.trim(), desc: newSpecDesc.trim() }];
     setMaterialSpecs(next);
     setNewSpecTitle(''); setNewSpecDesc('');
-    showToast('Specification add ho gayi');
+    showToast('Specification added');
   };
   const updateMaterialSpec = (id, title, desc) => {
     setMaterialSpecs((materialSpecs || []).map((s) => (s.id === id ? { ...s, title, desc } : s)));
     setEditingSpecId(null);
-    showToast('Specification update ho gayi');
+    showToast('Specification updated');
   };
   const removeMaterialSpec = (id) => setMaterialSpecs((materialSpecs || []).filter((s) => s.id !== id));
   const moveMaterialSpec = (id, dir) => {
@@ -5482,12 +5482,12 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     const next = [...(companyBenefits || []), { id: uid(), title: newBenefitTitle.trim(), desc: newBenefitDesc.trim() }];
     setCompanyBenefits(next);
     setNewBenefitTitle(''); setNewBenefitDesc('');
-    showToast('Benefit add ho gaya');
+    showToast('Benefit added');
   };
   const updateCompanyBenefit = (id, title, desc) => {
     setCompanyBenefits((companyBenefits || []).map((b) => (b.id === id ? { ...b, title, desc } : b)));
     setEditingBenefitId(null);
-    showToast('Benefit update ho gaya');
+    showToast('Benefit updated');
   };
   const removeCompanyBenefit = (id) => setCompanyBenefits((companyBenefits || []).filter((b) => b.id !== id));
   const moveCompanyBenefit = (id, dir) => {
@@ -5528,9 +5528,9 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       const r = await window.pushMessaging.sendPush(
         adminPushTokens.map((x) => x.token),
         'Shree Krushn PVC Furniture',
-        'Test notification - sab theek chal raha hai.',
+        'Test notification - everything is working.',
       );
-      if (r && r.error) { setTestPushResult('Nahi gaya: ' + r.error); return; }
+      if (r && r.error) { setTestPushResult('Not sent: ' + r.error); return; }
       // Clear out whatever the server said is permanently dead, so the
       // next send does not report the same corpse again.
       if (r && r.dead && r.dead.length && onDeadPushTokens) await onDeadPushTokens(r.dead);
@@ -5540,11 +5540,11 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       // reinstalled app and a key that does not match the project both
       // read as "1 fail" without them.
       const removed = (r && r.dead && r.dead.length) || 0;
-      setTestPushResult(ok + ' device par gaya'
+      setTestPushResult(ok + ' device(s) reached'
         + (bad ? ', ' + bad + ' fail' + (r.reasons ? ' (' + r.reasons.join(', ') + ')' : '') : '')
-        + (removed ? ' - ' + removed + ' purana device list se hata diya' : ''));
+        + (removed ? ' - ' + removed + ' old device(s) removed from the list' : ''));
     } catch (e) {
-      setTestPushResult('Nahi gaya: ' + String((e && e.message) || e));
+      setTestPushResult('Not sent: ' + String((e && e.message) || e));
     } finally {
       setSendingTestPush(false);
     }
@@ -5553,8 +5553,8 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
   const sendTestError = () => {
     // Deliberately not awaited and deliberately not caught: this must
     // travel exactly the route a real unhandled rejection travels.
-    Promise.reject(new Error('Test error - Settings se bheja gaya'));
-    showToast('Test error bhej diya. 2 second baad "Errors Dekhein" dabayein.');
+    Promise.reject(new Error('Test error - sent from Settings'));
+    showToast('Test error sent. Tap "See errors" in a couple of seconds.');
   };
 
   const loadErrors = async () => {
@@ -5564,14 +5564,14 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       setErrorRows(groupErrors(rows));
     } catch (e) {
       console.error('loading error reports failed', e);
-      showToast('Errors load nahi hue', true);
+      showToast('Could not load the errors', true);
     } finally {
       setLoadingErrors(false);
     }
   };
 
   const clearErrors = async () => {
-    if (!window.confirm('Saari error list mita dein? Jo bug abhi tak theek nahi hue wo dobara aayenge.')) return;
+    if (!window.confirm('Clear the whole error list? Any bug still unfixed will come back.')) return;
     setLoadingErrors(true);
     try {
       const n = await window.errorLog.clearAll();
@@ -5579,7 +5579,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       showToast(n + ' error mita diye');
     } catch (e) {
       console.error('clearing error reports failed', e);
-      showToast('Mita nahi paye', true);
+      showToast('Could not clear it', true);
     } finally {
       setLoadingErrors(false);
     }
@@ -5595,12 +5595,12 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       const currentList = currentRaw ? JSON.parse(currentRaw.value) : [];
       const missing = recoveredNames.filter((name) => !currentList.includes(name));
       if (missing.length === 0) {
-        showToast('Koi missing category nahi mili - sab theek hai');
+        showToast('No category is missing - all good');
         return;
       }
       const mergedList = [...new Set([...currentList, ...recoveredNames])];
       await window.storage.set('gallery_categories', JSON.stringify(mergedList));
-      showToast(missing.length + ' category(s) recover ho gayi - app band karke dobara kholein taaki photos dikhein');
+      showToast(missing.length + ' category(s) recovered - close and reopen the app so the photos appear');
     } catch (e) {
       // Surfaces the actual underlying error (e.g. a Firestore
       // "permission-denied" code if the security rules don't allow
@@ -5609,7 +5609,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       // missing when the button appeared to do nothing at all: the
       // scan itself was hanging/failing with no visible feedback at
       // any point.
-      showToast('Recovery mein dikkat aayi: ' + (e.code || e.message || 'unknown error'), true);
+      showToast('Recovery ran into a problem: ' + (e.code || e.message || 'unknown error'), true);
     } finally {
       setRecoveringCategories(false);
     }
@@ -5646,7 +5646,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         known.add(j.phone); // two jobs on one phone must not become two customers
         const rebuilt = {
           id: j.customerId,
-          name: j.customerName || 'Naam nahi',
+          name: j.customerName || 'No name',
           phone: j.phone,
           createdAt: j.createdAt || new Date().toISOString(),
         };
@@ -5654,13 +5654,13 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         missing.push(rebuilt);
       }
       if (missing.length === 0) {
-        showToast('Koi customer chhoota hua nahi mila - sab jude hue hain');
+        showToast('No customer was left out - all are linked');
         return;
       }
       await window.customersStore.saveDiff(missing, []);
-      showToast(missing.length + ' customer wapas jud gaye: ' + missing.map((c) => c.name).join(', ') + ' - app band karke dobara kholein');
+      showToast(missing.length + ' customers were added back: ' + missing.map((c) => c.name).join(', ') + ' - close the app and open it again');
     } catch (e) {
-      showToast('Reconnect mein dikkat aayi: ' + (e.code || e.message || 'unknown error'), true);
+      showToast('Reconnecting ran into a problem: ' + (e.code || e.message || 'unknown error'), true);
     } finally {
       setReconnectingCustomers(false);
     }
@@ -5701,7 +5701,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         }
       }
       if (totalNeedingThumb === 0) {
-        showToast('Saari photos mein pehle se thumbnail hai - kuch karne ki zaroorat nahi');
+        showToast('Every photo already has a thumbnail - nothing to do');
         return;
       }
       let doneCount = 0;
@@ -5755,9 +5755,9 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       }
       const made = totalNeedingThumb - failures.length;
       setBackfillReport({ made, total: totalNeedingThumb, failures });
-      showToast(made + ' photo(s) ke thumbnail ban gaye' + (failures.length > 0 ? (', ' + failures.length + ' nahi bani - neeche wajah dekhein') : '') + (made > 0 ? ' - app band karke dobara kholein' : ''), failures.length > 0 && made === 0);
+      showToast(made + ' thumbnail(s) built' + (failures.length > 0 ? (', ' + failures.length + ' failed - see the reasons below') : '') + (made > 0 ? ' - close the app and open it again' : ''), failures.length > 0 && made === 0);
     } catch (e) {
-      showToast('Backfill mein dikkat aayi: ' + (e.message || 'unknown error'), true);
+      showToast('The backfill ran into a problem: ' + (e.message || 'unknown error'), true);
     } finally {
       setBackfillingThumbnails(false);
       setBackfillProgress(null);
@@ -5771,10 +5771,10 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
   // isolation pendingGalleryPhotos exists for.
   const approveGalleryPhoto = async (photo) => {
     const category = photo.category;
-    const nextCategoryPhotos = [...(gallery[category] || []), { id: photo.id, url: photo.url, origUrl: photo.origUrl, caption: photo.customerName ? ('Kaam: ' + photo.customerName) : '', createdAt: photo.createdAt }];
+    const nextCategoryPhotos = [...(gallery[category] || []), { id: photo.id, url: photo.url, origUrl: photo.origUrl, caption: photo.customerName ? ('Job: ' + photo.customerName) : '', createdAt: photo.createdAt }];
     await setGallery({ ...gallery, [category]: nextCategoryPhotos });
     setPendingGalleryPhotos(pendingGalleryPhotos.filter((p) => p.id !== photo.id));
-    showToast('Gallery mein add ho gaya');
+    showToast('Added to the gallery');
   };
   const rejectGalleryPhoto = (photoId) => {
     setPendingGalleryPhotos(pendingGalleryPhotos.filter((p) => p.id !== photoId));
@@ -5832,7 +5832,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       await setGallery(nextGallery);
     }
     setRetrying(false);
-    showToast(successCount + ' / ' + retryable.length + ' photos fix ho gayi');
+    showToast(successCount + ' / ' + retryable.length + ' photos fixed');
     runSystemCheck();
   };
   // Local editable copy of the rates list - changes only get persisted
@@ -5917,7 +5917,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
 
   const change = async () => {
     if (next1.length < 4) { setError(t('Naya PIN kam se kam 4 digit ka hona chahiye')); return; }
-    if (next1 !== next2) { setError(t('Dono naye PIN match nahi karte')); return; }
+    if (next1 !== next2) { setError(t('The two new PINs do not match')); return; }
     if (changingPin) return;
     setChangingPin(true);
     try {
@@ -5926,7 +5926,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       if (res.unconfigured) {
         // No server session to verify against, so the old local check is
         // the only one there is.
-        if (current !== adminPin) { setError(t('Current PIN galat hai')); return; }
+        if (current !== adminPin) { setError(t('The current PIN is wrong')); return; }
         setAdminPin(next1);
       } else if (!res.ok) {
         setError(res.error || t('PIN change nahi ho paya'));
@@ -5935,7 +5935,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         setAdminPin(next1, true);
       }
       setCurrent(''); setNext1(''); setNext2(''); setError('');
-      showToast('Admin PIN change ho gaya');
+      showToast('Admin PIN changed');
     } finally {
       setChangingPin(false);
     }
@@ -5947,13 +5947,13 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
   // user can read. hasPin is what the screen shows instead.
   const addStaff = async () => {
     if (!newStaffName.trim()) { setStaffError(t('Staff ka naam daalein')); return; }
-    if (newStaffPin.length < 4) { setStaffError('PIN kam se kam 4 digit ka ho'); return; }
+    if (newStaffPin.length < 4) { setStaffError('The PIN must be at least 4 digits'); return; }
     // A first pass against what this device can still see. The complete
     // check is on the server, which is the only thing that knows every
     // PIN now - it answers 409 and the message below shows that.
     const visiblePins = [adminPin, partnerPin, dhPartnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
     if (visiblePins.includes(newStaffPin)) { setStaffError(t('Ye PIN pehle se use ho raha hai - alag PIN chunein')); return; }
-    if (newStaffRole === 'regional_partner' && (!newCommissionPercent || Number(newCommissionPercent) <= 0)) { setStaffError(t('Commission percentage daalein')); return; }
+    if (newStaffRole === 'regional_partner' && (!newCommissionPercent || Number(newCommissionPercent) <= 0)) { setStaffError(t('Enter the commission percentage')); return; }
     if (addingStaff) return;
     setAddingStaff(true);
     try {
@@ -5977,7 +5977,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         return;
       }
       setNewStaffName(''); setNewStaffPin(''); setNewStaffRole('admin'); setNewCommissionPercent(''); setStaffError('');
-      showToast('Staff member add ho gaya');
+      showToast('Staff member added');
     } finally {
       setAddingStaff(false);
     }
@@ -5988,53 +5988,53 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     // being removed from the list.
     if (api) { try { await api('staff:' + id, '', ''); } catch (e) { /* removal below still stands */ } }
     setStaff(staff.filter((s) => s.id !== id));
-    showToast('Staff member hataya gaya');
+    showToast('Staff member removed');
   };
   const resetStaffPin = async (member) => {
-    const entered = window.prompt('Naya PIN ' + member.name + ' ke liye (4+ digit):', '');
+    const entered = window.prompt('New PIN for ' + member.name + ' (4+ digits):', '');
     if (entered === null) return;
     const next = String(entered).trim();
-    if (!/^[0-9]{4,10}$/.test(next)) { showToast('PIN 4 se 10 digit ka hona chahiye', true); return; }
+    if (!/^[0-9]{4,10}$/.test(next)) { showToast('The PIN must be 4 to 10 digits', true); return; }
     const api = window.staffAuth && window.staffAuth.changePin;
     const res = api ? await api('staff:' + member.id, '', next) : { unconfigured: true };
     if (res && res.ok) {
       setStaff(staff.map((m) => (m.id === member.id ? { ...m, pin: undefined, hasPin: true } : m)));
-      showToast('PIN badal gaya');
+      showToast('PIN changed');
     } else if (res && res.unconfigured) {
       setStaff(staff.map((m) => (m.id === member.id ? { ...m, pin: next } : m)));
-      showToast('PIN badal gaya');
+      showToast('PIN changed');
     } else {
       showToast((res && res.error) || t('PIN badla nahi ja saka'), true);
     }
   };
 
   const savePartnerPin = async () => {
-    if (newPartnerPin.length < 4) { setPartnerPinError('PIN kam se kam 4 digit ka ho'); return; }
+    if (newPartnerPin.length < 4) { setPartnerPinError('The PIN must be at least 4 digits'); return; }
     const allPins = [adminPin, dhPartnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
     if (allPins.includes(newPartnerPin)) { setPartnerPinError(t('Ye PIN pehle se use ho raha hai - alag PIN chunein')); return; }
     const res = await changePinVia('partner', '', newPartnerPin, setPartnerPin);
     if (!res.ok) { setPartnerPinError(res.error || t('PIN set nahi ho paya')); return; }
     setNewPartnerPin(''); setPartnerPinError('');
-    showToast('Partner PIN set ho gaya');
+    showToast('Partner PIN set');
   };
   const removePartnerPin = async () => {
     const res = await changePinVia('partner', '', '', setPartnerPin);
     if (!res.ok) { setPartnerPinError(res.error || t('Hataya nahi ja saka')); return; }
-    showToast('Partner access hata diya gaya');
+    showToast('Partner access removed');
   };
   const saveDhPartnerPin = async () => {
-    if (newDhPartnerPin.length < 4) { setDhPartnerPinError('PIN kam se kam 4 digit ka ho'); return; }
+    if (newDhPartnerPin.length < 4) { setDhPartnerPinError('The PIN must be at least 4 digits'); return; }
     const allPins = [adminPin, partnerPin, ...staff.map((s) => s.pin)].filter(Boolean);
     if (allPins.includes(newDhPartnerPin)) { setDhPartnerPinError(t('Ye PIN pehle se use ho raha hai - alag PIN chunein')); return; }
     const res = await changePinVia('dh_partner', '', newDhPartnerPin, setDhPartnerPin);
     if (!res.ok) { setDhPartnerPinError(res.error || t('PIN set nahi ho paya')); return; }
     setNewDhPartnerPin(''); setDhPartnerPinError('');
-    showToast('DH Home Decor PIN set ho gaya');
+    showToast('DH Home Decor PIN set');
   };
   const removeDhPartnerPin = async () => {
     const res = await changePinVia('dh_partner', '', '', setDhPartnerPin);
     if (!res.ok) { setDhPartnerPinError(res.error || t('Hataya nahi ja saka')); return; }
-    showToast('DH Home Decor access hata diya gaya');
+    showToast('DH Home Decor access removed');
   };
 
   const toggleAppointmentItem = (cat) => {
@@ -6052,7 +6052,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     }
     setAppointmentItemOptions([...appointmentItemOptions, name]);
     setNewApptItem('');
-    showToast('Item add ho gaya');
+    showToast('Item added');
   };
   const removeApptItem = (cat) => {
     setAppointmentItemOptions(appointmentItemOptions.filter((c) => c !== cat));
@@ -6067,7 +6067,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
     }
     setCategories([...categories, name]);
     setNewGalleryCategory('');
-    showToast('Category add ho gayi');
+    showToast('Category added');
   };
   const removeGalleryCategory = (cat) => {
     if ((gallery[cat] || []).length > 0) {
@@ -6090,9 +6090,9 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      showToast('Backup download ho gaya');
+      showToast('Backup downloaded');
     } catch (e) {
-      showToast('Backup download nahi ho paya', true);
+      showToast('The backup could not be downloaded', true);
     }
   };
 
@@ -6132,7 +6132,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           </div>
         ) : (
           <div>
-            <input style={styles.input} placeholder='Partner PIN set karein (4+ digit)' inputMode='numeric' type='password' value={newPartnerPin} onChange={(e) => { setNewPartnerPin(e.target.value); setPartnerPinError(''); }} />
+            <input style={styles.input} placeholder='Set the partner PIN (4+ digits)' inputMode='numeric' type='password' value={newPartnerPin} onChange={(e) => { setNewPartnerPin(e.target.value); setPartnerPinError(''); }} />
             {partnerPinError && <div style={styles.errorText}>{partnerPinError}</div>}
             <button style={styles.addBtn} onClick={savePartnerPin}><UserPlus size={14} /> Enable partner access</button>
           </div>
@@ -6157,7 +6157,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           </div>
         ) : (
           <div>
-            <input style={styles.input} placeholder='DH Home Decor PIN set karein (4+ digit)' inputMode='numeric' type='password' value={newDhPartnerPin} onChange={(e) => { setNewDhPartnerPin(e.target.value); setDhPartnerPinError(''); }} />
+            <input style={styles.input} placeholder='Set the DH Home Decor PIN (4+ digits)' inputMode='numeric' type='password' value={newDhPartnerPin} onChange={(e) => { setNewDhPartnerPin(e.target.value); setDhPartnerPinError(''); }} />
             {dhPartnerPinError && <div style={styles.errorText}>{dhPartnerPinError}</div>}
             <button style={styles.addBtn} onClick={saveDhPartnerPin}><UserPlus size={14} /> Enable DH Home Decor access</button>
           </div>
@@ -6181,7 +6181,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         </div>
         <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>{t('Team members ko alag PIN dein taaki wo bhi access kar sakein.')}</div>
 
-        {staff.length === 0 && <div style={styles.emptySmall}>{t('Abhi koi staff member add nahi kiya.')}</div>}
+        {staff.length === 0 && <div style={styles.emptySmall}>{t('No staff member added yet.')}</div>}
         {staff.map((s) => (
           <div key={s.id} style={styles.staffRow}>
             <div style={{ flex: 1 }}>
@@ -6198,14 +6198,14 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
 
         <div style={{ marginTop: 10 }}>
           <input style={styles.input} placeholder='Staff member ka naam' value={newStaffName} onChange={(e) => { setNewStaffName(e.target.value); setStaffError(''); }} />
-          <input style={{ ...styles.input, marginTop: 8 }} placeholder='PIN set karein (4+ digit)' inputMode='numeric' type='password' value={newStaffPin} onChange={(e) => { setNewStaffPin(e.target.value); setStaffError(''); }} />
+          <input style={{ ...styles.input, marginTop: 8 }} placeholder='Set the PIN (4+ digits)' inputMode='numeric' type='password' value={newStaffPin} onChange={(e) => { setNewStaffPin(e.target.value); setStaffError(''); }} />
           <div style={styles.chipRow}>
             <button onClick={() => setNewStaffRole('admin')} style={{ ...styles.chip, ...(newStaffRole === 'admin' ? styles.chipActive : {}) }}>Admin Access</button>
             <button onClick={() => setNewStaffRole('karigar')} style={{ ...styles.chip, ...(newStaffRole === 'karigar' ? styles.chipActive : {}) }}>{t('Karigar (sirf assigned kaam)')}</button>
             <button onClick={() => setNewStaffRole('regional_partner')} style={{ ...styles.chip, ...(newStaffRole === 'regional_partner' ? styles.chipActive : {}) }}>Regional Partner (Dusre Sheher)</button>
           </div>
           {newStaffRole === 'regional_partner' && (
-            <input style={{ ...styles.input, marginTop: 8 }} inputMode='decimal' placeholder={t('Commission % (jaise 15)')} value={newCommissionPercent} onChange={(e) => { setNewCommissionPercent(e.target.value); setStaffError(''); }} />
+            <input style={{ ...styles.input, marginTop: 8 }} inputMode='decimal' placeholder={t('Commission % (for example 15)')} value={newCommissionPercent} onChange={(e) => { setNewCommissionPercent(e.target.value); setStaffError(''); }} />
           )}
           {staffError && <div style={styles.errorText}>{staffError}</div>}
           <button style={styles.addBtn} onClick={addStaff}><UserPlus size={14} /> Add staff login</button>
@@ -6217,7 +6217,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <Calendar size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Appointment Checklist</div>
         </div>
-        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>{t('Customer appointment book karte waqt kaunse work-items dikhne chahiye, select karein.')}</div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>{t('Choose which work items a customer sees while booking an appointment.')}</div>
         <div style={{ marginTop: 4 }}>
           {appointmentItemOptions.map((cat) => (
             <div key={cat} style={styles.staffRow}>
@@ -6235,7 +6235,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <Grid3x3 size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Gallery Categories</div>
         </div>
-        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>{t('Design gallery mein kaunse categories dikhein, add/remove karein.')}</div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>{t('Add or remove the categories shown in the design gallery.')}</div>
         <div style={{ marginTop: 4 }}>
           {galleryCategoriesForSettings.map((cat) => (
             <div key={cat} style={styles.staffRow}>
@@ -6244,7 +6244,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
             </div>
           ))}
           <input style={{ ...styles.input, marginTop: 10 }} placeholder={t('Nayi category ka naam')} value={newGalleryCategory} onChange={(e) => setNewGalleryCategory(e.target.value)} />
-          <button style={styles.addBtn} onClick={addGalleryCategory}><Plus size={14} />{t('Category add karein')}</button>
+          <button style={styles.addBtn} onClick={addGalleryCategory}><Plus size={14} />{t('Add a category')}</button>
         </div>
       </div>
 
@@ -6253,7 +6253,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <HelpCircle size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>FAQ / Help</div>
         </div>
-        <div style={styles.plainTextMuted}>{t('Customer ki Help screen mein dikhne wale common sawaal-jawab.')}</div>
+        <div style={styles.plainTextMuted}>{t('The common questions and answers shown on the customer Help screen.')}</div>
         {(faqs || []).map((f, i) => (
           <div key={f.id} style={{ ...styles.formCard, marginTop: 10 }}>
             {editingFaqId === f.id ? (
@@ -6279,10 +6279,10 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           </div>
         ))}
         <div style={{ ...styles.formCard, marginTop: 10, background: '#FFF9EE', borderColor: BRAND.gold }}>
-          <div style={styles.fieldLabel}>{t('Naya FAQ Add Karein')}</div>
+          <div style={styles.fieldLabel}>{t('Naya FAQ Add')}</div>
           <input style={{ ...styles.input, marginTop: 6 }} placeholder={t('Sawaal (jaise: PVC furniture waterproof hai?)')} value={newFaqQuestion} onChange={(e) => setNewFaqQuestion(e.target.value)} />
           <textarea style={{ ...styles.input, marginTop: 8, minHeight: 70, resize: 'vertical' }} placeholder='Jawab' value={newFaqAnswer} onChange={(e) => setNewFaqAnswer(e.target.value)} />
-          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addFaq}><Plus size={14} />{t('FAQ Add Karein')}</button>
+          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addFaq}><Plus size={14} />{t('FAQ Add')}</button>
         </div>
       </div>
 
@@ -6291,7 +6291,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <ShieldCheck size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Material Specifications</div>
         </div>
-        <div style={styles.plainTextMuted}>{t('Aapke material ki khasiyat - customer ko dikhti hain, unki app ke ek dedicated screen par.')}</div>
+        <div style={styles.plainTextMuted}>{t('What your material is good at - customers see this on its own screen in their app.')}</div>
         {(materialSpecs || []).map((s, i) => (
           <div key={s.id} style={{ ...styles.formCard, marginTop: 10 }}>
             {editingSpecId === s.id ? (
@@ -6317,10 +6317,10 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           </div>
         ))}
         <div style={{ ...styles.formCard, marginTop: 10, background: '#FFF9EE', borderColor: BRAND.gold }}>
-          <div style={styles.fieldLabel}>{t('Nayi Specification Add Karein')}</div>
+          <div style={styles.fieldLabel}>{t('Nayi Specification Add')}</div>
           <input style={{ ...styles.input, marginTop: 6 }} placeholder={t('Title (jaise: 100% Virgin PVC)')} value={newSpecTitle} onChange={(e) => setNewSpecTitle(e.target.value)} />
-          <textarea style={{ ...styles.input, marginTop: 8, minHeight: 60, resize: 'vertical' }} placeholder={t('Detail (jaise: Termite-proof, waterproof, koi warping nahi)')} value={newSpecDesc} onChange={(e) => setNewSpecDesc(e.target.value)} />
-          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addMaterialSpec}><Plus size={14} />{t('Specification Add Karein')}</button>
+          <textarea style={{ ...styles.input, marginTop: 8, minHeight: 60, resize: 'vertical' }} placeholder={t('Detail (for example: termite-proof, waterproof, no warping)')} value={newSpecDesc} onChange={(e) => setNewSpecDesc(e.target.value)} />
+          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addMaterialSpec}><Plus size={14} />{t('Specification Add')}</button>
         </div>
       </div>
 
@@ -6329,7 +6329,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <ThumbsUp size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>{t('Hamare Saath Judne Ke Fayde')}</div>
         </div>
-        <div style={styles.plainTextMuted}>{t('Aapki company ke saath kaam karne ke benefits - customer ko same screen par dikhte hain.')}</div>
+        <div style={styles.plainTextMuted}>{t('The reasons to work with your company - customers see these on the same screen.')}</div>
         {(companyBenefits || []).map((b, i) => (
           <div key={b.id} style={{ ...styles.formCard, marginTop: 10 }}>
             {editingBenefitId === b.id ? (
@@ -6355,10 +6355,10 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           </div>
         ))}
         <div style={{ ...styles.formCard, marginTop: 10, background: '#FFF9EE', borderColor: BRAND.gold }}>
-          <div style={styles.fieldLabel}>{t('Naya Benefit Add Karein')}</div>
-          <input style={{ ...styles.input, marginTop: 6 }} placeholder='Title (jaise: 5+ Years Experience)' value={newBenefitTitle} onChange={(e) => setNewBenefitTitle(e.target.value)} />
-          <textarea style={{ ...styles.input, marginTop: 8, minHeight: 60, resize: 'vertical' }} placeholder='Detail (jaise: 500+ khush customers poore Ahmedabad mein)' value={newBenefitDesc} onChange={(e) => setNewBenefitDesc(e.target.value)} />
-          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addCompanyBenefit}><Plus size={14} />{t('Benefit Add Karein')}</button>
+          <div style={styles.fieldLabel}>{t('Naya Add a benefit')}</div>
+          <input style={{ ...styles.input, marginTop: 6 }} placeholder='Title (e.g. 5+ Years Experience)' value={newBenefitTitle} onChange={(e) => setNewBenefitTitle(e.target.value)} />
+          <textarea style={{ ...styles.input, marginTop: 8, minHeight: 60, resize: 'vertical' }} placeholder='Detail (e.g. 500+ happy customers across Ahmedabad)' value={newBenefitDesc} onChange={(e) => setNewBenefitDesc(e.target.value)} />
+          <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addCompanyBenefit}><Plus size={14} />{t('Add a benefit')}</button>
         </div>
       </div>
 
@@ -6367,7 +6367,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <Bell size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Push Notifications</div>
         </div>
-        <div style={styles.plainTextMuted}>{t('App band ho tab bhi (naye appointment, estimate approve, waghera) turant notification mile - is device par on karein.')}</div>
+        <div style={styles.plainTextMuted}>{t('Get notifications instantly even when the app is closed (new appointment, estimate approved, and so on) - turn them on for this device.')}</div>
         <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={enableAdminPushNotifications}><Bell size={14} />{t('Is Device Par Notifications On Karein')}</button>
         {adminPushTokens.length > 0 && (
           <div style={{ ...styles.itemSub, marginTop: 8 }}>{adminPushTokens.length} device(s) par notifications on hain</div>
@@ -6380,7 +6380,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         {adminPushTokens.length > 0 && (
           <>
             <button style={{ ...styles.addBtn, marginTop: 6 }} onClick={sendTestPush} disabled={sendingTestPush}>
-              <Send size={13} /> {sendingTestPush ? t('Bhej raha hai...') : t('Test notification bhejein')}
+              <Send size={13} /> {sendingTestPush ? t('Sending...') : t('Test notification bhejein')}
             </button>
             {testPushResult && <div style={{ ...styles.itemSub, marginTop: 8 }}>{testPushResult}</div>}
           </>
@@ -6411,7 +6411,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           ? <div style={{ ...styles.itemSub, marginTop: 8, color: '#2F7D4F' }}>
               Button chalu hai. <a href={googleReviewLink} target='_blank' rel='noopener noreferrer' style={{ textDecoration: 'underline' }}>Khud dekh lein</a>
             </div>
-          : <div style={{ ...styles.itemSub, marginTop: 8 }}>Abhi khali hai - customer ko koi button nahi dikh raha.</div>}
+          : <div style={{ ...styles.itemSub, marginTop: 8 }}>Empty for now - customers see no button.</div>}
       </div>
 
       <div style={{ ...styles.card, marginTop: 12, borderColor: BRAND.navy, borderWidth: 1.5 }}>
@@ -6421,22 +6421,22 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
         </div>
         <div style={styles.plainTextMuted}>Gallery photos, brochure PDFs, aur customer records check karta hai - jo automatically fix ho sakta hai, karta hai; baaki clearly bata deta hai.</div>
         <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={runSystemCheck} disabled={scanning}>
-          <Search size={14} /> {scanning ? t('Check ho raha hai...') : t('Poori App Check Karein')}
+          <Search size={14} /> {scanning ? t('Checking...') : t('Poori App Check Karein')}
         </button>
 
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
           <div style={styles.fieldLabel}>{t('Missing Gallery Categories Recover Karein')}</div>
-          <div style={styles.plainTextMuted}>Agar koi purani category (jaise "Study Table", "Washbasin") ki photos dikhna band ho gayi hain, is button se dhoondke wapas la sakte hain - photo data kabhi delete nahi hota, sirf list se hat jaata hai.</div>
+          <div style={styles.plainTextMuted}>If an old category (like "Study Table" or "Washbasin") has stopped showing its photos, this button finds it and brings it back - photo data is never deleted, it only drops off the list.</div>
           <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={recoverMissingCategories} disabled={recoveringCategories}>
-            <Search size={14} /> {recoveringCategories ? t('Dhoondh raha hai...') : t('Missing Categories Recover Karein')}
+            <Search size={14} /> {recoveringCategories ? t('Searching...') : t('Missing Categories Recover Karein')}
           </button>
         </div>
 
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
           <div style={styles.fieldLabel}>{t('Chhoote Hue Customer Wapas Jodein')}</div>
-          <div style={styles.plainTextMuted}>Agar kisi customer ka kaam to file mein hai par wo Customers list mein nahi dikhta - ya unka number "register nahi hai" bata raha hai - to ye button unhe dhoondke wapas jod deta hai. Sirf jodta hai, kisi ka data badalta ya mitata nahi.</div>
+          <div style={styles.plainTextMuted}>If a customer has a job in the file but does not show in the Customers list - or their number says that it is not registered - this button finds them and adds them back. It only adds; it never changes or deletes any of their data.</div>
           <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={reconnectLostCustomers} disabled={reconnectingCustomers}>
-            <Search size={14} /> {reconnectingCustomers ? t('Dhoondh raha hai...') : t('Chhoote Hue Customer Wapas Jodein')}
+            <Search size={14} /> {reconnectingCustomers ? t('Searching...') : t('Chhoote Hue Customer Wapas Jodein')}
           </button>
         </div>
 
@@ -6445,10 +6445,10 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
             Naroda was invisible from this screen, and "app kaam nahi
             kar raha" with no detail has cost whole days. */}
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
-          <div style={styles.fieldLabel}>{t('App Mein Kya Toota')}</div>
+          <div style={styles.fieldLabel}>{t('What broke in the app')}</div>
           <div style={styles.plainTextMuted}>Kisi bhi phone par - aapka, customer ka, karigar ka - app mein koi error aaye to wo yahan aa jaata hai. Ek hi bug baar baar ho to ek hi line banti hai, ginti ke saath.</div>
           <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={loadErrors} disabled={loadingErrors}>
-            <AlertTriangle size={14} /> {loadingErrors ? t('Dekh raha hai...') : t('Errors Dekhein')}
+            <AlertTriangle size={14} /> {loadingErrors ? t('Looking...') : t('See the errors')}
           </button>
           {/* An error reporter nobody has ever seen work is an error
               reporter nobody should trust - and this one is silent by
@@ -6462,7 +6462,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           {errorRows !== null && (
             <div style={{ marginTop: 10 }}>
               {errorRows.length === 0 && (
-                <div style={styles.emptySmall}>{t('Ek bhi error nahi. Sab theek chal raha hai.')}</div>
+                <div style={styles.emptySmall}>{t('Not a single error. Everything is running fine.')}</div>
               )}
               {errorRows.map((g) => (
                 <div key={g.fingerprint} style={styles.errRow}>
@@ -6493,7 +6493,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <div style={styles.fieldLabel}>{t('Purani Photos Ke Liye Thumbnails Banayein')}</div>
           <div style={styles.plainTextMuted}>Naye upload ki photos automatically fast hoti hain, lekin purani photos ke liye ye ek baar chalana hoga - poori Gallery fast ho jayegi.</div>
           <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={backfillThumbnails} disabled={backfillingThumbnails}>
-            <Search size={14} /> {backfillingThumbnails ? (backfillProgress ? ('Ban rahi hain... (' + backfillProgress.done + '/' + backfillProgress.total + ')') : 'Shuru ho raha hai...') : 'Thumbnails Banayein'}
+            <Search size={14} /> {backfillingThumbnails ? (backfillProgress ? ('Building... (' + backfillProgress.done + '/' + backfillProgress.total + ')') : 'Shuru ho raha hai...') : 'Thumbnails Banayein'}
           </button>
           {backfillReport && (
             <div style={{ marginTop: 10 }}>
@@ -6533,7 +6533,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
                 <SmartImg src={p.url} origUrl={p.origUrl} alt={p.customerName} style={{ width: '100%', height: 160, objectFit: 'cover', borderRadius: 6 }} />
                 <div style={{ ...styles.itemSub, marginTop: 6 }}>{p.category} - {p.submittedBy} ne bheja{p.customerName ? (' (' + p.customerName + ')') : ''}</div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => approveGalleryPhoto(p)}><CheckCircle2 size={13} />{t('Approve Karein')}</button>
+                  <button style={{ ...styles.primaryBtn2, flex: 1, marginTop: 0 }} onClick={() => approveGalleryPhoto(p)}><CheckCircle2 size={13} />{t('Approve')}</button>
                   <button style={styles.cancelBtn} onClick={() => rejectGalleryPhoto(p.id)}>Reject</button>
                 </div>
               </div>
@@ -6557,7 +6557,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
               )}
               {hasRetryable && (
                 <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={retryBrokenUploads} disabled={retrying}>
-                  <Send size={14} /> {retrying ? t('Retry ho raha hai...') : t('Automatic Retry Karein')}
+                  <Send size={14} /> {retrying ? t('Retry ho raha hai...') : t('Retry automatically')}
                 </button>
               )}
 
@@ -6597,7 +6597,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
                     <div key={j.id} style={{ ...styles.itemRow, marginTop: 6 }}>
                       <div style={{ flex: 1 }}>
                         <div style={styles.itemDesc}>{j.customerName || t('Naam nahi hai')}</div>
-                        <div style={styles.itemSub}>{t('Customer record nahi mila')}</div>
+                        <div style={styles.itemSub}>{t('Customer record not found')}</div>
                       </div>
                     </div>
                   ))}
@@ -6640,7 +6640,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
             <button onClick={() => setNewRateUnit('piece')} style={{ ...styles.chip, ...(newRateUnit === 'piece' ? styles.chipActive : {}) }}>Per Piece (Nang)</button>
           </div>
         </div>
-        <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addRateType}><Plus size={14} />{t('Naya Rate Type Add Karein')}</button>
+        <button style={{ ...styles.addBtn, marginTop: 8 }} onClick={addRateType}><Plus size={14} />{t('Naya Rate Type Add')}</button>
         <button style={{ ...styles.primaryBtn2, marginTop: 10 }} onClick={saveRates}><CheckCircle2 size={14} />{t('Sab Rates Save Karein')}</button>
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed ' + BRAND.line }}>
           <div style={styles.fieldLabel}>Price List PDF</div>
@@ -6657,7 +6657,7 @@ function AdminSettings({ adminPin, setAdminPin, partnerPin, setPartnerPin, dhPar
           <FileText size={16} color={BRAND.gold} />
           <div style={{ fontWeight: 800, fontSize: 14 }}>Product Brochures (PDF)</div>
         </div>
-        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Apni company details ka PDF, ya alag-alag laminate companies ke color catalog PDFs upload karein - customer inhe Gallery se dekh sakega.</div>
+        <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>Upload a PDF of your company details, or colour catalogues from different laminate companies - customers can see these from the Gallery.</div>
         <BrochureUploadPanel addBrochure={addBrochure} brochures={brochures} showToast={showToast} />
         <div style={{ marginTop: 12 }}>
           <BrochureList brochures={brochures} showToast={showToast} canManage={true} onDelete={removeBrochure} />
@@ -6744,7 +6744,7 @@ function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
-    if (docType !== 'profile' && !company.trim()) { showToast('Company ka naam likhein', true); return; }
+    if (docType !== 'profile' && !company.trim()) { showToast('Enter the company name', true); return; }
     if (file.type !== 'application/pdf') { showToast('Sirf PDF file select karein', true); return; }
     setUploading(true);
     try {
@@ -6764,7 +6764,7 @@ function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
         sizeKb: Math.round(sizeBytes / 1024),
       };
       const ok = await addBrochure(meta, dataUri);
-      if (ok) showToast('PDF add ho gayi');
+      if (ok) showToast('PDF added');
     } catch (e) {
       showToast('PDF upload nahi ho payi', true);
     } finally {
@@ -6793,7 +6793,7 @@ function BrochureUploadPanel({ addBrochure, brochures, showToast }) {
               ))}
             </div>
           )}
-          <input style={{ ...styles.input, marginTop: 8 }} placeholder={t('Company ka naam (jaise Kaka)')} value={company} onChange={(e) => setCompany(e.target.value)} />
+          <input style={{ ...styles.input, marginTop: 8 }} placeholder={t('Company name (for example Kaka)')} value={company} onChange={(e) => setCompany(e.target.value)} />
         </>
       )}
       <input ref={fileInputRef} type='file' accept='application/pdf' style={{ display: 'none' }} onChange={handleFilePicked} />

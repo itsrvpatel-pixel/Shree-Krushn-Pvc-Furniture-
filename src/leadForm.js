@@ -78,11 +78,11 @@ export function normalizeLead(raw) {
 }
 
 export function leadFailureMessage(reason) {
-  if (reason === 'name') return 'Apna naam likhein';
+  if (reason === 'name') return 'Enter your name';
   if (reason === 'phone') return 'Sahi 10 digit mobile number likhein';
   // A bot is never told it was spotted.
-  if (reason === 'bot') return 'Bhej diya gaya';
-  return 'Bhej nahi paye - thodi der baad try karein';
+  if (reason === 'bot') return 'Sent';
+  return 'Could not send - please try again shortly';
 }
 
 // What the owner reads in the alert, built once so the push and the

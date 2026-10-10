@@ -295,20 +295,20 @@ backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;gap:9px
      the WhatsApp buttons below remain, rather than leaving a Send
      button that does nothing. -->
 <section id="enquiry" class="w" style="display:none">
-  <div class="eyebrow">Pooch lijiye</div>
-  <h2>Naap aur rate - bina kisi charge ke</h2>
-  <p class="sub">Naam aur number chhod dijiye. Hum call karke time tay kar lenge. Abhi baat karne ki zaroorat nahi.</p>
+  <div class="eyebrow">Ask us</div>
+  <h2>Measurement and rate - at no charge</h2>
+  <p class="sub">Leave your name and number. We will call and fix a time. No need to talk right now.</p>
   <form id="lf" style="max-width:480px;margin-top:18px">
-    <input class="lfi" name="name" placeholder="Aapka naam" autocomplete="name" required />
+    <input class="lfi" name="name" placeholder="Your name" autocomplete="name" required />
     <input class="lfi" name="phone" placeholder="Mobile number" inputmode="numeric" autocomplete="tel" required />
     <select class="lfi" name="need">
-      <option value="">Kya karvana hai? (optional)</option>
-      <option>Poora ghar</option><option>Kitchen</option><option>Wardrobe</option>
-      <option>TV unit</option><option>Mandir</option><option>Kuch aur</option>
+      <option value="">What do you need? (optional)</option>
+      <option>Full home</option><option>Kitchen</option><option>Wardrobe</option>
+      <option>TV unit</option><option>Mandir</option><option>Something else</option>
     </select>
-    <input class="lfi" name="area" placeholder="Area (jaise Nikol, Bopal) - optional" />
+    <input class="lfi" name="area" placeholder="Area (e.g. Nikol, Bopal) - optional" />
     <input class="lfi" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px" />
-    <button class="btn b1" id="lfb" type="submit" style="width:100%;margin-top:4px">Call me karein</button>
+    <button class="btn b1" id="lfb" type="submit" style="width:100%;margin-top:4px">Request a call</button>
     <div id="lfm" style="margin-top:10px;font-size:14px"></div>
   </form>
 </section>
@@ -326,24 +326,24 @@ backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;gap:9px
     e.preventDefault();
     var d={}; new FormData(f).forEach(function(v,k){ d[k]=v; });
     d.source='website';
-    b.disabled=true; b.textContent='Bhej rahe hain...'; m.textContent=''; m.style.color='';
+    b.disabled=true; b.textContent='Sending...'; m.textContent=''; m.style.color='';
     fetch('/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})
       .then(function(r){ return r.json().then(function(j){ return {ok:r.ok,j:j}; }); })
       .then(function(x){
         if(x.ok && x.j && x.j.ok){
           f.style.display='none';
           m.style.color='#17803F';
-          m.textContent='Mil gaya. Hum jaldi call karenge - dhanyavaad.';
+          m.textContent='Got it. We will call you shortly - thank you.';
         } else {
-          b.disabled=false; b.textContent='Call me karein';
+          b.disabled=false; b.textContent='Request a call';
           m.style.color='#B5562E';
-          m.textContent=(x.j && x.j.error) || 'Bhej nahi paye - thodi der baad try karein';
+          m.textContent=(x.j && x.j.error) || 'Could not send - please try again shortly';
         }
       })
       .catch(function(){
-        b.disabled=false; b.textContent='Call me karein';
+        b.disabled=false; b.textContent='Request a call';
         m.style.color='#B5562E';
-        m.textContent='Internet nahi mila. WhatsApp par bhi bata sakte hain.';
+        m.textContent='No connection. You can also message us on WhatsApp.';
       });
   });
 })();

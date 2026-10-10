@@ -101,7 +101,7 @@ export function createRecordStore(db, { collectionName, legacyKey, field, idOf }
   // Undefined is stripped first, and that is not tidiness - it is a
   // data-loss fix. Firestore REJECTS a write containing an undefined
   // field value (ignoreUndefinedProperties is not set, deliberately:
-  // silently dropping fields hides bugs). "+ Naya Customer" built the
+  // silently dropping fields hides bugs). "+ New customer" built the
   // record as { ..., businessUnit: isDhPartner ? 'dh_home_decor' :
   // undefined }, so for an ordinary admin every single add threw here
   // - while the JOB, written by a separate call with no undefined in
