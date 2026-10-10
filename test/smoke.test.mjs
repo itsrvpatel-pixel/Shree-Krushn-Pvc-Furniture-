@@ -88,25 +88,40 @@ await ctx.addInitScript(() => {
       items: [{ id: 'i1', desc: 'Kitchen', length: '145', height: '112', qty: '1', rate: '1200' }],
       payments: [{ id: 'p1', amount: '25000', note: 'Advance', date: now }],
       extraWork: [], progressPhotos: [], requirements: [], activity: [],
-      questions: [], estimateGivenAt: ago(2), createdAt: ago(3) },
+      questions: [], assignedStaffId: 's1', assignedStaffName: 'Rishi',
+      estimateGivenAt: ago(2), createdAt: ago(3) },
     { id: 'j2', customerId: 'c2', customerName: 'Suresh Shah', phone: '9998887777', status: 'delivered',
       items: [{ id: 'i2', desc: 'Wardrobe', length: '100', height: '90', qty: '1', rate: '1100' }],
       payments: [{ id: 'p2', amount: '68750', note: 'Full', date: now }],
       extraWork: [], progressPhotos: [], requirements: [], activity: [], questions: [],
       review: { rating: 5, text: 'Very good work' },
       deliveredAt: ago(8), estimateGivenAt: ago(11), createdAt: ago(12) },
+    // DH Home Decor's own job. Their panel must show this one and
+    // must never show the two above.
+    { id: 'j3', customerId: 'c3', customerName: 'Meena Trivedi', phone: '9123456780', status: 'in_progress',
+      businessUnit: 'dh_home_decor',
+      items: [{ id: 'i3', desc: 'POP ceiling', length: '120', height: '100', qty: '1', rate: '90' }],
+      payments: [], extraWork: [], progressPhotos: [], requirements: [], activity: [],
+      questions: [], createdAt: ago(1) },
   ];
   const mem = {
     jobs: JSON.stringify(jobs),
     customers: JSON.stringify([
       { id: 'c1', name: 'Ramesh Patel', phone: '9876543210', createdAt: now },
       { id: 'c2', name: 'Suresh Shah', phone: '9998887777', createdAt: now },
+      { id: 'c3', name: 'Meena Trivedi', phone: '9123456780', businessUnit: 'dh_home_decor', createdAt: now },
     ]),
     expenses: JSON.stringify([
       { id: 'e1', type: 'Karigar Payment', payee: 'Rishi', amount: '4000', date: now, jobId: 'j1' },
       { id: 'e2', type: 'Material', payee: 'Kaka', amount: '12000', date: now },
     ]),
-    staff: '[]', notifications: '[]', admin_pin: '7777',
+    staff: JSON.stringify([{ id: 's1', name: 'Rishi', pin: '5555', role: 'karigar' }]),
+    notifications: '[]',
+    // One PIN per role, so every panel can be opened in turn. The
+    // partner panels are the ones he actually asked about - they are
+    // opened least, so they are where an unimported name survives
+    // longest.
+    admin_pin: '7777', partner_pin: '8888', dh_partner_pin: '9999',
     categories: '["Kitchen"]', gallery_categories: '["Kitchen"]', gallery_cat_Kitchen: '[]',
     estimate_rates: '[]', faqs: '[]', material_specs: '[]', company_benefits: '[]',
     archived_reviews: '[]', pending_gallery_photos: '[]', brochures: '[]',
@@ -201,69 +216,143 @@ const step = async (name, fn) => {
 
 const tap = (label) => page.getByText(label, { exact: false }).first().click({ timeout: 8000 });
 
-// Back to Admin Home by reloading rather than by hunting for a back
-// button. The back control is an icon on several screens and finding
-// it reliably is its own problem, which is not what this test is
-// about. Reloading is also worth something in itself: the session is
-// kept in localStorage, so every one of these is a refresh, and a
-// refresh is exactly what used to put a red banner on screen.
-const home = async () => {
-  await page.goto(BASE + '/app/', { waitUntil: 'domcontentloaded' });
-  await page.getByText('Customers', { exact: true }).last().waitFor({ timeout: 20000 });
-  await page.waitForTimeout(600);
-};
 
 console.log('smoke');
 
-// /app, not / - the build puts the marketing website at the root and
-// the app one level down (see tools/assemble-site.mjs).
-await page.goto(BASE + '/app/', { waitUntil: 'domcontentloaded' });
-await page.waitForTimeout(1200);
-
-await step('the app starts at all', async () => {
-  await page.getByText('Admin', { exact: false }).first().waitFor({ timeout: 25000 });
-});
-
-await step('admin logs in', async () => {
-  await tap('Admin');
-  await page.locator('input').first().fill('7777');
+// Starting fresh means clearing the remembered session, not just
+// reloading: the app keeps it in localStorage precisely so a refresh
+// does NOT send you back to the login screen.
+const loginAs = async (pin) => {
+  await page.goto(BASE + '/app/', { waitUntil: 'domcontentloaded' });
+  await page.evaluate(() => { try { window.localStorage.clear(); } catch (e) { /* private window */ } });
+  await page.goto(BASE + '/app/', { waitUntil: 'domcontentloaded' });
+  await page.getByText('Admin', { exact: false }).first().click({ timeout: 25000 });
+  await page.locator('input').first().fill(pin);
   await page.getByRole('button', { name: /enter admin|check/i }).first().click();
   await page.waitForTimeout(3000);
-});
+};
 
-// ---- The five tabs along the bottom.
-for (const tabName of ['Home', 'Customers', 'Gallery', 'Expenses', 'Settings']) {
-  await step('the ' + tabName + ' tab opens', async () => {
-    await page.getByText(tabName, { exact: true }).last().click({ timeout: 8000 });
-    await page.waitForTimeout(900);
+// Back to the panel's home by reloading, rather than hunting for a
+// back button - that control is an icon on several screens and
+// finding it reliably is a different problem from this one. Reloading
+// earns its keep anyway: the session is kept in localStorage, so every
+// one of these is also a refresh, and a refresh is exactly what used
+// to put a red banner on screen.
+const home = async () => {
+  await page.goto(BASE + '/app/', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(1800);
+};
+
+/* Each role, and what that role can actually reach.
+ *
+ * This is the part he asked for: "dh home decor panal, partners
+ * panal, usko khole to kuch kuch error aate the". Those panels differ
+ * from the admin one by a scattering of isPartner / isDhPartner
+ * conditions, they are opened perhaps once a month, and nothing had
+ * ever rendered them - which is the longest an unimported name can
+ * possibly survive.
+ *
+ * The lists are different on purpose rather than shared: a tile a
+ * role is not supposed to see would otherwise be reported as a
+ * missing screen, and that confusion is how a real failure gets
+ * waved away.
+ */
+const PANELS = [
+  { role: 'Admin', pin: '7777',
+    tabs: ['Home', 'Customers', 'Gallery', 'Expenses', 'Settings'],
+    tiles: ['Website enquiry', 'Send to a new number', 'Service Due', 'All Customers'] },
+  { role: 'Partner', pin: '8888',
+    // No Expenses: money is the admin's alone.
+    tabs: ['Home', 'Customers', 'Gallery', 'Settings'],
+    tiles: ['All Customers', 'Reviews'] },
+  { role: 'DH Home Decor', pin: '9999',
+    // No Reviews either - their trade is colour, POP and electrical.
+    tabs: ['Home', 'Customers', 'Gallery', 'Settings'],
+    tiles: ['All Customers'],
+    // Their own customer, and the one they must never be shown.
+    opens: 'Meena Trivedi', neverSees: 'Ramesh Patel' },
+  { role: 'Karigar', pin: '5555', tabs: [], tiles: [] },
+];
+
+for (const panel of PANELS) {
+  await step(panel.role + ' can log in', async () => {
+    await loginAs(panel.pin);
   });
+
+  for (const tabName of panel.tabs) {
+    await step(panel.role + ': the ' + tabName + ' tab opens', async () => {
+      await page.getByText(tabName, { exact: true }).last().click({ timeout: 8000 });
+      await page.waitForTimeout(900);
+    });
+  }
+
+  for (const tile of panel.tiles) {
+    await step(panel.role + ': "' + tile + '" opens', async () => {
+      await home();
+      if (panel.tabs.includes('Home')) {
+        await page.getByText('Home', { exact: true }).last().click({ timeout: 8000 });
+        await page.waitForTimeout(700);
+      }
+      await tap(tile);
+      await page.waitForTimeout(1000);
+    });
+  }
+
+  // Everyone who has a Settings tab gets it scrolled to the bottom.
+  // The partners see a different screen there - PartnerSettings, not
+  // AdminSettings - and it had never been rendered by anything.
+  if (panel.tabs.includes('Settings')) {
+    await step(panel.role + ': Settings scrolls to the end', async () => {
+      await home();
+      await page.getByText('Settings', { exact: true }).last().click({ timeout: 8000 });
+      await page.waitForTimeout(900);
+      await page.mouse.wheel(0, 20000);
+      await page.waitForTimeout(900);
+    });
+  }
+
+  // The job screen, which only the roles that list customers can reach.
+  if (panel.tabs.includes('Customers')) {
+    await step(panel.role + ': a job opens', async () => {
+      await home();
+      await page.getByText('Customers', { exact: true }).last().click({ timeout: 8000 });
+      await page.waitForTimeout(900);
+      await tap(panel.opens || 'Ramesh Patel');
+      await page.waitForTimeout(1400);
+    });
+
+    // Not a rendering check - a boundary one. DH Home Decor is a
+    // separate trade sharing the app, and the whole arrangement rests
+    // on them never seeing a Shree Krushn customer. That is worth
+    // asserting from the screen rather than from the filter, because
+    // the filter is one line and the screens are many.
+    if (panel.neverSees) {
+      await step(panel.role + ' never sees a customer that is not theirs', async () => {
+        await home();
+        await page.getByText('Customers', { exact: true }).last().click({ timeout: 8000 });
+        await page.waitForTimeout(1000);
+        const text = await page.locator('#root').innerText();
+        if (text.includes(panel.neverSees)) {
+          throw new Error(panel.neverSees + ' is visible to ' + panel.role);
+        }
+        if (!text.includes(panel.opens)) {
+          throw new Error('their own customer ' + panel.opens + ' is missing, so the check proves nothing');
+        }
+      });
+    }
+  }
 }
 
-// ---- The screens reached from Home. These are the ones that broke:
-//      every bug of the last three days was on a panel like this,
-//      opened by a tile nobody had pressed since it was written.
-for (const tile of ['Website enquiry', 'Send to a new number', 'Service Due', 'All Customers']) {
-  await step('"' + tile + '" opens', async () => {
-    await home();
-    await page.getByText('Home', { exact: true }).last().click({ timeout: 8000 });
-    await page.waitForTimeout(700);
-    await tap(tile);
-    await page.waitForTimeout(1000);
-  });
-}
-
-// ---- A job, which is the busiest screen in the app, and each of its tabs.
-await step('a job opens', async () => {
-  await home();
+// ---- Back to admin for the deepest screen in the app: every tab of a
+//      job, which is where the most imports are used in one place.
+await step('admin reopens a job', async () => {
+  await loginAs('7777');
   await page.getByText('Customers', { exact: true }).last().click({ timeout: 8000 });
   await page.waitForTimeout(900);
   await tap('Ramesh Patel');
   await page.waitForTimeout(1400);
 });
 
-// Every tab on the job screen, by the names AdminApp actually gives
-// them - this is the busiest screen in the app and the one with the
-// most places for a missing import to hide.
 for (const tab of ['Appointment', 'Status', 'Estimate', 'Extra Work', 'Payment',
   'Requirements', 'Progress', 'Activity', 'Notes', 'Karigar', 'Material']) {
   await step('the job\'s ' + tab + ' tab opens', async () => {
@@ -272,9 +361,7 @@ for (const tab of ['Appointment', 'Status', 'Estimate', 'Extra Work', 'Payment',
   });
 }
 
-// ---- Settings, scrolled to the bottom, because several cards only
-//      exist down there - including the two added this week.
-await step('Settings scrolls to the end', async () => {
+await step('the admin Settings cards are all there', async () => {
   await home();
   await page.getByText('Settings', { exact: true }).last().click({ timeout: 8000 });
   await page.waitForTimeout(900);
