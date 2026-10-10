@@ -745,6 +745,35 @@ async function rawProbe() {
     out.auth = { ok: false, error: String((e && e.code) || e) };
   }
 
+  /* The role on the live token, and a read that cannot be answered
+   * from cache.
+   *
+   * Both were missing, and their absence is why "Website enquiry says
+   * the rules are wrong" took so long to pin down. Every rule in this
+   * app turns on isStaff(), which is `request.auth.token.role != null`
+   * - so a session with no role claim is refused everything, exactly
+   * as an out-of-date rules file would be. The two look identical
+   * from the screen and need completely different fixes.
+   *
+   * And offline persistence hides it: customers, jobs and the gallery
+   * keep rendering from the local cache long after the server stopped
+   * answering, so the app looks healthy while nothing new can be
+   * read. Only a collection never cached - leads, say - fails where
+   * anybody can see it.
+   */
+  try {
+    const user = auth.currentUser;
+    if (!user) out.role = { ok: false, error: 'no Firebase user at all' };
+    else if (user.isAnonymous) out.role = { ok: false, anonymous: true, error: 'signed in anonymously - no staff role' };
+    else {
+      const res = await user.getIdTokenResult();
+      const role = res && res.claims && res.claims.role;
+      out.role = role ? { ok: true, role } : { ok: false, error: 'signed in, but the token carries no role' };
+    }
+  } catch (e) {
+    out.role = { ok: false, error: String((e && e.code) || e) };
+  }
+
   const errCode = (e) => String((e && e.code) || (e && e.message) || e);
 
   // A single document read. fromCache matters: with offline persistence a
@@ -798,6 +827,9 @@ async function rawProbe() {
   out.appDataList = await readList(COLLECTION);
   out.jobsList = await readList('jobs');
   out.customersList = await readList('customers');
+  // The one that actually failed, and the one never served from cache.
+  out.leadsList = await readList(LEADS_COLLECTION);
+  out.alertsList = await readList(ALERTS_COLLECTION);
   return out;
 }
 

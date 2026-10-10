@@ -46,6 +46,10 @@ export const HINGLISH = new RegExp('\\b(' + [
   'doston', 'bhai', 'bhejne', 'bhejna', 'lena', 'dete', 'karni',
   'hone', 'hona', 'raha', 'rahega', 'rakha', 'rakhe', 'waise', 'aise',
   'aisa', 'itna', 'jitne', 'jitna', 'teenon', 'dono', 'ek', 'do',
+  // a third pass, from words that reached a screen anyway
+  'pichhla', 'pichhle', 'pichla', 'natija', 'nateeja', 'jaankari',
+  'suchna', 'vivran', 'kripya', 'dhyan', 'yaad', 'shuruat', 'ant',
+
 ].join('|') + ')\\b', 'i');
 
 // Words that are Hinglish and English both. "What do you need?" is

@@ -1931,7 +1931,7 @@ export function AdminCustomerProfile({ customer, job, expenses, allCustomers, on
           customer, and the list is for scanning. */}
       {visits.length > 1 && (
         <>
-          <div style={styles.sectionTitle}>Pichhle visits ({visits.length})</div>
+          <div style={styles.sectionTitle}>Past visits ({visits.length})</div>
           <div style={{ ...styles.card, padding: '4px 14px' }}>
             {visits.map((v, i) => (
               <Row key={v} label={i === 0 ? 'Last seen' : ''} value={visitStamp(v)} muted={i > 0} />
@@ -5025,7 +5025,7 @@ function AdminDuePaymentsList({ jobs, expenses, onOpenJob }) {
             rel='noopener noreferrer'
             style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 8, display: 'inline-flex' }}
           >
-            <Send size={13} /> Payment Yaad Dilayein
+            <Send size={13} /> Send a payment reminder
           </a>
         </div>
       ))}
@@ -5305,16 +5305,31 @@ function DataCheckPanel({ gallery, showToast }) {
           ? 'signed in' + (p.auth.anonymous ? ' (anonymous)' : ' (staff)')
           : 'FAIL: ' + ((p.auth && p.auth.error) || 'unknown'),
       );
+      // The question every rule in this app turns on. isStaff() is
+      // `request.auth.token.role != null`, so a session without a role
+      // is refused exactly as an out-of-date rules file would refuse
+      // it - the two look identical from the screen and need
+      // completely different fixes.
+      add(
+        'Staff role on the token',
+        p.role && p.role.ok
+          ? p.role.role
+          : 'MISSING: ' + ((p.role && p.role.error) || 'unknown') + ' - log out and log in again',
+      );
       add('app_data/categories', describeDoc(p.appDataCategories));
       add('app_data/jobs', describeDoc(p.appDataJobs));
       add('app_data/customers', describeDoc(p.appDataCustomers));
       add('app_data list', describeList(p.appDataList));
       add('jobs collection', describeList(p.jobsList));
       add('customers collection', describeList(p.customersList));
+      // Never cached, so these two tell the truth about the server
+      // even when everything above is answered from the local copy.
+      add('leads (website enquiry)', describeList(p.leadsList));
+      add('staff_alerts (bell)', describeList(p.alertsList));
 
       const cats = Object.keys(gallery || {});
       const photos = cats.reduce((n, c) => n + ((gallery[c] || []).length), 0);
-      add('Gallery (screen par)', cats.length + ' category, ' + photos + ' photo');
+      add('Gallery (on screen)', cats.length + ' categories, ' + photos + ' photos');
 
       // A crash this device hit earlier, kept by the error boundary.
       // Without this, a screen that broke once and then recovered
@@ -5322,17 +5337,19 @@ function DataCheckPanel({ gallery, showToast }) {
       // "app kaam nahi kar raha" arrives with nothing to go on.
       const crash = readLastCrash();
       if (crash) {
-        add('Pichhla crash', crash.scope + ' - ' + new Date(crash.at).toLocaleString('en-IN'));
-        add('Crash ka message', crash.message);
+        add('Last crash', crash.scope + ' - ' + new Date(crash.at).toLocaleString('en-IN'));
+        add('Crash message', crash.message);
       } else {
-        add('Pichhla crash', 'none');
+        add('Last crash', 'none');
       }
 
       // The one-line verdict, so the answer does not depend on reading
       // seven rows correctly. Ordered by which cause makes the others
       // meaningless: no auth explains every denial after it.
-      const denied = [p.appDataCategories, p.appDataJobs, p.appDataCustomers, p.appDataList, p.jobsList, p.customersList]
+      const denied = [p.appDataCategories, p.appDataJobs, p.appDataCustomers, p.appDataList,
+        p.jobsList, p.customersList, p.leadsList, p.alertsList]
         .some((r) => r && !r.ok && String(r.error).indexOf('permission-denied') >= 0);
+      const noRole = !(p.role && p.role.ok);
       const anyData = [p.appDataJobs, p.appDataCustomers, p.appDataCategories].some((r) => r && r.ok && r.exists)
         || [p.appDataList, p.jobsList, p.customersList].some((r) => r && r.ok && r.count > 0);
       // The app reads the per-record collection whenever it has anything
@@ -5360,6 +5377,14 @@ function DataCheckPanel({ gallery, showToast }) {
         verdict = gaps.join(' ');
       } else if (p.auth && !p.auth.ok && denied) {
         verdict = 'Login failed and reads are blocked. In the Firebase Console go to Authentication -> Sign-in method and enable Anonymous. The data is safe.';
+      } else if (noRole && denied) {
+        // Before anything is said about the rules. Every rule here
+        // turns on isStaff(), so a session with no role claim is
+        // refused whatever the rules say - and rewriting a rules file
+        // that was already correct is a long evening.
+        verdict = 'This device is signed in WITHOUT a staff role, so every read is refused no matter what the'
+          + ' rules say. Log out and log in again with the PIN. If it still says MISSING above, the server side'
+          + ' of the login is not set up and the app has been running on its stored copy of the data.';
       } else if (denied) {
         verdict = t('Firestore rules are blocking reads. The data is safe and returns once the rules are fixed.');
       } else if (!p.online) {
@@ -5369,7 +5394,7 @@ function DataCheckPanel({ gallery, showToast }) {
       } else {
         verdict = t('Reading the data.');
       }
-      add('NATIJA', verdict);
+      add('VERDICT', verdict);
     } catch (e) {
       add(t('The check failed'), String((e && e.message) || e));
     }
