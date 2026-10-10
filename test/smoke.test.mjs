@@ -417,6 +417,20 @@ await step('the error list opens', async () => {
   await page.waitForTimeout(900);
 });
 
+await step('the "Something not working?" check runs', async () => {
+  await home();
+  await page.getByText('Settings', { exact: true }).last().click({ timeout: 8000 });
+  await page.waitForTimeout(900);
+  await page.mouse.wheel(0, 20000);
+  await page.waitForTimeout(700);
+  await tap('Find out why');
+  await page.waitForTimeout(2500);
+  const text = await page.locator('#root').innerText();
+  if (!/Staff role on the token/i.test(text)) throw new Error('it does not report the role claim');
+  if (!/VERDICT/.test(text)) throw new Error('it gives no verdict');
+  await page.waitForTimeout(900);
+});
+
 await browser.close();
 if (preview) { try { process.kill(-preview.pid); } catch (e) { /* already gone */ } }
 

@@ -5416,14 +5416,21 @@ function DataCheckPanel({ gallery, showToast }) {
     <div style={{ ...styles.card, marginTop: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <AlertCircle size={16} color={BRAND.gold} />
-        <div style={{ fontWeight: 800, fontSize: 14 }}>Data Check</div>
+        {/* Named away from "System Health Check" further down, which
+            scans gallery photos and brochures. The two were "Data
+            Check" and "System Health Check", close enough that I sent
+            him to the wrong one - and then to a third name that no
+            longer existed at all. This one answers a question rather
+            than describing itself. */}
+        <div style={{ fontWeight: 800, fontSize: 14 }}>Something not working?</div>
       </div>
       <div style={styles.plainText}>
-        Says where the app data is. It changes nothing - it only reads and
-        reports. If data looks missing, run this and send the result.
+        Says whether this login is allowed to read and write, and where the data
+        actually is. It changes nothing - it only reads and reports. Run this when
+        a screen says it was refused, and send the result.
       </div>
       <button style={{ ...styles.addBtn, marginTop: 10 }} onClick={run} disabled={running}>
-        {running ? t('Checking...') : t('Check the data')}
+        {running ? t('Checking...') : t('Find out why')}
       </button>
       {report && (
         <div style={{ marginTop: 12 }}>

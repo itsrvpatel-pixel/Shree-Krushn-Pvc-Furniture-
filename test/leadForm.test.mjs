@@ -223,7 +223,7 @@ t('a list that will not load says which of the two things went wrong', () => {
   // likelier, because everything else keeps rendering from the local
   // cache while the server refuses. So the cheap fix comes first.
   assert.match(denied, /log out and log in/i, 'it does not offer the likely fix first');
-  assert.match(denied, /Check the whole app/i, 'it does not say how to tell the two causes apart');
+  assert.match(denied, /Find out why/i, 'it does not name the button that tells the two causes apart');
   assert.match(denied, /nothing has been lost/i, 'it reads like the enquiries are gone');
   assert.ok(!/^The Firebase rules do not allow/.test(denied),
     'it blames the rules outright again');

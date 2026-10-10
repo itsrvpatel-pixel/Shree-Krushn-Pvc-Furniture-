@@ -145,9 +145,13 @@ export function leadLoadMessage(reason) {
     // of the two, because the app keeps showing everything else from
     // its stored copy while the server quietly refuses. So the
     // cheaper, more likely fix goes first.
+    // The button is named exactly as it appears on screen. The first
+    // version of this sent him to "Check the whole app", which is not
+    // what that panel is called, and by then was not what anything
+    // was called - the name had changed and this text had not.
     return 'Refused by Firebase. Log out and log in again with your PIN first - that is usually it. '
-      + 'If it still says this, run "Check the whole app" in Settings: it will say whether the problem '
-      + 'is the login or the rules. Nothing has been lost either way.';
+      + 'If it still says this, open Settings and press "Find out why" under "Something not working?" '
+      + '- it will say whether the problem is the login or the rules. Nothing has been lost either way.';
   }
   if (reason === 'offline') {
     return 'No internet just now. The enquiries are safe - open this again when you are back online.';
