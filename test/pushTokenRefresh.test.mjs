@@ -93,4 +93,38 @@ t('a browser that cannot do push is left alone', () => {
     'the silent refresh runs even where push is unavailable');
 });
 
+
+// "Load failed bata raha he."
+//
+// That is Safari's words for a fetch that never completed, shown raw.
+// The endpoint was up and answering the whole time - checked from
+// outside, twice, on both hosts - so this was a phone on mobile data
+// dropping one request, reported in language that told him nothing
+// and pointed him at the wrong thing entirely.
+const store = readFileSync(new URL('../src/firebaseStorage.js', import.meta.url), 'utf8');
+const storeCode = store.split('\n').filter((l) => {
+  const x = l.trim();
+  return !x.startsWith('//') && !x.startsWith('*') && !x.startsWith('/*');
+}).join('\n');
+
+t('a dropped request is tried again before giving up', () => {
+  const fn = storeCode.slice(storeCode.indexOf('async function sendPushViaApi('));
+  assert.ok(/for \(let attempt = 0; attempt < 2; attempt\+\+\)/.test(fn),
+    'one attempt is still the whole test');
+  // A reply that arrived and would not parse will not parse twice -
+  // only a failure to reach the server is worth repeating.
+  assert.ok(/AbortError|TypeError/.test(fn), 'it retries failures that cannot be helped by retrying');
+});
+
+t('it cannot hang for ever on a stalled connection', () => {
+  assert.ok(/PUSH_TIMEOUT_MS/.test(storeCode), 'no timeout, so a stalled request never returns');
+  assert.ok(/AbortController/.test(storeCode), 'the timeout cannot actually cancel the request');
+  assert.ok(/clearTimeout\(timer\)/.test(storeCode), 'the timer is left running after the request finishes');
+});
+
+t('the owner is told in words he can act on', () => {
+  assert.ok(/Internet nahi mila - dobara try karein/.test(storeCode),
+    'a network failure still surfaces as the browser’s own wording');
+});
+
 console.log(n + ' assertions passed');

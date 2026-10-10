@@ -913,17 +913,49 @@ function onForegroundMessage(callback) {
 // directly from the browser" explanation. targetTokens can be a
 // single token string or an array of tokens (e.g. notifying every
 // admin device at once).
-async function sendPushViaApi(targetTokens, title, body) {
+// A phone on 5G in Naroda drops a request often enough that one
+// attempt is not a fair test of anything. The owner's reading of this
+// was the bare browser text: "Nahi gaya: Load failed", which is what
+// Safari calls a fetch that never completed and tells him nothing he
+// can act on - the endpoint was up and answering the whole time.
+//
+// So: a timeout, so it cannot hang for ever on a stalled connection;
+// one retry, because the second attempt usually works; and a message
+// in words rather than Safari's.
+const PUSH_TIMEOUT_MS = 15000;
+
+async function sendPushOnce(tokens, title, body) {
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), PUSH_TIMEOUT_MS) : null;
   try {
-    const tokens = Array.isArray(targetTokens) ? targetTokens : [targetTokens];
     const res = await fetch('/api/send-push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tokens, title, body }),
+      signal: ctrl ? ctrl.signal : undefined,
     });
     return await res.json();
-  } catch (e) {
-    console.error('sendPushViaApi failed:', e);
-    return { error: e.message };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
+}
+
+async function sendPushViaApi(targetTokens, title, body) {
+  const tokens = Array.isArray(targetTokens) ? targetTokens : [targetTokens];
+  let last = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await sendPushOnce(tokens, title, body);
+    } catch (e) {
+      last = e;
+      // Only a failure to reach the server is worth repeating. A reply
+      // that came back and would not parse will not parse twice.
+      const reached = e && e.name !== 'AbortError' && e.name !== 'TypeError';
+      if (reached || attempt === 1) break;
+      await new Promise((r) => setTimeout(r, 1200));
+    }
+  }
+  console.error('sendPushViaApi failed:', last);
+  const net = last && (last.name === 'AbortError' || last.name === 'TypeError');
+  return { error: net ? 'Internet nahi mila - dobara try karein' : String((last && last.message) || last) };
 }
