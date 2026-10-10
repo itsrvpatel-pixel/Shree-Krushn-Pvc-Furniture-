@@ -345,7 +345,12 @@ export const BUSINESS = {
   ],
   phone: '+91 79902 83116',
   altPhone: '+91 95123 18775',
-  website: 'www.shreekrushnpvcfurniture.site',
+  // Share links point at .com, the name that is also on Google,
+  // Justdial and the van. A stranger from an Instagram ad has no
+  // reason to trust a domain they have never seen; an existing
+  // customer does not care either way, and every /go/ page is served
+  // identically on both, so the old .site links keep working.
+  website: 'www.shreekrushnpvcfurniture.com',
 };
 
 
@@ -1534,6 +1539,30 @@ const WA_INVITE = {
   designs: '500+ designs dekhein, jo pasand aaye save kar lein:',
   work: 'Kaam ki roz ki photos aur progress yahan dekhein:',
 };
+
+/* The opener for somebody who has never heard of us - typically off
+   an Instagram ad, messaging on WhatsApp. The customer-facing
+   messages all assume a job exists ("aapka estimate taiyaar hai"),
+   which to a stranger reads as a wrong number.
+
+   Plain "Rs", not the rupee glyph: it comes out as a box in plenty of
+   chat apps, and these figures are the ones on the price page. */
+const WA_COLD = {
+  designs: 'Namaste! Shree Krushn PVC Furniture - Nikol, Ahmedabad.'
+    + NEWLINE + NEWLINE
+    + '100% waterproof aur deemak-proof PVC furniture. Poora ghar lagbhag 10 din mein, 2 saal warranty certificate ke saath.',
+  book: 'Namaste! Shree Krushn PVC Furniture - Nikol, Ahmedabad.'
+    + NEWLINE + NEWLINE
+    + 'Naap lekar exact rate bata denge. Site visit aur design ka koi charge nahi.',
+  estimate: 'Namaste! Shree Krushn PVC Furniture - Nikol, Ahmedabad.'
+    + NEWLINE + NEWLINE
+    + 'Framing Rs 600/sq ft se, box work Rs 1,000/sq ft se. GST alag nahi - design, material, labour aur transport sab isi mein.',
+  app: 'Namaste! Shree Krushn PVC Furniture - Nikol, Ahmedabad.',
+};
+
+export function waInviteText(intent) {
+  return (WA_COLD[intent] || WA_COLD.app) + waSignOff(intent);
+}
 
 // The whole tail of a message - blank line, invitation, link, blank
 // line, signature. Two shapes because the message builders are two

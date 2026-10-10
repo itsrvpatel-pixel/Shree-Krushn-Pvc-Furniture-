@@ -72,7 +72,7 @@ const html = (c) => `<!doctype html><html><head><meta charset="utf-8">
     <h1>${c.title}</h1>
     <div class="sub">${c.sub}</div>
   </div>
-  <div class="foot"><div class="pill">App kholein</div><div class="site">shreekrushnpvcfurniture.site</div></div>
+  <div class="foot"><div class="pill">App kholein</div><div class="site">shreekrushnpvcfurniture.com</div></div>
 </body></html>`;
 
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });

@@ -160,6 +160,7 @@ import {
   warrantyCertNo,
   whatsAppShareUrl,
   waSignOff,
+  waInviteText,
   waSignOffLines,
   appLink,
 } from './App.jsx';
@@ -517,6 +518,8 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   // top so the job screen can raise it over itself and Back drops you
   // straight into the job you were already in.
   const [showLeads, setShowLeads] = useState(false);
+  const [showQuickSend, setShowQuickSend] = useState(false);
+  useBackToClose(showQuickSend, () => setShowQuickSend(false));
   useBackToClose(showLeads, () => setShowLeads(false));
   const [profileCustomerId, setProfileCustomerId] = useState(null);
   useBackToClose(!!profileCustomerId, () => setProfileCustomerId(null));
@@ -537,6 +540,15 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
 
   // Sits above the job so Back returns to it. A profile opened with no
   // job behind it (the id outlived the customer) just closes.
+  if (showQuickSend) {
+    return (
+      <div style={{ paddingBottom: 20 }}>
+        <TopBar title='Naye number ko bhejein' subtitle='Instagram / WhatsApp se aaye log' onBack={() => setShowQuickSend(false)} hideLogout />
+        <AdminQuickSend onBack={() => setShowQuickSend(false)} />
+      </div>
+    );
+  }
+
   if (showLeads) {
     return (
       <div style={{ paddingBottom: 20 }}>
@@ -1081,6 +1093,7 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
         <QuickTile icon={<User size={20} color={BRAND.navy} />} label='All Customers' onClick={() => setTab('customers')} />
         <QuickTile icon={<Star size={20} color={BRAND.navy} />} label='Reviews' onClick={() => setTab('reviews')} />
         <QuickTile icon={<MessageSquare size={20} color={BRAND.navy} />} label='Website enquiry' onClick={() => setShowLeads(true)} />
+        <QuickTile icon={<Send size={20} color={BRAND.navy} />} label='Naye number ko bhejein' onClick={() => setShowQuickSend(true)} />
         <QuickTile icon={<Hammer size={20} color={BRAND.navy} />} label={'Service Due' + (serviceDueJobs.length ? (' (' + serviceDueJobs.length + ')') : '')} onClick={() => setShowList('serviceDue')} />
         {!isPartner && <QuickTile icon={<IndianRupee size={20} color={BRAND.navy} />} label='Expenses' onClick={() => setTab('expenses')} />}
       </div>
@@ -4210,6 +4223,97 @@ function ReviewEditForm({ job, onSave, onCancel }) {
    WhatsApp conversation. Loaded on demand rather than subscribed: they
    arrive a few a week, and the push notification is what makes them
    urgent - this screen is where they are worked through afterwards. */
+/* Sending the app to somebody who is not a customer yet.
+ *
+ * Every share link in this app hangs off a job - which is right for a
+ * customer, and useless for the person who just messaged on WhatsApp
+ * after seeing an Instagram ad. There is no job to open, so the owner
+ * was retyping the link by hand, or not sending it.
+ *
+ * A number, a pick, and WhatsApp opens with the message written. The
+ * same /go/ links and the same banners the rest of the app uses, so a
+ * stranger gets the same card an existing customer does. */
+function AdminQuickSend({ onBack }) {
+  const [phone, setPhone] = useState('');
+  const [intent, setIntent] = useState('designs');
+
+  const CHOICES = [
+    { intent: 'designs', label: '500+ design', why: 'Jo abhi dekh raha hai, sochne wala hai' },
+    { intent: 'book', label: 'Free site visit', why: 'Jo rate poochh raha hai - naap ke bina rate nahi' },
+    { intent: 'estimate', label: 'Rate kaise lagta hai', why: 'Jo seedha daam poochh raha hai' },
+    { intent: 'app', label: 'App', why: 'Jiska kaam shuru hone wala hai' },
+  ];
+
+  const digits = String(phone).replace(/\D/g, '').replace(/^91/, '').replace(/^0/, '');
+  const ready = digits.length === 10;
+  const text = waInviteText(intent);
+
+  return (
+    <div style={{ padding: '12px 16px 24px' }}>
+      <button style={styles.backLink} onClick={onBack}><ArrowLeft size={13} /> Home</button>
+      <div style={{ ...styles.sectionTitle, marginTop: 10 }}>Naye number ko bhejein</div>
+      <div style={styles.plainTextMuted}>
+        Instagram ya kisi aur jagah se WhatsApp par aaye log - unhe customer banaye bina
+        link bhej sakte hain. Banner bhi wahi lagega jo baaki messages me lagta hai.
+      </div>
+
+      <div style={{ ...styles.formCard, marginTop: 12 }}>
+        <div style={styles.fieldLabel}>Mobile number</div>
+        <input
+          style={{ ...styles.input, marginTop: 6 }}
+          placeholder='98765 43210'
+          inputMode='numeric'
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+        />
+        <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Kya bhejna hai</div>
+        {CHOICES.map((c) => (
+          <button
+            key={c.intent}
+            onClick={() => setIntent(c.intent)}
+            style={{
+              display: 'flex', width: '100%', textAlign: 'left', marginTop: 8, cursor: 'pointer',
+              fontFamily: 'inherit', padding: '10px 12px', borderRadius: 10, background: '#FFF',
+              border: '1.5px solid ' + (intent === c.intent ? BRAND.navy : BRAND.line),
+            }}
+          >
+            <div style={{ flex: 1 }}>
+              <div style={{ ...styles.itemDesc, fontWeight: intent === c.intent ? 800 : 600 }}>{c.label}</div>
+              <div style={styles.itemSub}>{c.why}</div>
+            </div>
+            {intent === c.intent && <Check size={16} color={BRAND.navy} />}
+          </button>
+        ))}
+
+        <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Message</div>
+        <div style={{ ...styles.formCard, background: '#F7F8FA', marginTop: 6, whiteSpace: 'pre-wrap', fontSize: 13 }}>
+          {text}
+        </div>
+
+        <a
+          href={ready ? whatsAppShareUrl(digits, text) : undefined}
+          target='_blank' rel='noopener noreferrer'
+          style={{
+            ...styles.primaryBtn, marginTop: 14, display: 'block', textAlign: 'center',
+            background: ready ? '#25D366' : '#C7CCDC', pointerEvents: ready ? 'auto' : 'none',
+          }}
+        >WhatsApp par bhejein</a>
+        {!ready && phone.trim() !== '' && (
+          <div style={{ ...styles.itemSub, marginTop: 6 }}>10 digit number likhein</div>
+        )}
+        {/* Opening WhatsApp without a number is useful too: the owner
+            is often already in the chat and just wants the text. */}
+        <button
+          style={{ ...styles.cardActionBtn, marginTop: 10 }}
+          onClick={() => {
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text);
+          }}
+        >Message copy karein</button>
+      </div>
+    </div>
+  );
+}
+
 function AdminLeads({ onBack, showToast }) {
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
