@@ -702,6 +702,28 @@ async function clearErrorReports() {
    alert, create-only. A customer can add but cannot read, list, edit or
    delete, so nobody can rewrite or clear what their own app reported.
    Staff fold them into the shared list and delete them as they go. */
+/* Website enquiries. Written only by api/lead.js through the Admin
+   SDK; staff read them here and clear them once they have called. */
+const LEADS_COLLECTION = 'leads';
+
+async function loadLeads() {
+  const snap = await getDocs(collection(db, LEADS_COLLECTION));
+  const rows = [];
+  snap.forEach((d) => rows.push({ docId: d.id, ...d.data() }));
+  rows.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  return rows;
+}
+
+async function updateLead(docId, patch) {
+  await setDoc(doc(db, LEADS_COLLECTION, docId), patch, { merge: true });
+  return true;
+}
+
+async function deleteLead(docId) {
+  await deleteDoc(doc(db, LEADS_COLLECTION, docId));
+  return true;
+}
+
 const ALERTS_COLLECTION = 'staff_alerts';
 const MAX_ALERT_ROWS = 200;
 
@@ -751,6 +773,11 @@ export function installWindowStorage() {
   window.phoneAuth = {
     sendOtp: (phoneE164, recaptchaContainerId) => sendPhoneOtp(phoneE164, recaptchaContainerId),
     verifyOtp: (confirmationResult, code) => verifyPhoneOtp(confirmationResult, code),
+  };
+  window.leads = {
+    loadAll: () => loadLeads(),
+    update: (id, patch) => updateLead(id, patch),
+    remove: (id) => deleteLead(id),
   };
   window.staffAlerts = {
     add: (e) => addStaffAlert(e),

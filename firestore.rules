@@ -148,6 +148,15 @@ service cloud.firestore {
     // The role PINs, written by api/change-pin.js and read by
     // api/staff-login.js - both through the Admin SDK, which bypasses
     // rules entirely. Denied to every client, including an admin.
+    // ---- leads -----------------------------------------------------
+    // Enquiries from the public website. Written ONLY by api/lead.js
+    // through the Admin SDK, which bypasses these rules entirely - so
+    // no client may create one, and a bot that finds the collection
+    // cannot write to it directly either. Staff read and clear them.
+    match /leads/{leadId} {
+      allow read, list, write: if isStaff();
+    }
+
     match /secrets/{docId} {
       allow read, write: if false;
     }

@@ -516,6 +516,8 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
   // person in the list and open them again. This holds it here at the
   // top so the job screen can raise it over itself and Back drops you
   // straight into the job you were already in.
+  const [showLeads, setShowLeads] = useState(false);
+  useBackToClose(showLeads, () => setShowLeads(false));
   const [profileCustomerId, setProfileCustomerId] = useState(null);
   useBackToClose(!!profileCustomerId, () => setProfileCustomerId(null));
   const profileCustomer = profileCustomerId ? customers.find((c) => c.id === profileCustomerId) : null;
@@ -535,6 +537,15 @@ function AdminApp({ gallery, setGallery, loadGalleryData, galleryLoading, custom
 
   // Sits above the job so Back returns to it. A profile opened with no
   // job behind it (the id outlived the customer) just closes.
+  if (showLeads) {
+    return (
+      <div style={{ paddingBottom: 20 }}>
+        <TopBar title='Website enquiry' subtitle='Form se aayi' onBack={() => setShowLeads(false)} hideLogout />
+        <AdminLeads onBack={() => setShowLeads(false)} showToast={showToast} />
+      </div>
+    );
+  }
+
   if (profileCustomer) {
     const theirJob = jobs.find((j) => j.customerId === profileCustomer.id) || jobs.find((j) => j.phone === profileCustomer.phone);
     return (
@@ -1069,6 +1080,7 @@ export function AdminHome({ customers, jobs, expenses, gallery, categories, pend
         <QuickTile icon={<Grid3x3 size={20} color={BRAND.navy} />} label={'Gallery (' + totalPhotos + ')'} onClick={() => setTab('gallery')} />
         <QuickTile icon={<User size={20} color={BRAND.navy} />} label='All Customers' onClick={() => setTab('customers')} />
         <QuickTile icon={<Star size={20} color={BRAND.navy} />} label='Reviews' onClick={() => setTab('reviews')} />
+        <QuickTile icon={<MessageSquare size={20} color={BRAND.navy} />} label='Website enquiry' onClick={() => setShowLeads(true)} />
         <QuickTile icon={<Hammer size={20} color={BRAND.navy} />} label={'Service Due' + (serviceDueJobs.length ? (' (' + serviceDueJobs.length + ')') : '')} onClick={() => setShowList('serviceDue')} />
         {!isPartner && <QuickTile icon={<IndianRupee size={20} color={BRAND.navy} />} label='Expenses' onClick={() => setTab('expenses')} />}
       </div>
@@ -4194,6 +4206,93 @@ function ReviewEditForm({ job, onSave, onCancel }) {
 /* ---- Admin: Karigar (worker) payments & company expenses - kept
    separate from customer job revenue. Company earning (from jobs) minus
    these expenses gives real net profit. ---- */
+/* Enquiries left on the website by people who did not want to start a
+   WhatsApp conversation. Loaded on demand rather than subscribed: they
+   arrive a few a week, and the push notification is what makes them
+   urgent - this screen is where they are worked through afterwards. */
+function AdminLeads({ onBack, showToast }) {
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setBusy(true);
+    try { setRows(await window.leads.loadAll()); }
+    catch (e) { showToast('Enquiry load nahi hui', true); setRows([]); }
+    finally { setBusy(false); }
+  }, [showToast]);
+  useEffect(() => { load(); }, [load]);
+
+  const mark = async (row, status) => {
+    try {
+      await window.leads.update(row.docId, { status });
+      setRows((list) => (list || []).map((r) => (r.docId === row.docId ? { ...r, status } : r)));
+    } catch (e) { showToast('Save nahi hua', true); }
+  };
+  const remove = async (row) => {
+    if (!window.confirm('Ye enquiry hata dein?')) return;
+    try {
+      await window.leads.remove(row.docId);
+      setRows((list) => (list || []).filter((r) => r.docId !== row.docId));
+    } catch (e) { showToast('Hata nahi paye', true); }
+  };
+
+  const open = (rows || []).filter((r) => r.status !== 'done');
+  const done = (rows || []).filter((r) => r.status === 'done');
+
+  const Card = ({ r }) => (
+    <div style={{ ...styles.card, marginTop: 10, padding: 14 }}>
+      <div style={styles.cardName}>{r.name}</div>
+      <div style={styles.cardMeta}>
+        <span style={styles.metaItem}><Phone size={11} /> {formatPhoneDisplay(r.phone)}</span>
+        <span style={styles.metaItem}><Calendar size={11} /> {formatDate(r.createdAt)}</span>
+      </div>
+      {(r.need || r.area) && (
+        <div style={{ ...styles.itemSub, marginTop: 6 }}>
+          {[r.need, r.area].filter(Boolean).join(' \u00B7 ')}
+        </div>
+      )}
+      {r.message && <div style={{ ...styles.itemDesc, marginTop: 6 }}>&ldquo;{r.message}&rdquo;</div>}
+      <div style={{ display: 'flex', gap: 8, marginTop: 11, flexWrap: 'wrap' }}>
+        <a href={'tel:+91' + r.phone} style={{ ...styles.cardActionBtn, color: '#2F7D4F' }}><Phone size={12} /> Call</a>
+        <a
+          href={whatsAppShareUrl(r.phone, 'Namaste ' + r.name + ', Shree Krushn PVC Furniture se. Aapne website par enquiry bheji thi - free site visit ka time tay kar lein?')}
+          target='_blank' rel='noopener noreferrer'
+          style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF' }}
+        ><Send size={12} /> WhatsApp</a>
+        {r.status !== 'done'
+          ? <button style={styles.cardActionBtn} onClick={() => mark(r, 'done')}><Check size={12} /> Ho gaya</button>
+          : <button style={styles.cardActionBtn} onClick={() => mark(r, 'new')}>Wapas kholein</button>}
+        <button style={styles.cardActionBtn} onClick={() => remove(r)}><Trash2 size={12} /> Hatayein</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ padding: '12px 16px 0' }}>
+        <button style={styles.backLink} onClick={onBack}><ArrowLeft size={13} /> Home</button>
+      </div>
+      <div style={{ padding: '12px 16px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ ...styles.sectionTitle, flex: 1 }}>Website enquiry</div>
+          <button style={styles.cardActionBtn} onClick={load} disabled={busy}>{busy ? '...' : 'Refresh'}</button>
+        </div>
+        <div style={styles.plainTextMuted}>
+          Jo log WhatsApp nahi karte, wo form bhar dete hain. Call karke time tay kar lein.
+        </div>
+        {rows === null && <div style={styles.emptySmall}>Load ho raha hai...</div>}
+        {rows !== null && rows.length === 0 && (
+          <div style={styles.emptySmall}>Abhi koi enquiry nahi aayi.</div>
+        )}
+        {open.length > 0 && <div style={{ ...styles.fieldLabel, marginTop: 14 }}>Naye ({open.length})</div>}
+        {open.map((r) => <Card key={r.docId} r={r} />)}
+        {done.length > 0 && <div style={{ ...styles.fieldLabel, marginTop: 18 }}>Ho gaye ({done.length})</div>}
+        {done.map((r) => <Card key={r.docId} r={r} />)}
+      </div>
+    </div>
+  );
+}
+
 function AdminExpenses({ expenses, setExpenses, jobs, showToast, onOpenJob, isDhPartner, bookClosings, setBookClosings }) {
   const [type, setType] = useState(EXPENSE_TYPES[0]);
   const [payee, setPayee] = useState('');

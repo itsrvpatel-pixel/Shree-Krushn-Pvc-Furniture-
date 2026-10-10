@@ -286,6 +286,69 @@ backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;gap:9px
   </div>
 </section>
 
+<!-- The quiet way in. Until this existed the site offered only
+     "WhatsApp karein" and "App kholein", both of which ask a stranger
+     to start a conversation - which somebody looking at wardrobes at
+     eleven at night will not do. They left, and we never knew.
+     Posts to /api/lead; the "website" input is a honeypot a person
+     never sees. Without JavaScript the form simply is not shown and
+     the WhatsApp buttons below remain, rather than leaving a Send
+     button that does nothing. -->
+<section id="enquiry" class="w" style="display:none">
+  <div class="eyebrow">Pooch lijiye</div>
+  <h2>Naap aur rate - bina kisi charge ke</h2>
+  <p class="sub">Naam aur number chhod dijiye. Hum call karke time tay kar lenge. Abhi baat karne ki zaroorat nahi.</p>
+  <form id="lf" style="max-width:480px;margin-top:18px">
+    <input class="lfi" name="name" placeholder="Aapka naam" autocomplete="name" required />
+    <input class="lfi" name="phone" placeholder="Mobile number" inputmode="numeric" autocomplete="tel" required />
+    <select class="lfi" name="need">
+      <option value="">Kya karvana hai? (optional)</option>
+      <option>Poora ghar</option><option>Kitchen</option><option>Wardrobe</option>
+      <option>TV unit</option><option>Mandir</option><option>Kuch aur</option>
+    </select>
+    <input class="lfi" name="area" placeholder="Area (jaise Nikol, Bopal) - optional" />
+    <input class="lfi" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px" />
+    <button class="btn b1" id="lfb" type="submit" style="width:100%;margin-top:4px">Call me karein</button>
+    <div id="lfm" style="margin-top:10px;font-size:14px"></div>
+  </form>
+</section>
+<style>
+  .lfi{width:100%;padding:14px 15px;margin-bottom:10px;border:1.5px solid var(--line);border-radius:12px;
+       font:15px Manrope,system-ui,sans-serif;color:var(--ink);background:#fff}
+  .lfi:focus{outline:none;border-color:var(--navy)}
+</style>
+<script>
+(function(){
+  var s=document.getElementById('enquiry'); if(!s) return;
+  s.style.display='';
+  var f=document.getElementById('lf'), b=document.getElementById('lfb'), m=document.getElementById('lfm');
+  f.addEventListener('submit', function(e){
+    e.preventDefault();
+    var d={}; new FormData(f).forEach(function(v,k){ d[k]=v; });
+    d.source='website';
+    b.disabled=true; b.textContent='Bhej rahe hain...'; m.textContent=''; m.style.color='';
+    fetch('/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok,j:j}; }); })
+      .then(function(x){
+        if(x.ok && x.j && x.j.ok){
+          f.style.display='none';
+          m.style.color='#17803F';
+          m.textContent='Mil gaya. Hum jaldi call karenge - dhanyavaad.';
+        } else {
+          b.disabled=false; b.textContent='Call me karein';
+          m.style.color='#B5562E';
+          m.textContent=(x.j && x.j.error) || 'Bhej nahi paye - thodi der baad try karein';
+        }
+      })
+      .catch(function(){
+        b.disabled=false; b.textContent='Call me karein';
+        m.style.color='#B5562E';
+        m.textContent='Internet nahi mila. WhatsApp par bhi bata sakte hain.';
+      });
+  });
+})();
+</script>
+
 <section id="contact" class="w">
   <div class="eyebrow">Get in touch</div>
   <h2>Nikol, Nava Naroda, Ahmedabad</h2>
