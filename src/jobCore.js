@@ -1494,3 +1494,128 @@ export function shouldReportWriteFailure(lastAt, now) {
   if (prev > Number(now)) return true;
   return (Number(now) - prev) >= WRITE_FAILURE_GAP_MS;
 }
+
+/* --- What a regional partner needs on one screen -------------------
+ *
+ * Asked for in his words: the partner's home should carry the gallery,
+ * their customers' payment records, and whatever else they need, so
+ * that it feels like the whole company is behind them.
+ *
+ * That last part is the requirement, not decoration. A regional
+ * partner stands in somebody's front room in another city with no
+ * office behind them. What makes that feel backed is being able to
+ * answer on the spot - here are the designs, here is the rate, here
+ * is what the material is, here is the warranty - and knowing where
+ * every one of their jobs stands without ringing anyone.
+ *
+ * All computed, never stored: every figure is derived from the jobs
+ * the partner is assigned, so none of it can drift away from what the
+ * admin sees.
+ *
+ * WHY THE MONEY FUNCTIONS ARE PASSED IN
+ *
+ * jobTotal and jobPaid live in App.jsx, and they are not simple: the
+ * total folds in approved extra work and subtracts a discount, and
+ * both have been corrected more than once. Reimplementing them here
+ * would give this screen its own opinion about what a customer owes,
+ * and the two would disagree the first time either changed. So they
+ * are handed in, and there is exactly one definition in the app.
+ */
+
+// Commission is earned on money actually COLLECTED, not on the
+// estimate - an unpaid estimate has generated nothing to take a
+// percentage of. Long-standing rule of the panel; moved here so it can
+// be tested, and so Home and Money cannot disagree about it.
+export function partnerCommission(jobs, percent, paidOf) {
+  const pct = Number(percent) || 0;
+  const rows = (jobs || []).map((j) => ({ job: j, commission: Math.round((paidOf(j) || 0) * (pct / 100)) }));
+  return { rows, total: rows.reduce((s, r) => s + r.commission, 0) };
+}
+
+// One row per job: what it is worth, what has come in, what is left.
+// Sorted by what is owed, because that is the order a partner works
+// down - the customer owing most is the first call to make.
+export function partnerCustomerPayments(jobs, totalOf, paidOf) {
+  return (jobs || [])
+    .map((j) => {
+      const total = Number(totalOf(j)) || 0;
+      const paid = Number(paidOf(j)) || 0;
+      const due = Math.max(0, total - paid);
+      return {
+        id: j.id,
+        name: j.customerName || '(no name)',
+        phone: j.phone || '',
+        status: j.status,
+        total,
+        paid,
+        due,
+        pct: total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0,
+      };
+    })
+    .sort((a, b) => b.due - a.due || b.total - a.total);
+}
+
+/* What needs doing, in the order it needs doing.
+ *
+ * A partner with eleven jobs has no way to tell which one is waiting
+ * on them. Three things actually are:
+ *
+ *   an appointment the customer asked for and nobody has confirmed
+ *   money owed on work already delivered
+ *   a job in progress with no update for a week
+ *
+ * Anything else is noise on a screen whose entire value is being
+ * short enough to read at a customer's door.
+ */
+export const PARTNER_STALE_DAYS = 7;
+
+export function partnerNeedsAttention(jobs, now, totalOf, paidOf) {
+  const t = Number(now) || Date.now();
+  const out = [];
+  for (const j of jobs || []) {
+    const appt = j.appointment;
+    if (appt && appt.preferredDate && appt.status !== 'confirmed' && appt.status !== 'done') {
+      out.push({ id: j.id, name: j.customerName, kind: 'appointment', text: 'Appointment to confirm' });
+      continue;
+    }
+    const due = Math.max(0, (Number(totalOf(j)) || 0) - (Number(paidOf(j)) || 0));
+    if ((j.status === 'delivered') && due > 0) {
+      out.push({ id: j.id, name: j.customerName, kind: 'payment', due, text: 'Delivered, payment still due' });
+      continue;
+    }
+    if (j.status === 'in_progress') {
+      const last = timeOf(j.lastUpdatedAt) || timeOf(j.estimateGivenAt) || timeOf(j.createdAt);
+      if (Number.isFinite(last) && (t - last) >= PARTNER_STALE_DAYS * 86400000) {
+        const days = Math.floor((t - last) / 86400000);
+        out.push({ id: j.id, name: j.customerName, kind: 'stale', text: 'No update for ' + days + ' days' });
+      }
+    }
+  }
+  return out;
+}
+
+// Everything Home shows, in one call, so the screen stays a layout
+// rather than a calculation.
+export function partnerDashboard(jobs, percent, payouts, now, totalOf, paidOf) {
+  const list = jobs || [];
+  const payments = partnerCustomerPayments(list, totalOf, paidOf);
+  const commissionEarned = partnerCommission(list, percent, paidOf).total;
+  const commissionPaid = (payouts || []).reduce((s, p) => s + (Number(p && p.amount) || 0), 0);
+  return {
+    jobs: {
+      total: list.length,
+      active: list.filter((j) => j.status === 'in_progress').length,
+      delivered: list.filter((j) => j.status === 'delivered' || j.status === 'paid').length,
+    },
+    money: {
+      worth: payments.reduce((s, r) => s + r.total, 0),
+      collected: payments.reduce((s, r) => s + r.paid, 0),
+      outstanding: payments.reduce((s, r) => s + r.due, 0),
+      commissionEarned,
+      commissionPaid,
+      commissionDue: commissionEarned - commissionPaid,
+    },
+    payments,
+    attention: partnerNeedsAttention(list, now, totalOf, paidOf),
+  };
+}

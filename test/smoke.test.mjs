@@ -88,7 +88,7 @@ await ctx.addInitScript(() => {
       items: [{ id: 'i1', desc: 'Kitchen', length: '145', height: '112', qty: '1', rate: '1200' }],
       payments: [{ id: 'p1', amount: '25000', note: 'Advance', date: now }],
       extraWork: [], progressPhotos: [], requirements: [], activity: [],
-      questions: [], assignedStaffId: 's1', assignedStaffName: 'Rishi',
+      questions: [], assignedStaffId: 's2', assignedStaffName: 'Jayesh',
       estimateGivenAt: ago(2), createdAt: ago(3) },
     { id: 'j2', customerId: 'c2', customerName: 'Suresh Shah', phone: '9998887777', status: 'delivered',
       items: [{ id: 'i2', desc: 'Wardrobe', length: '100', height: '90', qty: '1', rate: '1100' }],
@@ -128,7 +128,13 @@ await ctx.addInitScript(() => {
     // longest.
     admin_pin: '7777', partner_pin: '8888', dh_partner_pin: '9999',
     categories: '["Kitchen"]', gallery_categories: '["Kitchen"]', gallery_cat_Kitchen: '[]',
-    estimate_rates: '[]', faqs: '[]', material_specs: '[]', company_benefits: '[]',
+    estimate_rates: JSON.stringify([
+      { id: 'r1', name: 'Framing', rate: '600', unit: 'sqft' },
+      { id: 'r2', name: 'Box work', rate: '1000', unit: 'sqft' },
+    ]),
+    faqs: JSON.stringify([{ id: 'f1', q: 'Is PVC waterproof?', a: 'Yes, completely.' }]),
+    material_specs: JSON.stringify([{ id: 'm1', title: '100% virgin PVC', detail: 'No recycled filler.' }]),
+    company_benefits: JSON.stringify([{ id: 'b1', title: '2-year warranty', detail: 'With a certificate.' }]),
     archived_reviews: '[]', pending_gallery_photos: '[]', brochures: '[]',
     item_templates: '[]', attendance: '[]', appointment_item_options: '[]',
     book_closings: '[]', admin_push_tokens: '[]',
@@ -289,7 +295,10 @@ const PANELS = [
     // Their own customer, and the one they must never be shown.
     opens: 'Meena Trivedi', neverSees: 'Ramesh Patel' },
   { role: 'Karigar', pin: '5555', tabs: [], tiles: [] },
-  { role: 'Regional Partner', pin: '6666', tabs: [], tiles: [] },
+  // Their own five tabs, not the admin ones - a different app behind
+  // the same login screen, and the one he asked to have built out.
+  { role: 'Regional Partner', pin: '6666',
+    tabs: ['Home', 'Jobs', 'Money', 'Designs', 'Profile'], tiles: [] },
 ];
 
 for (const panel of PANELS) {
@@ -385,6 +394,40 @@ await step('a failing enquiry list settles instead of looping', async () => {
 
 // ---- Back to admin for the deepest screen in the app: every tab of a
 //      job, which is where the most imports are used in one place.
+// The partner's own screens, in the detail he asked for: the money
+// each of their customers still owes, and the company material they
+// put in front of someone.
+await step('Regional Partner sees what their customers owe', async () => {
+  await loginAs('6666');
+  await page.getByText('Money', { exact: true }).last().click({ timeout: 8000 });
+  await page.waitForTimeout(1200);
+  const text = await page.locator('#root').innerText();
+  if (!/Ramesh Patel/.test(text)) throw new Error('their assigned customer is not listed');
+  if (!/Outstanding/i.test(text)) throw new Error('nothing says what is still owed');
+  if (!/% paid/.test(text)) throw new Error('there is no per-customer progress');
+});
+
+await step('Regional Partner has the company material to show', async () => {
+  await loginAs('6666');
+  await page.waitForTimeout(600);
+  await tap('Rate list');
+  await page.waitForTimeout(1200);
+  const text = await page.locator('#root').innerText();
+  const flat = text.toLowerCase();
+  if (!/To show a customer/i.test(text)) throw new Error('the support screen did not open');
+  for (const bit of ['Rate list', 'What the material is', 'Why choose us', 'Send the app']) {
+    // Case-insensitively: styles.fieldLabel upper-cases in CSS, and
+    // innerText gives back what is rendered, so "Rate list" arrives
+    // as "RATE LIST".
+    if (!flat.includes(bit.toLowerCase())) throw new Error('the support screen is missing: ' + bit);
+  }
+  // Headings alone would pass on a screen that shows nothing. These
+  // come from the admin's own data, seeded below.
+  if (!/framing/i.test(text)) throw new Error('the rate list is empty - no rate reached the screen');
+  if (!/virgin pvc/i.test(text)) throw new Error('the material specs did not render');
+  if (!/2-year warranty/i.test(text)) throw new Error('the reasons to choose us did not render');
+});
+
 await step('admin reopens a job', async () => {
   await loginAs('7777');
   await page.getByText('Customers', { exact: true }).last().click({ timeout: 8000 });

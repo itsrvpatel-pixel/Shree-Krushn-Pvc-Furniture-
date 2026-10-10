@@ -39,13 +39,13 @@ import { useBackToClose } from './useBackToClose.js';
 // they can be tested without React. Imported and re-exported, not
 // forwarded: `export ... from` alone would not bind them in this file.
 import { leadLoadMessage } from './leadForm.js';
-import { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, chunkReloadDecision, clearChunkReloadFlag, writeFailureMessage, shouldReportWriteFailure, backupAge, readableSize, needsOffsiteCopy, otpFailureClass, otpOutageMessage, shouldRaiseOutage } from './jobCore.js';
+import { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, chunkReloadDecision, clearChunkReloadFlag, writeFailureMessage, shouldReportWriteFailure, partnerDashboard, partnerCustomerPayments, partnerCommission, partnerNeedsAttention, backupAge, readableSize, needsOffsiteCopy, otpFailureClass, otpOutageMessage, shouldRaiseOutage } from './jobCore.js';
 import { normalizeError, installErrorReporting, groupErrors } from './errorLog.js';
 export { groupErrors };
 import { t, tf } from './i18n.js';
 import { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileForEditing, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel } from './customerProfile.js';
 
-export { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, backupAge, readableSize, needsOffsiteCopy, otpFailureClass, otpOutageMessage, shouldRaiseOutage, writeFailureMessage, shouldReportWriteFailure };
+export { uid, logActivity, finalizeEstimateDraft, sortedClosings, latestClosing, sinceLastClosing, closingSnapshot, canCloseAt, closingFailureMessage, prevMonthKey, monthLabel, compareBreakdowns, expenseReportText, EXPENSE_TYPES, expenseBreakdown, monthKeyOf, pushPermissionGranted, tokenNeedsSaving, customerTokenChanged, normalizeReviewLink, canAskForGoogleReview, changeRequests, openChangeRequests, addChangeRequest, answerChangeRequests, newChangeRequests, normalizeOptionRow, buildOptionPair, seedOptionForm, resolveCategory, planPdfPages, buildWorkDiary, createInFlightCounter, mergeListWithServer, listKeyOf, resolveRegistration, reviewPrompt, canLeaveReview, reviewsSummary, shouldTouchLastSeen, lastSeenLabel, appVisitGroups, recordVisit, visitFollowUp, visitStamp, pushFailureMessage, isIosInBrowser, pruneDeadPushTokens, DEFAULT_PAYMENT_STAGES, paymentStagesOf, buildPaymentSchedule, nextDueStage, jobCostBreakdown, paymentProgress, backupAge, readableSize, needsOffsiteCopy, otpFailureClass, otpOutageMessage, shouldRaiseOutage, writeFailureMessage, shouldReportWriteFailure, partnerDashboard, partnerCustomerPayments, partnerCommission, partnerNeedsAttention };
 export { leadLoadMessage };
 export { t, tf };
 export { PROPERTY_TYPES, NEED_OPTIONS, TIMELINES, BUDGET_BANDS, budgetLabel, normalizeProfile, profileCompleteness, isProfileIncomplete, profileSummary, timelineLabel };
@@ -3834,6 +3834,10 @@ export default function App() {
           loadGalleryData={loadGalleryData}
           brochures={brochures}
           categories={categories}
+          estimateRates={estimateRates}
+          faqs={faqs}
+          materialSpecs={materialSpecs}
+          companyBenefits={companyBenefits}
           onSubmitGalleryPhoto={submitMyGalleryPhoto}
           onSaveJob={async (j) => {
             if (!myJobs.some((jj) => jj.id === j.id)) return false; // guard: only ever write a job assigned to this partner
@@ -8141,8 +8145,8 @@ function KarigarApp({ jobs, staffName, staffId, onSaveJob, onLogout, showToast, 
 // running commission total, but still funnels status changes through
 // admin (via a notification) rather than letting the partner directly
 // alter payment records themselves.
-function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commissionPayouts, hasPushToken, onEnablePush, onCreateCustomer, gallery, galleryLoading, loadGalleryData, brochures, categories, onSubmitGalleryPhoto, onSaveJob, onLogout, showToast, pushNotification }) {
-  const [tab, setTab] = useState('jobs');
+function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commissionPayouts, hasPushToken, onEnablePush, onCreateCustomer, gallery, galleryLoading, loadGalleryData, brochures, categories, estimateRates, faqs, materialSpecs, companyBenefits, onSubmitGalleryPhoto, onSaveJob, onLogout, showToast, pushNotification }) {
+  const [tab, setTab] = useState('home');
   const [jobQuery, setJobQuery] = useState('');
   const [activeJobId, setActiveJobId] = useState(null);
   const activeJob = jobs.find((j) => j.id === activeJobId);
@@ -8210,6 +8214,11 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
   const totalCommission = commissionByJob.reduce((s, c) => s + c.commission, 0);
   const totalPaidOut = (commissionPayouts || []).reduce((s, po) => s + Number(po.amount || 0), 0);
   const balanceOwed = totalCommission - totalPaidOut;
+
+  // Everything Home and Money show. jobTotal and jobPaid are handed
+  // in rather than reimplemented, so this screen can never form its
+  // own opinion about what a customer owes - see jobCore's note.
+  const dash = partnerDashboard(jobs, commissionPercent, commissionPayouts, Date.now(), jobTotal, jobPaid);
 
   const addPhotos = async (job, photos) => {
     const newPhotos = [];
@@ -8553,6 +8562,116 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
   return (
     <div style={{ paddingBottom: 74 }}>
       <TopBar title='Regional Partner Panel' subtitle={'Logged in as ' + staffName} hideLogout />
+
+      {/* ---- Home ------------------------------------------------
+          His ask, in his words: the partner's home should carry the
+          gallery, their customers' payment records, and whatever else
+          they need, so it feels like the whole company is behind them.
+
+          A regional partner stands in a front room in another city
+          with no office behind them. What makes that feel backed is
+          being able to answer on the spot, and knowing where every
+          job stands without ringing anyone. So this screen is, in
+          order: what needs doing today, the money, and the material
+          to put in front of a customer. ---- */}
+      {tab === 'home' && (
+        <div style={{ padding: '12px 16px' }}>
+          <div style={styles.heroGreeting}>Hello, {String(staffName || '').split(' ')[0]}</div>
+          <div style={{ ...styles.plainTextMuted, marginBottom: 12 }}>
+            {dash.jobs.total} job{dash.jobs.total === 1 ? '' : 's'} with you
+            {dash.jobs.active > 0 ? (' - ' + dash.jobs.active + ' in progress') : ''}
+          </div>
+
+          {/* Needs doing, first and short. A partner with eleven jobs
+              has no way to tell which one is waiting on them. */}
+          {dash.attention.length > 0 && (
+            <div style={{ ...styles.card, background: '#FFF4E5', borderColor: BRAND.gold, marginBottom: 12 }}>
+              <div style={styles.fieldLabel}>Needs you ({dash.attention.length})</div>
+              {dash.attention.slice(0, 5).map((a) => (
+                <button
+                  key={a.id + a.kind}
+                  style={{ ...styles.item, width: '100%', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid ' + BRAND.line }}
+                  onClick={() => { setActiveJobId(a.id); }}
+                >
+                  <div style={styles.itemName}>{a.name}</div>
+                  <div style={styles.itemSub}>{a.kind === 'payment' ? ('Delivered - ' + currency(a.due) + ' still due') : a.text}</div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* The money, both sides of it: what their customers owe,
+              and what the company owes them. A partner cares about
+              both and had a screen for neither. */}
+          <div style={{ ...styles.formCard, background: '#FFF9EE', borderColor: BRAND.gold }}>
+            <div style={styles.fieldLabel}>Your commission</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+              <div>
+                <div style={styles.itemSub}>Earned</div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: BRAND.navy }}>{currency(dash.money.commissionEarned)}</div>
+              </div>
+              <div>
+                <div style={styles.itemSub}>{t('Received')}</div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: '#2F7D4F' }}>{currency(dash.money.commissionPaid)}</div>
+              </div>
+              <div>
+                <div style={styles.itemSub}>{t('Pending')}</div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: dash.money.commissionDue > 0 ? BRAND.gold : '#2F7D4F' }}>{currency(dash.money.commissionDue)}</div>
+              </div>
+            </div>
+            <div style={{ ...styles.itemSub, marginTop: 8 }}>{commissionPercent}% of what is collected</div>
+          </div>
+
+          <button style={{ ...styles.card, width: '100%', textAlign: 'left', marginTop: 10, cursor: 'pointer' }} onClick={() => setTab('money')}>
+            <div style={styles.fieldLabel}>Your customers</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+              <div>
+                <div style={styles.itemSub}>Collected</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#2F7D4F' }}>{currency(dash.money.collected)}</div>
+              </div>
+              <div>
+                <div style={styles.itemSub}>{t('Outstanding')}</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: dash.money.outstanding > 0 ? '#C62828' : '#2F7D4F' }}>{currency(dash.money.outstanding)}</div>
+              </div>
+              <div style={{ alignSelf: 'center', color: BRAND.textMuted }}><ChevronRight size={16} /></div>
+            </div>
+          </button>
+
+          {/* The company, in their pocket. Everything here is
+              something a customer asks for while the partner is
+              standing in front of them. */}
+          <div style={{ ...styles.sectionTitle, marginTop: 18 }}>To show a customer</div>
+          <div style={styles.quickGrid}>
+            <QuickTile icon={<Grid3x3 size={20} color={BRAND.navy} />} label={'Designs (' + Object.values(gallery || {}).reduce((n, a) => n + (a || []).length, 0) + ')'} onClick={() => setTab('gallery')} />
+            <QuickTile icon={<IndianRupee size={20} color={BRAND.navy} />} label='Rate list' onClick={() => setTab('support')} />
+            <QuickTile icon={<FileText size={20} color={BRAND.navy} />} label='Brochures' onClick={() => setTab('support')} />
+            <QuickTile icon={<ShieldCheck size={20} color={BRAND.navy} />} label='Why choose us' onClick={() => setTab('support')} />
+            <QuickTile icon={<User size={20} color={BRAND.navy} />} label='Add a customer' onClick={() => { setTab('jobs'); setShowAddCustomer(true); }} />
+            <QuickTile icon={<Send size={20} color={BRAND.navy} />} label='Send the app' onClick={() => setTab('support')} />
+          </div>
+
+          {/* Activity lost its place in the bottom row when Home and
+              Money took two of the five. It is still worth having -
+              it is the only record of what changed on a job and when -
+              so it lives here, where somebody looking for "what
+              happened" would start anyway. */}
+          <button style={{ ...styles.card, width: '100%', textAlign: 'left', marginTop: 14, cursor: 'pointer' }} onClick={() => setTab('notifications')}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Bell size={16} color={BRAND.navy} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 800, fontSize: 14 }}>Recent activity</div>
+                <div style={styles.itemSub}>Everything that changed on your jobs</div>
+              </div>
+              <ChevronRight size={16} color={BRAND.textMuted} />
+            </div>
+          </button>
+
+          {!hasPushToken && (
+            <button style={{ ...styles.addBtn, marginTop: 14 }} onClick={onEnablePush}><Bell size={14} />{t('Turn on notifications for new work')}</button>
+          )}
+        </div>
+      )}
+
       {tab === 'jobs' && (
       <div style={{ padding: '12px 16px' }}>
         <div style={{ ...styles.formCard, background: '#FFF9EE', borderColor: BRAND.gold }}>
@@ -8692,12 +8811,168 @@ function RegionalPartnerApp({ jobs, staffName, staffId, commissionPercent, commi
         </div>
       )}
 
+      {/* ---- Money -------------------------------------------------
+          One row per customer: what the job is worth, what has come
+          in, what is left. Sorted by what is owed, because that is
+          the order the calls get made in. A partner could see their
+          own commission before this and had no way at all to see
+          what their customers still owed - which is the number that
+          decides whether there is any commission coming. ---- */}
+      {tab === 'money' && (
+        <div style={{ padding: '12px 16px' }}>
+          <div style={styles.sectionTitle}>Your customers and their payments</div>
+          <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>
+            What each job is worth, what has been collected, and what is still due.
+            Tap a name to open the job.
+          </div>
+
+          <div style={{ ...styles.formCard, background: '#F4F7FB' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <div>
+                <div style={styles.itemSub}>Work worth</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: BRAND.navy }}>{currency(dash.money.worth)}</div>
+              </div>
+              <div>
+                <div style={styles.itemSub}>Collected</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#2F7D4F' }}>{currency(dash.money.collected)}</div>
+              </div>
+              <div>
+                <div style={styles.itemSub}>{t('Outstanding')}</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: dash.money.outstanding > 0 ? '#C62828' : '#2F7D4F' }}>{currency(dash.money.outstanding)}</div>
+              </div>
+            </div>
+          </div>
+
+          {dash.payments.length === 0 && <div style={styles.emptySmall}>No jobs assigned to you yet.</div>}
+          {dash.payments.map((r) => (
+            <div key={r.id} style={{ ...styles.card, marginTop: 10, padding: 14 }}>
+              <button
+                style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                onClick={() => setActiveJobId(r.id)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ ...styles.cardName, flex: 1 }}>{r.name}</div>
+                  <StageBadge status={r.status} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+                  <div><div style={styles.itemSub}>Total</div><div style={{ fontWeight: 700 }}>{currency(r.total)}</div></div>
+                  <div><div style={styles.itemSub}>Paid</div><div style={{ fontWeight: 700, color: '#2F7D4F' }}>{currency(r.paid)}</div></div>
+                  <div><div style={styles.itemSub}>Due</div><div style={{ fontWeight: 800, color: r.due > 0 ? '#C62828' : '#2F7D4F' }}>{currency(r.due)}</div></div>
+                </div>
+                {/* The bar says in one glance what three numbers say
+                    in three reads - and this screen is read standing up. */}
+                <div style={{ height: 6, borderRadius: 999, background: BRAND.line, marginTop: 10, overflow: 'hidden' }}>
+                  <div style={{ width: r.pct + '%', height: '100%', background: r.pct >= 100 ? '#2F7D4F' : BRAND.gold }} />
+                </div>
+                <div style={{ ...styles.itemSub, marginTop: 4 }}>{r.pct}% paid</div>
+              </button>
+              {r.due > 0 && r.phone && (
+                <a
+                  href={whatsAppShareUrl(r.phone, tf('Hello {name}, your work is {pct}% done. Payment due: {due}.',
+                    { name: r.name, pct: r.pct, due: currency(r.due) }))}
+                  target='_blank' rel='noopener noreferrer'
+                  style={{ ...styles.cardActionBtn, background: '#25D366', color: '#FFF', marginTop: 10, display: 'inline-flex' }}
+                ><Send size={12} /> Send a payment reminder</a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ---- What to put in front of a customer ---------------------
+          The "company behind them" part, literally: the rate card so
+          they can quote, the brochures and material specs so they can
+          answer what it is made of, the reasons to choose this firm,
+          and the app link to send. All of it is the admin's own
+          content - the partner cannot edit any of it, which is the
+          point: it is the company speaking, not them. ---- */}
+      {tab === 'support' && (
+        <div style={{ padding: '12px 16px' }}>
+          <div style={styles.sectionTitle}>To show a customer</div>
+          <div style={{ ...styles.plainTextMuted, marginBottom: 10 }}>
+            Everything here comes from the company and is the same on every partner's phone.
+          </div>
+
+          <div style={{ ...styles.card, marginTop: 10 }}>
+            <div style={styles.fieldLabel}>Rate list</div>
+            {(estimateRates || []).length === 0 && <div style={styles.emptySmall}>No rates set yet - ask the admin.</div>}
+            {(estimateRates || []).map((r) => (
+              <div key={r.id || r.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid ' + BRAND.line }}>
+                <span style={{ fontWeight: 700 }}>{r.name}</span>
+                <span style={{ color: BRAND.navy, fontWeight: 800 }}>{currency(r.rate)}{r.unit === 'piece' ? ' / piece' : ' / sq ft'}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ ...styles.card, marginTop: 10 }}>
+            <div style={styles.fieldLabel}>What the material is</div>
+            {(materialSpecs || []).length === 0 && <div style={styles.emptySmall}>Nothing added yet.</div>}
+            {(materialSpecs || []).map((m) => (
+              <div key={m.id} style={{ padding: '7px 0', borderBottom: '1px solid ' + BRAND.line }}>
+                <div style={{ fontWeight: 700 }}>{m.title}</div>
+                <div style={styles.itemSub}>{m.detail}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ ...styles.card, marginTop: 10 }}>
+            <div style={styles.fieldLabel}>Why choose us</div>
+            {(companyBenefits || []).length === 0 && <div style={styles.emptySmall}>Nothing added yet.</div>}
+            {(companyBenefits || []).map((b) => (
+              <div key={b.id} style={{ padding: '7px 0', borderBottom: '1px solid ' + BRAND.line }}>
+                <div style={{ fontWeight: 700 }}>{b.title}</div>
+                <div style={styles.itemSub}>{b.detail}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ ...styles.card, marginTop: 10 }}>
+            <div style={styles.fieldLabel}>Common questions</div>
+            {(faqs || []).length === 0 && <div style={styles.emptySmall}>Nothing added yet.</div>}
+            {(faqs || []).slice(0, 12).map((f) => (
+              <div key={f.id} style={{ padding: '7px 0', borderBottom: '1px solid ' + BRAND.line }}>
+                <div style={{ fontWeight: 700 }}>{f.q}</div>
+                <div style={styles.itemSub}>{f.a}</div>
+              </div>
+            ))}
+          </div>
+
+          {(brochures || []).length > 0 && (
+            <div style={{ ...styles.card, marginTop: 10 }}>
+              <div style={styles.fieldLabel}>Brochures</div>
+              <BrochureList brochures={brochures} showToast={showToast} />
+            </div>
+          )}
+
+          <div style={{ ...styles.card, marginTop: 10 }}>
+            <div style={styles.fieldLabel}>Send the app to someone new</div>
+            <div style={{ ...styles.plainTextMuted, marginBottom: 8 }}>
+              Opens WhatsApp with the message already written, and the same banner every
+              other message from the company carries.
+            </div>
+            <div style={{ whiteSpace: 'pre-wrap', background: '#F4F7FB', padding: 10, borderRadius: 8, fontSize: 13 }}>
+              {waInviteText('designs')}
+            </div>
+            <button
+              style={{ ...styles.addBtn, marginTop: 8 }}
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(waInviteText('designs'));
+                  showToast('Message copied');
+                } catch (e) { showToast('Could not copy - please write it out by hand', true); }
+              }}
+            ><Send size={14} /> Copy the message</button>
+          </div>
+        </div>
+      )}
+
       <BottomNav
         tab={tab} setTab={setTab}
         items={[
+          { key: 'home', label: 'Home', icon: <Home size={18} /> },
           { key: 'jobs', label: 'Jobs', icon: <Hammer size={18} /> },
-          { key: 'gallery', label: 'Gallery', icon: <Grid3x3 size={18} /> },
-          { key: 'notifications', label: 'Activity', icon: <Bell size={18} /> },
+          { key: 'money', label: 'Money', icon: <IndianRupee size={18} /> },
+          { key: 'gallery', label: 'Designs', icon: <Grid3x3 size={18} /> },
           { key: 'profile', label: 'Profile', icon: <User size={18} /> },
         ]}
       />

@@ -266,6 +266,33 @@ t('nothing waits on an effect that reloads on every render', () => {
   assert.deepEqual(bad, []);
 });
 
+t('every shared helper a screen calls is imported into it', () => {
+  // The gap the other checks left. They cover setters, hooks and JSX
+  // components - a plain function call to something never imported
+  // slips straight through, and that is how partnerDashboard reached
+  // a screen in this very change: used once, imported nowhere, a
+  // ReferenceError the moment a regional partner opened their home.
+  //
+  // jobCore holds the shared logic and both screens pull from it -
+  // App.jsx directly, AdminApp.jsx through App.jsx, which re-exports.
+  // Either route counts; no route at all does not.
+  const core = readFileSync(new URL('../src/jobCore.js', import.meta.url), 'utf8');
+  const exported = [...core.matchAll(/^export (?:function|const) ([A-Za-z_$][\w$]*)/gm)].map((m) => m[1]);
+  assert.ok(exported.length > 40, 'only ' + exported.length + ' exports found - has jobCore moved?');
+
+  const bad = [];
+  for (const file of ['App.jsx', 'AdminApp.jsx']) {
+    const src = readFileSync(new URL('../src/' + file, import.meta.url), 'utf8');
+    const visible = moduleNames(src, topLevelFunctions(src));
+    for (const name of exported) {
+      // Called as a bare function somewhere in this file?
+      if (!new RegExp('(?:^|[^.\\w$])' + name + '\\s*\\(').test(withoutComments(src))) continue;
+      if (!visible.has(name)) bad.push(file + ' calls ' + name + ', which it never imports');
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
 t('the two tiles that broke are wired through props now', () => {
   // Pinned by behaviour rather than by the general check above, because
   // this is the specific thing a customer-facing screen lost.
